@@ -1,0 +1,26 @@
+# Node modules
+node_modules/
+
+# Build outputs
+dist/
+build/
+
+# Environment files (ignored)
+.env
+.env.*
+**/.env
+**/.env.*
+
+# Keep example env files in repo
+!**/.env.example
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+
+# OS files
+.DS_Store
+
+# Editor directories
+.vscode/
+.idea/
