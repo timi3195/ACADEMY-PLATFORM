@@ -1,0 +1,115 @@
+const express = require("express");
+const router = express.Router();
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
+const File = require("../models/File");
+const protect = require("../config/middleware/authMiddleware");
+const adminOnly = require("../config/middleware/adminOnly");
+
+console.log("🔥 FILE ROUTES LOADED");
+
+const uploadDir = path.join(__dirname, "../uploads");
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+// Storage config
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadDir);
+  },
+
+  filename: function (req, file, cb) {
+    cb(null, `${Date.now()}-${file.originalname}`);
+  }
+});
+
+const upload = multer({ storage });
+
+// Upload file
+router.post("/upload", protect, adminOnly, upload.single("file"), async (req, res) => {
+  try {
+    const isPremium = req.body.isPremium === 'true' || req.body.isPremium === 'on' || req.body.isPremium === true;
+
+    const newFile = await File.create({
+      title: req.body.title,
+      course: req.body.course,
+      isPremium,
+      fileUrl: `/uploads/${req.file.filename}`
+    });
+
+    res.json({
+      success: true,
+      file: newFile
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
+});
+
+// Get files handler
+const getFilesHandler = async (req, res) => {
+  try {
+    const files = await File.find().populate("course");
+
+    res.json({
+      success: true,
+      files
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
+};
+
+// Get files for a specific course and indicate access per-file for the current user
+router.get('/course/:courseId', protect, async (req, res) => {
+  try {
+    const courseId = req.params.courseId
+    const files = await File.find({ course: courseId }).populate('course')
+
+    const User = require('../models/User')
+    const user = req.user && req.user.id ? await User.findById(req.user.id) : null
+    const now = new Date()
+
+    const processed = files.map(f => {
+      let accessible = true
+      if (f.isPremium) {
+        if (user && user.role === 'admin') {
+          accessible = true
+        } else {
+          const isPremium = user && ((user.plan && user.plan === 'premium') || (user.subscriptionType && user.subscriptionType === 'premium'))
+          const notExpired = !user || !user.subscriptionExpiresAt ? true : (new Date(user.subscriptionExpiresAt) > now)
+          accessible = !!(isPremium && notExpired)
+        }
+      }
+      return {
+        _id: f._id,
+        title: f.title,
+        fileUrl: f.fileUrl,
+        isPremium: f.isPremium,
+        accessible,
+        createdAt: f.createdAt
+      }
+    })
+
+    res.json({ success: true, files: processed })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message })
+  }
+})
+
+// Protected route - get files (requires authentication for premium content)
+router.get("/", protect, getFilesHandler);
+router.get("", protect, getFilesHandler);
+
+module.exports = {
+  router,
+  getFilesHandler
+};

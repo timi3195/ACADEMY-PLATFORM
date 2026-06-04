@@ -1,0 +1,4 @@
+◇ injected env (2) from server\.env // tip: ⌘ enable debugging { debug: true }
+AUTH ROUTE LOADED
+Server running on port 5000
+MongoDB Connected Successfully
