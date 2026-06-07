@@ -128,8 +128,68 @@ app.use("/api/departments", departmentRoutes);
 
 // Connect MongoDB
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log("MongoDB Connected Successfully"))
-  .catch((err) => console.log("MongoDB Error:", err));
+  .then(() => {
+    console.log("✅ MongoDB Connected Successfully")
+    // Auto-seed departments if empty
+    autoSeedDepartments()
+  })
+  .catch((err) => console.log("❌ MongoDB Error:", err));
+
+/**
+ * Auto-seed departments if database is empty
+ */
+async function autoSeedDepartments() {
+  try {
+    const Department = require("./models/Department");
+    const School = require("./models/School");
+    
+    const departmentCount = await Department.countDocuments();
+    
+    if (departmentCount > 0) {
+      console.log(`📚 Database already has ${departmentCount} departments`);
+      return;
+    }
+    
+    console.log('🌱 Seeding departments...');
+    
+    // Create or get default school
+    let school = await School.findOne({ code: 'DEFAULT' });
+    if (!school) {
+      school = await School.create({
+        name: 'Default Polytechnic',
+        code: 'DEFAULT',
+        description: 'Default school for departments'
+      });
+      console.log('✅ Created default school');
+    }
+
+    // Sample departments
+    const departments = [
+      { name: 'Computer Science', code: 'CSC', description: 'Computer Science and Technology' },
+      { name: 'Civil Engineering', code: 'CVE', description: 'Civil Engineering' },
+      { name: 'Electrical Engineering', code: 'ELE', description: 'Electrical Engineering' },
+      { name: 'Mechanical Engineering', code: 'MEC', description: 'Mechanical Engineering' },
+      { name: 'Business Administration', code: 'BUA', description: 'Business Administration' },
+      { name: 'Accounting', code: 'ACC', description: 'Accounting' },
+      { name: 'Public Administration', code: 'PAD', description: 'Public Administration' },
+      { name: 'Mass Communication', code: 'MAS', description: 'Mass Communication' }
+    ];
+
+    const createdDepartments = await Department.insertMany(
+      departments.map(dept => ({
+        ...dept,
+        school: school._id
+      }))
+    );
+
+    console.log(`✅ Seeded ${createdDepartments.length} departments:`);
+    createdDepartments.forEach(dept => {
+      console.log(`   - ${dept.name} (${dept.code})`);
+    });
+  } catch (error) {
+    console.warn('⚠️ Auto-seed error (non-blocking):', error.message);
+  }
+}
 
 app.get("/", (req, res) => {
   res.json({
