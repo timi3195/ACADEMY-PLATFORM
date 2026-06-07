@@ -136,16 +136,22 @@ const sendPasswordResetEmail = async (email, token, userName) => {
   };
 
   try {
+    console.log(`📧 Sending password reset email to ${email}...`);
     const info = await transporter.sendMail(mailOptions);
-    console.log("✉️ Password reset email sent:", info.messageId);
+    console.log("✅ Password reset email sent:", info.messageId);
     
     if (process.env.NODE_ENV !== "production") {
-      console.log("Preview URL:", nodemailer.getTestMessageUrl(info));
+      console.log("📋 Preview URL:", nodemailer.getTestMessageUrl(info));
     }
 
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error("❌ Failed to send password reset email:", error);
+    console.error("❌ Failed to send password reset email:", error.message);
+    console.error("SMTP Config:", {
+      host: process.env.SMTP_HOST,
+      port: process.env.SMTP_PORT,
+      user: process.env.SMTP_USER ? process.env.SMTP_USER.substring(0, 3) + "***" : "NOT SET"
+    });
     return { success: false, error: error.message };
   }
 };

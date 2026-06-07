@@ -756,4 +756,52 @@ router.get("/status", (req, res) => {
   });
 });
 
+/**
+ * POST /api/auth/test-email
+ * Test email sending (Admin/Debug only)
+ */
+router.post("/test-email", protect, async (req, res) => {
+  try {
+    // Only allow admins or in development
+    if (req.user.role !== 'admin' && process.env.NODE_ENV !== 'development') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only admins can test email'
+      });
+    }
+
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is required'
+      });
+    }
+
+    // Send test email
+    const result = await sendPasswordResetEmail(email, 'TEST-TOKEN-12345', 'Test User');
+    
+    return res.json({
+      success: result.success,
+      message: result.success ? 'Test email sent successfully' : 'Failed to send test email',
+      details: {
+        messageId: result.messageId,
+        skipped: result.skipped,
+        error: result.error
+      },
+      config: {
+        smtpConfigured: !!(process.env.SMTP_HOST && process.env.SMTP_USER),
+        nodeEnv: process.env.NODE_ENV,
+        emailSkipped: process.env.SKIP_EMAIL_IN_DEV === 'true'
+      }
+    });
+  } catch (error) {
+    console.error('Test email error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error sending test email: ' + error.message
+    });
+  }
+});
+
 module.exports = router;
