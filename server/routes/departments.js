@@ -6,16 +6,20 @@ console.log("DEPARTMENT ROUTES LOADED")
 
 router.get("/", async (req, res) => {
   try {
+    console.log('📚 Fetching departments...');
     const departments = await Department.find()
       .select("_id name code description")
       .populate("school", "name")
       .sort({ name: 1 });
     
+    console.log(`✅ Found ${departments.length} departments`);
+    
     if (!departments || departments.length === 0) {
+      console.warn('⚠️ No departments found in database');
       return res.json({
         success: true,
         departments: [],
-        message: 'No departments found. Please create departments in admin panel first.'
+        message: 'No departments found. Please run: node server/seed_departments.js'
       });
     }
     
@@ -25,10 +29,11 @@ router.get("/", async (req, res) => {
       count: departments.length
     })
   } catch (err) {
-    console.error("Departments fetch error:", err)
+    console.error("❌ Departments fetch error:", err)
     res.status(500).json({
       success: false,
-      message: err.message
+      message: err.message,
+      error: process.env.NODE_ENV === 'development' ? err : undefined
     })
   }
 })
