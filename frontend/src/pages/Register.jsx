@@ -27,11 +27,21 @@ const Register = () => {
   const fetchDepartments = async () => {
     try {
       setDepartmentsLoading(true)
+      setDepartmentsError('')
       const res = await apiGet('/api/departments')
-      setDepartments(res.departments || [])
+      console.log('Departments response:', res)
+      
+      if (res.success && res.departments) {
+        setDepartments(res.departments)
+        if (res.departments.length === 0) {
+          setDepartmentsError('No departments available. Please contact the administrator.')
+        }
+      } else {
+        setDepartmentsError(res.message || 'Unable to load departments')
+      }
     } catch (error) {
       console.error('Departments load failed:', error)
-      setDepartmentsError('Unable to load departments. Please refresh the page.')
+      setDepartmentsError('Unable to load departments. Please check your connection and refresh.')
     } finally {
       setDepartmentsLoading(false)
     }
@@ -182,9 +192,13 @@ const Register = () => {
                     errors.department ? 'border-red-500 focus:border-red-500 focus:ring-red-200' : 'border-gray-200 focus:border-blue-500 focus:ring-blue-200'
                   }`}
                 >
-                  <option value="">Select department</option>
+                  <option value="">
+                    {departmentsLoading ? 'Loading departments...' : 'Select department'}
+                  </option>
                   {departments.map(dept => (
-                    <option key={dept._id} value={dept._id}>{dept.name}</option>
+                    <option key={dept._id} value={dept._id}>
+                      {dept.name} {dept.code ? `(${dept.code})` : ''}
+                    </option>
                   ))}
                 </select>
                 {errors.department && <p className="text-red-600 text-sm mt-1 font-medium">⚠️ {errors.department}</p>}
