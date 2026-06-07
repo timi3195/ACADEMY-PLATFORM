@@ -28,20 +28,45 @@ const Register = () => {
     try {
       setDepartmentsLoading(true)
       setDepartmentsError('')
+      console.log('📚 Fetching departments from:', import.meta.env.VITE_API_BASE || 'http://localhost:5000')
+      
       const res = await apiGet('/api/departments')
-      console.log('Departments response:', res)
+      console.log('✅ Departments response:', res)
       
       if (res.success && res.departments) {
-        setDepartments(res.departments)
-        if (res.departments.length === 0) {
-          setDepartmentsError('No departments available. Please contact the administrator.')
+        if (Array.isArray(res.departments)) {
+          setDepartments(res.departments)
+          if (res.departments.length === 0) {
+            setDepartmentsError('No departments available. Please contact the administrator to set up departments.')
+          }
+        } else {
+          throw new Error('Departments response is not an array')
         }
       } else {
-        setDepartmentsError(res.message || 'Unable to load departments')
+        const errorMsg = res.message || 'Failed to fetch departments'
+        console.error('❌ Error in response:', errorMsg)
+        setDepartmentsError(errorMsg)
       }
     } catch (error) {
-      console.error('Departments load failed:', error)
-      setDepartmentsError('Unable to load departments. Please check your connection and refresh.')
+      console.error('❌ Departments fetch error:', error)
+      console.error('Error details:', {
+        message: error.message,
+        status: error.status,
+        body: error.body
+      })
+      
+      let errorMessage = 'Unable to load departments. '
+      if (error.status === 0) {
+        errorMessage += 'Network error - check if backend is running.'
+      } else if (error.status === 404) {
+        errorMessage += 'Departments endpoint not found.'
+      } else if (error.status === 500) {
+        errorMessage += 'Server error - check backend logs.'
+      } else {
+        errorMessage += 'Please check your connection and refresh.'
+      }
+      
+      setDepartmentsError(errorMessage)
     } finally {
       setDepartmentsLoading(false)
     }

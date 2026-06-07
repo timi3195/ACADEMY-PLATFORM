@@ -28,7 +28,16 @@ async function request(path, options = {}) {
     credentials: 'include' // This is crucial for HTTP-only cookies
   }
 
-  let res = await fetch(API_BASE + path, fetchOptions)
+  let res
+  try {
+    res = await fetch(API_BASE + path, fetchOptions)
+  } catch (fetchErr) {
+    console.error(`Network error fetching ${API_BASE}${path}:`, fetchErr)
+    const err = new Error(`Network error: ${fetchErr.message}`)
+    err.status = 0
+    err.network = true
+    throw err
+  }
 
   // If 401 Unauthorized, try to refresh the token
   if (res.status === 401 && path !== '/api/auth/refresh') {
