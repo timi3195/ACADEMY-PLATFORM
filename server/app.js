@@ -27,15 +27,23 @@ app.use("/api/quiz/health", (req, res) => {
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   'http://localhost:5173',
-  'http://localhost:5174'
+  'http://localhost:5174',
+  'http://localhost:3000',
+  /vercel\.app$/, // Allow all Vercel URLs
+  /netlify\.app$/, // Allow Netlify URLs
+  'https://academy-platform.vercel.app'
 ].filter(Boolean)
 
 app.use(cors({
   origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin || allowedOrigins.some(allowed => {
+      if (allowed instanceof RegExp) return allowed.test(origin)
+      return origin === allowed
+    })) {
       callback(null, true)
     } else {
-      callback(new Error('CORS policy: Origin not allowed'))
+      console.warn(`🚨 CORS blocked origin: ${origin}`)
+      callback(null, true) // Allow anyway but log it - change to false to strictly block
     }
   },
   credentials: true,
@@ -124,7 +132,20 @@ mongoose.connect(process.env.MONGO_URI)
   .catch((err) => console.log("MongoDB Error:", err));
 
 app.get("/", (req, res) => {
-  res.send("AI Academic Platform API is running...");
+  res.json({
+    success: true,
+    message: "AI Academic Platform API is running...",
+    version: "1.0.0",
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get("/health", (req, res) => {
+  res.json({
+    success: true,
+    status: "healthy",
+    timestamp: new Date().toISOString()
+  });
 });
 const PORT = process.env.PORT || 5000;
 

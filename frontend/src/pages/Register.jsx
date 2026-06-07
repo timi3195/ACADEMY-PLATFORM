@@ -28,7 +28,21 @@ const Register = () => {
     try {
       setDepartmentsLoading(true)
       setDepartmentsError('')
-      console.log('📚 Fetching departments from:', import.meta.env.VITE_API_BASE || 'http://localhost:5000')
+      
+      const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:5000'
+      console.log('📚 Fetching departments from:', apiBase)
+      
+      // First, test if backend is reachable
+      try {
+        const healthRes = await fetch(`${apiBase}/health`)
+        if (!healthRes.ok) {
+          console.warn('⚠️ Backend health check failed:', healthRes.status)
+        } else {
+          console.log('✅ Backend is reachable')
+        }
+      } catch (healthErr) {
+        console.error('❌ Backend unreachable:', healthErr.message)
+      }
       
       const res = await apiGet('/api/departments')
       console.log('✅ Departments response:', res)
@@ -36,6 +50,7 @@ const Register = () => {
       if (res.success && res.departments) {
         if (Array.isArray(res.departments)) {
           setDepartments(res.departments)
+          console.log(`✅ Loaded ${res.departments.length} departments`)
           if (res.departments.length === 0) {
             setDepartmentsError('No departments available. Please contact the administrator to set up departments.')
           }
@@ -52,16 +67,21 @@ const Register = () => {
       console.error('Error details:', {
         message: error.message,
         status: error.status,
-        body: error.body
+        body: error.body,
+        network: error.network
       })
       
+      const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:5000'
       let errorMessage = 'Unable to load departments. '
-      if (error.status === 0) {
-        errorMessage += 'Network error - check if backend is running.'
+      
+      if (error.network || error.status === 0) {
+        errorMessage = `Cannot connect to backend at ${apiBase}. Backend may be down or unreachable.`
       } else if (error.status === 404) {
         errorMessage += 'Departments endpoint not found.'
       } else if (error.status === 500) {
         errorMessage += 'Server error - check backend logs.'
+      } else if (error.status === 403 || error.message?.includes('CORS')) {
+        errorMessage += 'CORS error - backend needs to allow this origin.'
       } else {
         errorMessage += 'Please check your connection and refresh.'
       }
