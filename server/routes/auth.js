@@ -451,6 +451,11 @@ router.post("/reset-password", async (req, res) => {
     user.password = password;
     user.resetPasswordToken = null;
     user.resetPasswordExpires = null;
+    
+    // Auto-verify email since user proved they have access to it by clicking reset link
+    user.emailVerified = true;
+    user.emailVerificationToken = null;
+    user.emailVerificationExpires = null;
 
     await user.save();
 
