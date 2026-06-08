@@ -122,9 +122,19 @@ router.post("/register", async (req, res) => {
 
     await user.save();
 
-    // Send verification email only in production
+    // Send verification email only in production, but do not block registration response
     if (process.env.NODE_ENV !== "development") {
-      await sendVerificationEmail(user.email, user.emailVerificationToken, user.name);
+      sendVerificationEmail(user.email, user.emailVerificationToken, user.name)
+        .then((result) => {
+          if (!result.success) {
+            console.error("Verification email dispatch failed:", result.error);
+          } else {
+            console.log("Verification email dispatched:", result.messageId);
+          }
+        })
+        .catch((error) => {
+          console.error("Verification email dispatch error:", error);
+        });
     }
 
     return res.status(201).json({
@@ -368,12 +378,22 @@ router.post("/forgot-password", async (req, res) => {
     const resetToken = user.generatePasswordResetToken();
     await user.save();
 
-    // Send email
-    await sendPasswordResetEmail(user.email, resetToken, user.name);
+    // Send email in the background so the API response is not blocked by email latency
+    sendPasswordResetEmail(user.email, resetToken, user.name)
+      .then((result) => {
+        if (!result.success) {
+          console.error("Password reset email dispatch failed:", result.error);
+        } else {
+          console.log("Password reset email dispatched:", result.messageId);
+        }
+      })
+      .catch((error) => {
+        console.error("Password reset email dispatch error:", error);
+      });
 
     return res.json({
       success: true,
-      message: "Password reset link sent to your email"
+      message: "If an account with this email exists, a password reset link has been sent."
     });
 
   } catch (error) {
