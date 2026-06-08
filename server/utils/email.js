@@ -1,33 +1,25 @@
+const sgMail = require("@sendgrid/mail");
 const nodemailer = require("nodemailer");
 
 /**
  * Configure email transporter
- * Uses SendGrid SMTP relay when SENDGRID_API_KEY is present.
+ * Uses SendGrid Web API when SENDGRID_API_KEY is present (preferred - uses HTTPS).
  * Uses standard SMTP when SMTP_HOST is set.
  * Uses ethereal for local development otherwise.
  */
 let transporter;
+let usesSendGridAPI = false;
 
 const initializeMailer = async () => {
   if (process.env.SENDGRID_API_KEY) {
-    transporter = nodemailer.createTransport({
-      host: "smtp.sendgrid.net",
-      port: 587,
-      secure: false,
-      auth: {
-        user: "apikey",
-        pass: process.env.SENDGRID_API_KEY
-      },
-      connectionTimeout: 10000,
-      greetingTimeout: 10000,
-      socketTimeout: 10000
-    });
-    console.log("📧 Email transporter initialized using SendGrid SMTP relay");
+    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+    usesSendGridAPI = true;
+    console.log("📧 Email transporter initialized using SendGrid Web API (HTTPS)");
   } else if (process.env.SMTP_HOST) {
     transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: process.env.SMTP_PORT || 587,
-      secure: process.env.SMTP_SECURE === "true", // true for 465, false for other ports
+      secure: process.env.SMTP_SECURE === "true",
       auth: {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS
@@ -54,13 +46,6 @@ const initializeMailer = async () => {
     console.log("📧 Email transporter initialized using Ethereal test account");
   }
 
-  try {
-    await transporter.verify();
-    console.log("📧 Email transporter verified successfully");
-  } catch (verifyError) {
-    console.error("❌ Email transporter verification failed:", verifyError.message || verifyError);
-  }
-
   return transporter;
 };
 
@@ -74,14 +59,11 @@ const sendVerificationEmail = async (email, token, userName) => {
     return { success: true, messageId: "dev-mode", skipped: true };
   }
 
-  if (!transporter) {
-    await initializeMailer();
-  }
-
   const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${token}`;
+  const fromEmail = process.env.EMAIL_FROM || "noreply@academyplatform.com";
 
   const mailOptions = {
-    from: process.env.EMAIL_FROM || "noreply@academyplatform.com",
+    from: fromEmail,
     to: email,
     subject: "Verify Your Email - Academy Platform",
     html: `
@@ -106,18 +88,28 @@ const sendVerificationEmail = async (email, token, userName) => {
   };
 
   try {
-    const info = await transporter.sendMail(mailOptions);
-    console.log("✉️ Verification email sent:", info.messageId);
-    
-    // For testing, log ethereal preview URL
-    if (process.env.NODE_ENV !== "production") {
-      console.log("Preview URL:", nodemailer.getTestMessageUrl(info));
-    }
+    if (usesSendGridAPI) {
+      console.log(`📧 Sending verification email via SendGrid API to ${email}...`);
+      const result = await sgMail.send(mailOptions);
+      console.log("✅ Verification email sent via SendGrid:", result[0].statusCode);
+      return { success: true, messageId: result[0].headers["x-message-id"] || "sent" };
+    } else {
+      if (!transporter) {
+        await initializeMailer();
+      }
+      console.log(`📧 Sending verification email via SMTP to ${email}...`);
+      const info = await transporter.sendMail(mailOptions);
+      console.log("✉️ Verification email sent:", info.messageId);
+      
+      if (process.env.NODE_ENV !== "production") {
+        console.log("Preview URL:", nodemailer.getTestMessageUrl(info));
+      }
 
-    return { success: true, messageId: info.messageId };
+      return { success: true, messageId: info.messageId };
+    }
   } catch (error) {
-    console.error("❌ Failed to send verification email:", error);
-    return { success: false, error: error.message };
+    console.error("❌ Failed to send verification email:", error.message || error);
+    return { success: false, error: error.message || error };
   }
 };
 
@@ -131,14 +123,11 @@ const sendPasswordResetEmail = async (email, token, userName) => {
     return { success: true, messageId: "dev-mode", skipped: true };
   }
 
-  if (!transporter) {
-    await initializeMailer();
-  }
-
   const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${token}`;
+  const fromEmail = process.env.EMAIL_FROM || "noreply@academyplatform.com";
 
   const mailOptions = {
-    from: process.env.EMAIL_FROM || "noreply@academyplatform.com",
+    from: fromEmail,
     to: email,
     subject: "Password Reset Request - Academy Platform",
     html: `
@@ -164,23 +153,28 @@ const sendPasswordResetEmail = async (email, token, userName) => {
   };
 
   try {
-    console.log(`📧 Sending password reset email to ${email}...`);
-    const info = await transporter.sendMail(mailOptions);
-    console.log("✅ Password reset email sent:", info.messageId);
-    
-    if (process.env.NODE_ENV !== "production") {
-      console.log("📋 Preview URL:", nodemailer.getTestMessageUrl(info));
-    }
+    if (usesSendGridAPI) {
+      console.log(`📧 Sending password reset email via SendGrid API to ${email}...`);
+      const result = await sgMail.send(mailOptions);
+      console.log("✅ Password reset email sent via SendGrid:", result[0].statusCode);
+      return { success: true, messageId: result[0].headers["x-message-id"] || "sent" };
+    } else {
+      if (!transporter) {
+        await initializeMailer();
+      }
+      console.log(`📧 Sending password reset email via SMTP to ${email}...`);
+      const info = await transporter.sendMail(mailOptions);
+      console.log("✅ Password reset email sent:", info.messageId);
+      
+      if (process.env.NODE_ENV !== "production") {
+        console.log("📋 Preview URL:", nodemailer.getTestMessageUrl(info));
+      }
 
-    return { success: true, messageId: info.messageId };
+      return { success: true, messageId: info.messageId };
+    }
   } catch (error) {
-    console.error("❌ Failed to send password reset email:", error.message);
-    console.error("SMTP Config:", {
-      host: process.env.SMTP_HOST,
-      port: process.env.SMTP_PORT,
-      user: process.env.SMTP_USER ? process.env.SMTP_USER.substring(0, 3) + "***" : "NOT SET"
-    });
-    return { success: false, error: error.message };
+    console.error("❌ Failed to send password reset email:", error.message || error);
+    return { success: false, error: error.message || error };
   }
 };
 
@@ -188,12 +182,10 @@ const sendPasswordResetEmail = async (email, token, userName) => {
  * Send subscription confirmation email
  */
 const sendSubscriptionConfirmation = async (email, userName, plan, semester, expiresAt) => {
-  if (!transporter) {
-    await initializeMailer();
-  }
+  const fromEmail = process.env.EMAIL_FROM || "noreply@academyplatform.com";
 
   const mailOptions = {
-    from: process.env.EMAIL_FROM || "noreply@academyplatform.com",
+    from: fromEmail,
     to: email,
     subject: "Subscription Activated - Academy Platform",
     html: `
@@ -222,12 +214,22 @@ const sendSubscriptionConfirmation = async (email, userName, plan, semester, exp
   };
 
   try {
-    const info = await transporter.sendMail(mailOptions);
-    console.log("✉️ Subscription confirmation email sent:", info.messageId);
-    return { success: true, messageId: info.messageId };
+    if (usesSendGridAPI) {
+      console.log(`📧 Sending subscription email via SendGrid API to ${email}...`);
+      const result = await sgMail.send(mailOptions);
+      console.log("✅ Subscription email sent via SendGrid:", result[0].statusCode);
+      return { success: true, messageId: result[0].headers["x-message-id"] || "sent" };
+    } else {
+      if (!transporter) {
+        await initializeMailer();
+      }
+      const info = await transporter.sendMail(mailOptions);
+      console.log("✉️ Subscription confirmation email sent:", info.messageId);
+      return { success: true, messageId: info.messageId };
+    }
   } catch (error) {
-    console.error("❌ Failed to send subscription email:", error);
-    return { success: false, error: error.message };
+    console.error("❌ Failed to send subscription email:", error.message || error);
+    return { success: false, error: error.message || error };
   }
 };
 
