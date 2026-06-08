@@ -59,6 +59,8 @@ const sendVerificationEmail = async (email, token, userName) => {
     return { success: true, messageId: "dev-mode", skipped: true };
   }
 
+  await initializeMailer();
+
   const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${token}`;
   const fromEmail = process.env.EMAIL_FROM || "noreply@academyplatform.com";
 
@@ -123,6 +125,8 @@ const sendPasswordResetEmail = async (email, token, userName) => {
     return { success: true, messageId: "dev-mode", skipped: true };
   }
 
+  await initializeMailer();
+
   const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${token}`;
   const fromEmail = process.env.EMAIL_FROM || "noreply@academyplatform.com";
 
@@ -159,9 +163,6 @@ const sendPasswordResetEmail = async (email, token, userName) => {
       console.log("✅ Password reset email sent via SendGrid:", result[0].statusCode);
       return { success: true, messageId: result[0].headers["x-message-id"] || "sent" };
     } else {
-      if (!transporter) {
-        await initializeMailer();
-      }
       console.log(`📧 Sending password reset email via SMTP to ${email}...`);
       const info = await transporter.sendMail(mailOptions);
       console.log("✅ Password reset email sent:", info.messageId);
@@ -182,6 +183,8 @@ const sendPasswordResetEmail = async (email, token, userName) => {
  * Send subscription confirmation email
  */
 const sendSubscriptionConfirmation = async (email, userName, plan, semester, expiresAt) => {
+  await initializeMailer();
+
   const fromEmail = process.env.EMAIL_FROM || "noreply@academyplatform.com";
 
   const mailOptions = {
@@ -210,7 +213,7 @@ const sendSubscriptionConfirmation = async (email, userName, plan, semester, exp
         
         <p>Happy learning!</p>
       </div>
-    `
+    ` 
   };
 
   try {
@@ -220,9 +223,6 @@ const sendSubscriptionConfirmation = async (email, userName, plan, semester, exp
       console.log("✅ Subscription email sent via SendGrid:", result[0].statusCode);
       return { success: true, messageId: result[0].headers["x-message-id"] || "sent" };
     } else {
-      if (!transporter) {
-        await initializeMailer();
-      }
       const info = await transporter.sendMail(mailOptions);
       console.log("✉️ Subscription confirmation email sent:", info.messageId);
       return { success: true, messageId: info.messageId };
@@ -237,9 +237,7 @@ const sendSubscriptionConfirmation = async (email, userName, plan, semester, exp
  * Send quiz result email
  */
 const sendQuizResultEmail = async (email, userName, score, total, topic) => {
-  if (!transporter) {
-    await initializeMailer();
-  }
+  await initializeMailer();
 
   const percentage = Math.round((score / total) * 100);
 
