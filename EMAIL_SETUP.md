@@ -1,70 +1,65 @@
 # EMAIL SETUP GUIDE FOR ACADEMY PLATFORM
 
 ## Problem
-Forgot password and verification emails are not being sent.
+Forgot password and verification emails were not being sent from production.
 
-## Root Causes
-1. **Development Mode**: Emails are skipped (`SKIP_EMAIL_IN_DEV=true` in .env)
-2. **No SMTP Credentials**: Gmail credentials not configured
+## Solution: Use SendGrid SMTP Relay
+Render blocks direct Gmail SMTP connections on many plans, so SendGrid is the recommended provider.
 
-## Solution: Setup Gmail for Email Sending
+## Step 1: Create a SendGrid API Key
+1. Go to https://sendgrid.com and sign up for a free account.
+2. Verify your email.
+3. Go to **Settings** → **API Keys**.
+4. Click **Create API Key**.
+5. Choose **Full Access** or at least **Mail Send** permissions.
+6. Copy the generated API key.
 
-### Step 1: Enable 2-Factor Authentication on Gmail
-1. Go to https://myaccount.google.com
-2. Click "Security" in left sidebar
-3. Enable "2-Step Verification"
-
-### Step 2: Create App Password
-1. Go to https://myaccount.google.com/apppasswords
-2. Select "Mail" and "Windows Computer" (or your device)
-3. Google will generate a 16-character password
-4. Copy this password (no spaces)
-
-### Step 3: Add to Render Environment Variables
+## Step 2: Add to Render Environment Variables
 Go to your Render Backend Service Dashboard → Environment:
 
 ```
 SKIP_EMAIL_IN_DEV=false
+SENDGRID_API_KEY=your-sendgrid-api-key
+EMAIL_FROM=timilehinadegbite0@gmail.com
+NODE_ENV=production
+```
+
+> If you still want to use Gmail SMTP instead, keep `SKIP_EMAIL_IN_DEV=false` and configure SMTP values as shown below. SendGrid is the preferred option for Render.
+
+## Optional: Gmail SMTP Setup (not recommended on Render)
+```
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_SECURE=false
 SMTP_USER=your-email@gmail.com
-SMTP_PASS=your-16-char-app-password
-EMAIL_FROM=your-email@gmail.com
-NODE_ENV=production
+SMTP_PASS=your-gmail-app-password
 ```
 
-### Step 4: Update Local .env (Optional - for local testing)
-If you want to test locally:
+## Step 3: Restart / Deploy
+Save the environment variables in Render. The backend should auto-redeploy and connect using SendGrid.
 
-```
-SKIP_EMAIL_IN_DEV=false
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=your-email@gmail.com
-SMTP_PASS=your-16-char-app-password
-EMAIL_FROM=your-email@gmail.com
-NODE_ENV=production
-```
-
-### Step 5: Restart Backend
-After updating Render variables, the backend will auto-redeploy.
-
-### Step 6: Test
-Try forgot password again - email should arrive in 1-2 minutes.
+## Step 4: Test
+1. Sign up with a new email.
+2. Request password reset or email verification.
+3. Check your inbox and spam folder.
 
 ## Troubleshooting
+- If email sending still fails, check Render logs for errors.
+- Confirm `SENDGRID_API_KEY` is present and correct.
+- Confirm `EMAIL_FROM` is a valid sender email address.
+- Make sure `SKIP_EMAIL_IN_DEV=false` in production.
 
-### "Gmail App Passwords" not available?
-- Ensure 2-Factor Authentication is enabled
-- Use a personal Gmail account (not work/organization)
+## Local Development
+If you are testing locally, email sending will use Ethereal by default unless you configure SMTP or SendGrid in `.env`.
 
-### Still not receiving emails?
-1. Check spam/promotions folder
-2. Check Render logs for SMTP errors
-3. Verify the email address is correct
-4. Verify App Password is copied correctly (16 characters, no spaces)
+Example local `.env` values for SendGrid:
+```
+SENDGRID_API_KEY=your-sendgrid-api-key
+EMAIL_FROM=your-email@gmail.com
+SKIP_EMAIL_IN_DEV=false
+NODE_ENV=development
+```
 
-### Alternative: Use SendGrid, Mailgun, or other SMTP
-Replace SMTP_HOST/PORT/USER/PASS with your provider's credentials.
+## Notes
+- The code now supports SendGrid via `SENDGRID_API_KEY`.
+- If `SENDGRID_API_KEY` is not set, it falls back to `SMTP_HOST` or Ethereal in development.

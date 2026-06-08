@@ -2,14 +2,25 @@ const nodemailer = require("nodemailer");
 
 /**
  * Configure email transporter
- * Uses Gmail with app-specific password (recommended for production)
- * For development, uses ethereal test emails
+ * Uses SendGrid SMTP relay when SENDGRID_API_KEY is present.
+ * Uses standard SMTP when SMTP_HOST is set.
+ * Uses ethereal for local development otherwise.
  */
 let transporter;
 
 const initializeMailer = async () => {
-  if (process.env.SMTP_HOST) {
-    // Production: Use SMTP server
+  if (process.env.SENDGRID_API_KEY) {
+    transporter = nodemailer.createTransport({
+      host: "smtp.sendgrid.net",
+      port: 587,
+      secure: false,
+      auth: {
+        user: "apikey",
+        pass: process.env.SENDGRID_API_KEY
+      }
+    });
+    console.log("📧 Email transporter initialized using SendGrid SMTP relay");
+  } else if (process.env.SMTP_HOST) {
     transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: process.env.SMTP_PORT || 587,
@@ -19,8 +30,8 @@ const initializeMailer = async () => {
         pass: process.env.SMTP_PASS
       }
     });
+    console.log("📧 Email transporter initialized using SMTP host", process.env.SMTP_HOST);
   } else {
-    // Development: Use ethereal (test email service)
     const testAccount = await nodemailer.createTestAccount();
     transporter = nodemailer.createTransport({
       host: "smtp.ethereal.email",
@@ -31,6 +42,7 @@ const initializeMailer = async () => {
         pass: testAccount.pass
       }
     });
+    console.log("📧 Email transporter initialized using Ethereal test account");
   }
 
   return transporter;
