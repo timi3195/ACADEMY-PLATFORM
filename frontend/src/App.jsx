@@ -5,7 +5,6 @@ import Login from './pages/Login'
 import Register from './pages/Register'
 import Notes from './pages/Notes'
 import PastQuestions from './pages/PastQuestions'
-import CBTQuiz from './pages/CBTQuiz'
 import Courses from './pages/Courses'
 import CourseDetail from './pages/CourseDetail'
 import CourseMaterials from './pages/CourseMaterials'
@@ -74,7 +73,6 @@ export default function App() {
           <Route path="/courses/:courseId/materials" element={<Protected><CourseMaterials /></Protected>} />
           <Route path="/notes" element={<Protected><Notes /></Protected>} />
           <Route path="/past-questions" element={<Protected><PastQuestions /></Protected>} />
-          <Route path="/cbt" element={<Protected><CBTQuiz /></Protected>} />
           <Route path="/ai" element={<Protected><AI /></Protected>} />
           <Route path="/ai-chat" element={<Protected><AIChatPage /></Protected>} />
           <Route path="/analytics" element={<Protected><AnalyticsDashboard /></Protected>} />

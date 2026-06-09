@@ -11,18 +11,9 @@ const questionRoutes = require("./routes/question");
 const protect = require("./config/middleware/authMiddleware");
 const courseRoutes = require("./routes/course");
 const noteRoutes = require("./routes/note");
-const quizSessionRoutes = require("./routes/quizSession");
 const searchRoutes = require("./routes/search");
 
-app.use("/api/quiz/health", (req, res) => {
-  console.log('HEALTH ROUTE HIT');
-  res.json({
-    success: true,
-    service: "quiz",
-    status: "ok",
-    timestamp: new Date().toISOString()
-  });
-});
+
 
 const allowedOrigins = [
   process.env.FRONTEND_URL,
@@ -86,18 +77,7 @@ app.use("/api/questions", questionRoutes);
 console.log("🔍 MOUNTING /api/search");
 app.use("/api/search", searchRoutes);
 
-app.use("/api/quiz/health", (req, res) => {
-  res.json({
-    success: true,
-    service: "quiz",
-    status: "ok",
-    timestamp: new Date().toISOString()
-  });
-});
-console.log("MOUNTED /api/quiz/health");
 
-console.log("MOUNTING /api/quiz");
-app.use("/api/quiz", quizSessionRoutes);
 
 const fileRoutes = require("./routes/file");
 console.log("MOUNTING /api/files");

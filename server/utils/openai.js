@@ -71,8 +71,52 @@ class OpenAIService {
       };
     } catch (error) {
       console.error("OpenAI chat error:", error);
+      
+      // Fallback for quota exceeded (429) - return mock response
+      if (error.status === 429 || error.code === 'insufficient_quota') {
+        console.warn("⚠️ OpenAI quota exceeded - returning mock response");
+        const lastUserMessage = messages[messages.length - 1]?.content || "your question";
+        
+        return {
+          success: true,
+          message: this._generateMockResponse(lastUserMessage, courseContext),
+          tokens: { input: 0, output: 0, total: 0 },
+          cost: 0,
+          isMockData: true,
+          notice: "Demo mode: OpenAI API quota exceeded. Please check your billing at https://platform.openai.com/account/billing/overview"
+        };
+      }
+      
       throw new Error(`AI chat failed: ${error.message}`);
     }
+  }
+
+  /**
+   * Generate mock response when OpenAI is unavailable
+   */
+  _generateMockResponse(userQuestion, courseContext) {
+    const lowerQuestion = userQuestion.toLowerCase();
+    
+    // Sample responses based on common questions
+    const mockResponses = {
+      pointer: "Pointers are variables that store memory addresses. In C, you declare a pointer with the * symbol (e.g., int *ptr). You use the & operator to get an address and * to dereference. Key example:\n\n```c\nint x = 10;\nint *ptr = &x;  // ptr holds address of x\nprintf(\"%d\", *ptr);  // prints 10\n```\n\nPointers are essential for dynamic memory allocation, arrays, and function callbacks. Start by understanding the & (address-of) and * (dereference) operators.",
+      
+      algorithm: "Algorithms are step-by-step procedures to solve problems. Key types include:\n\n1. **Sorting** (Bubble, Quick, Merge)\n2. **Searching** (Linear, Binary)\n3. **Graph Algorithms** (BFS, DFS, Dijkstra)\n4. **Dynamic Programming** (Fibonacci, Knapsack)\n\nWhen choosing an algorithm, consider time complexity (Big O), space complexity, and your use case. For interviews, master sorting and searching first.",
+      
+      array: "Arrays are collections of elements stored in contiguous memory. Characteristics:\n\n- **Fixed size** at declaration\n- **0-indexed** (first element at index 0)\n- **O(1) access** by index\n- **O(n) insertion/deletion**\n\nExample:\n```c\nint arr[5] = {1, 2, 3, 4, 5};\nprintf(\"%d\", arr[0]);  // prints 1\n```\n\nArrays are the foundation for more complex data structures like linked lists, stacks, and queues.",
+      
+      linked: "Linked lists are data structures where nodes contain data and pointers to the next node. Advantages:\n\n- **Dynamic size** (grow/shrink easily)\n- **O(1) insertion/deletion** at known position\n- **O(n) access** (must traverse from head)\n\nStructure:\n```c\nstruct Node {\n    int data;\n    struct Node *next;\n};\n```\n\nLinked lists are perfect when you need frequent insertions/deletions but don't need random access. Compare with arrays which offer O(1) access but O(n) insertion."
+    };
+    
+    // Check for keywords and return appropriate response
+    for (const [keyword, response] of Object.entries(mockResponses)) {
+      if (lowerQuestion.includes(keyword)) {
+        return response;
+      }
+    }
+    
+    // Default response
+    return `I'd be happy to help! Based on your question about "${userQuestion.substring(0, 30)}...", here are some key points:\n\n1. **Understand the fundamentals** - Break down the concept into smaller parts\n2. **Practice with examples** - Write code and test it\n3. **Use visual aids** - Draw diagrams or flowcharts\n4. **Connect to real-world** - See how it applies in practice\n\nCould you be more specific about what aspect you'd like me to explain? For example, are you interested in theory, implementation, or real-world applications?\n\n⚠️ **Note**: This is a demo response. Please configure your OpenAI API key to access the full AI tutor. Visit https://platform.openai.com/account/billing/overview to set up billing.`;
   }
 
   /**
@@ -127,6 +171,27 @@ class OpenAIService {
       }
     } catch (error) {
       console.error("Note enhancement error:", error);
+      
+      // Fallback for quota exceeded
+      if (error.status === 429 || error.code === 'insufficient_quota') {
+        console.warn("⚠️ OpenAI quota exceeded - returning mock note enhancement");
+        return {
+          success: true,
+          enhancements: {
+            summary: `${courseCharacteristics?.name || 'Course'} - Study Notes Enhanced\n\nKey areas covered in your notes have been organized. Please configure your OpenAI API key for full AI-powered enhancements.`,
+            keyPoints: ["Review core concepts", "Practice with examples", "Test your understanding", "Connect to real applications"],
+            mindMap: { main: "Study Topic", subtopics: ["Theory", "Practice", "Application"] },
+            flashcards: [],
+            knowledgeGaps: ["Consider reviewing prerequisites"],
+            examFocus: "Focus on high-level concepts and their applications"
+          },
+          tokens: 0,
+          cost: 0,
+          isMockData: true,
+          notice: "Demo mode: OpenAI API quota exceeded"
+        };
+      }
+      
       throw new Error(`Note enhancement failed: ${error.message}`);
     }
   }
@@ -193,6 +258,26 @@ ${question.explanation ? `Context: ${question.explanation}` : ""}
       }
     } catch (error) {
       console.error("Question explanation error:", error);
+      
+      // Fallback for quota exceeded
+      if (error.status === 429 || error.code === 'insufficient_quota') {
+        console.warn("⚠️ OpenAI quota exceeded - returning mock question explanation");
+        return {
+          success: true,
+          explanation: {
+            explanation: `The correct answer is ${correctAnswer}. ${question.explanation || 'This question tests understanding of the core concepts covered in this topic. Review the lecture notes and practice similar problems to strengthen your understanding.'}`,
+            stepByStepSolution: ["Identify the key concepts", "Analyze each option carefully", "Eliminate incorrect answers", "Verify the correct answer"],
+            alternativeSolutions: [],
+            commonMistakes: ["Misunderstanding the question", "Confusing similar concepts", "Calculation errors"],
+            similarQuestions: []
+          },
+          tokens: 0,
+          cost: 0,
+          isMockData: true,
+          notice: "Demo mode: OpenAI API quota exceeded"
+        };
+      }
+      
       throw new Error(`Question explanation failed: ${error.message}`);
     }
   }

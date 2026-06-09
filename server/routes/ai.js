@@ -64,6 +64,12 @@ router.post("/chat", protect, requirePremium, async (req, res) => {
   try {
     const { courseId, message, conversationId } = req.body;
 
+    // Debug: Check if user is authenticated
+    if (!req.user || !req.user._id) {
+      console.error("❌ Authentication failed - req.user:", req.user);
+      return res.status(401).json({ success: false, message: "Not authenticated" });
+    }
+
     if (!courseId || !message) {
       return res.status(400).json({
         success: false,
@@ -81,6 +87,10 @@ router.post("/chat", protect, requirePremium, async (req, res) => {
     let conversation = null;
     if (conversationId && mongoose.Types.ObjectId.isValid(conversationId)) {
       conversation = await AIConversation.findById(conversationId);
+      // Verify conversation belongs to current user
+      if (conversation && conversation.user && conversation.user.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ success: false, message: "Unauthorized access to conversation" });
+      }
     }
 
     if (!conversation) {
@@ -90,6 +100,10 @@ router.post("/chat", protect, requirePremium, async (req, res) => {
         department: course.department._id,
         messages: []
       });
+    } else if (!conversation.user) {
+      // Ensure user field is set (defensive check)
+      console.warn("⚠️ Conversation missing user field, setting it now");
+      conversation.user = req.user._id;
     }
 
     // Add user message
@@ -141,6 +155,15 @@ router.post("/chat", protect, requirePremium, async (req, res) => {
     if (!conversation.title || conversation.title === "New Chat") {
       conversation.title = message.substring(0, 50) + "...";
     }
+
+    // Debug before save
+    console.log("📝 Saving conversation:", {
+      _id: conversation._id,
+      user: conversation.user,
+      userId: req.user._id,
+      course: conversation.course,
+      messagesCount: conversation.messages.length
+    });
 
     // Save conversation
     await conversation.save();
