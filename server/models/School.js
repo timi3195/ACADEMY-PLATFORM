@@ -18,4 +18,4 @@ const schoolSchema = new mongoose.Schema({
 
 // Note: unique: true on name and code already creates indexes automatically
 
-module.exports = mongoose.model("School", schoolSchema);
+module.exports = mongoose.models.School || mongoose.model("School", schoolSchema);

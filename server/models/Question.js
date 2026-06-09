@@ -130,4 +130,4 @@ questionSchema.path('answer').validate(function(value) {
   return true;
 }, 'Answer must be provided unless this question has sub-questions.');
 
-module.exports = mongoose.model("Question", questionSchema);
+module.exports = mongoose.models.Question || mongoose.model("Question", questionSchema);

@@ -106,6 +106,11 @@ app.use("/api/files", fileRoutes.router);
 const aiRoutes = require("./routes/ai");
 console.log("MOUNTING /api/ai");
 app.use("/api/ai", aiRoutes);
+
+const analyticsRoutes = require("./routes/analytics");
+console.log("MOUNTING /api/analytics");
+app.use("/api/analytics", analyticsRoutes);
+
 app.get("/api/protected", protect, (req, res) => {
   res.json({
     message: "You accessed protected data",

@@ -64,4 +64,4 @@ const quizSessionSchema = new mongoose.Schema({
 
 });
 
-module.exports = mongoose.model("QuizSession", quizSessionSchema);
+module.exports = mongoose.models.QuizSession || mongoose.model("QuizSession", quizSessionSchema);

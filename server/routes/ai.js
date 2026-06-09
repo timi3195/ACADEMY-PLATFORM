@@ -1,247 +1,745 @@
 const express = require("express");
 const mongoose = require("mongoose");
+const multer = require("multer");
+const path = require("path");
 const router = express.Router();
+
+// Middleware
 const protect = require("../config/middleware/authMiddleware");
 const requirePremium = require("../config/middleware/planMiddleware");
+
+// Models
+const AIConversation = require("../models/AIConversation");
+const StudentNote = require("../models/StudentNote");
+const PastQuestionExplanation = require("../models/PastQuestionExplanation");
+const StudentPerformance = require("../models/StudentPerformance");
+const LearningPath = require("../models/LearningPath");
 const Question = require("../models/Question");
-const Course = require("../models/course");
+const Course = require("../models/Course");
+const User = require("../models/User");
 
-console.log("🔥 AI ROUTES LOADED");
+// Services
+const openaiService = require("../utils/openai");
 
-function generateQuiz(topic) {
-  return [
-    {
-      question: `What is ${topic}?`,
-      options: [
-        "A programming language",
-        "A database",
-        `${topic} is a computer science concept`,
-        "An operating system"
-      ],
-      answer: `${topic} is a computer science concept`
-    },
-    {
-      question: `Which of these relates to ${topic}?`,
-      options: [
-        "Networking",
-        topic,
-        "Hardware repair",
-        "Graphic design"
-      ],
-      answer: topic
-    },
-    {
-      question: `Why is ${topic} important?`,
-      options: [
-        "It improves cooking",
-        "It is irrelevant",
-        "It helps solve computing problems",
-        "It is only for gaming"
-      ],
-      answer: "It helps solve computing problems"
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, path.join(__dirname, "../uploads"));
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, file.fieldname + "-" + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowedMimes = [
+      "application/pdf",
+      "image/jpeg",
+      "image/png",
+      "text/plain"
+    ];
+    if (allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Invalid file type. Only PDF, images, and text files allowed."));
     }
-  ];
-}
+  }
+});
 
-const generateQuizHandler = async (req, res) => {
+console.log("🚀 ACADEMIC SUCCESS SUITE - AI ROUTES LOADED");
+
+// ============================================================================
+// 1. AI STUDY ASSISTANT - CHAT ENDPOINTS
+// ============================================================================
+
+/**
+ * POST /api/ai/chat
+ * Send message to AI Study Assistant
+ */
+router.post("/chat", protect, requirePremium, async (req, res) => {
   try {
-    const { topic, courseId } = req.body;
+    const { courseId, message, conversationId } = req.body;
 
-    if (!topic) {
+    if (!courseId || !message) {
       return res.status(400).json({
         success: false,
-        message: "Topic is required"
+        message: "courseId and message are required"
       });
     }
 
-    const textSearch = new RegExp(topic, 'i');
-    const filter = {
-      $or: [
-        { topic: textSearch },
-        { question: textSearch },
-        { explanation: textSearch },
-        { options: { $elemMatch: { $regex: textSearch } } }
-      ]
+    // Validate course exists
+    const course = await Course.findById(courseId).populate("department");
+    if (!course) {
+      return res.status(404).json({ success: false, message: "Course not found" });
+    }
+
+    // Get or create conversation
+    let conversation = null;
+    if (conversationId && mongoose.Types.ObjectId.isValid(conversationId)) {
+      conversation = await AIConversation.findById(conversationId);
+    }
+
+    if (!conversation) {
+      conversation = new AIConversation({
+        user: req.user._id,
+        course: courseId,
+        department: course.department._id,
+        messages: []
+      });
+    }
+
+    // Add user message
+    conversation.messages.push({
+      role: "student",
+      content: message,
+      timestamp: new Date()
+    });
+
+    // Build messages array for OpenAI
+    const messagesForAI = conversation.messages.map(msg => ({
+      role: msg.role === "student" ? "user" : "assistant",
+      content: msg.content
+    }));
+
+    // Get user performance data for context
+    const performance = await StudentPerformance.findOne({
+      user: req.user._id,
+      course: courseId
+    });
+
+    const courseContext = {
+      courseName: course.title,
+      courseCode: course.code,
+      departmentName: course.department?.name || "Unknown",
+      academicLevel: req.user.yearOfStudy || "Unknown",
+      topicsMastery: performance ? performance.topicMetrics : []
     };
 
-    if (courseId) {
-      if (!mongoose.Types.ObjectId.isValid(courseId)) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid course ID supplied"
-        });
-      }
-      filter.course = mongoose.Types.ObjectId(courseId);
+    // Call OpenAI
+    const aiResponse = await openaiService.chatWithStudent(
+      messagesForAI,
+      courseContext,
+      "gpt-3.5-turbo"
+    );
+
+    // Add assistant message
+    conversation.messages.push({
+      role: "assistant",
+      content: aiResponse.message,
+      timestamp: new Date(),
+      tokens: aiResponse.tokens.total
+    });
+
+    // Update conversation metadata
+    conversation.totalMessages = conversation.messages.length;
+    conversation.totalTokens += aiResponse.tokens.total;
+    conversation.lastMessageAt = new Date();
+    if (!conversation.title || conversation.title === "New Chat") {
+      conversation.title = message.substring(0, 50) + "...";
     }
 
-    const historicalQuestions = await Question.find(filter).populate('course').lean();
-    let analysis = '';
-    let predictedQuestions = [];
+    // Save conversation
+    await conversation.save();
 
-    if (historicalQuestions.length > 0) {
-      const frequency = {};
-      const questionLookup = {};
-
-      historicalQuestions.forEach((item) => {
-        const text = (item.question || '').trim();
-        if (!text) return;
-        frequency[text] = (frequency[text] || 0) + 1;
-        questionLookup[text] = item;
-      });
-
-      const sorted = Object.entries(frequency)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 6)
-        .map(([text]) => questionLookup[text]);
-
-      predictedQuestions = sorted.map((item) => ({
-        question: item.question,
-        options: item.options || [],
-        answer: item.answer || '',
-        explanation: item.explanation || '',
-        course: item.course?.title || 'Unknown course',
-        year: item.year,
-        session: item.session,
-        repeated: frequency[item.question?.trim() || ''] || 1
-      }));
-
-      const repeatCount = Object.values(frequency).filter((count) => count > 1).length;
-      if (repeatCount > 0) {
-        analysis = `Found ${historicalQuestions.length} historical question(s) for this topic. ${repeatCount} exact question${repeatCount === 1 ? '' : 's'} repeated across past exams. These are the most likely exam items.`;
-      } else {
-        analysis = `Found ${historicalQuestions.length} related historical question(s). Predictions are based on repeated exam patterns and similar question wording.`;
-      }
-    }
-
-    if (predictedQuestions.length === 0) {
-      predictedQuestions = generateQuiz(topic);
-      analysis = `No direct historical past questions were found for "${topic}". Generated likely exam-style questions from the topic.`;
-    }
-
-    if (predictedQuestions.length < 4) {
-      const filler = generateQuiz(topic).slice(0, 4 - predictedQuestions.length);
-      predictedQuestions = [...predictedQuestions, ...filler];
-    }
+    // Track user AI usage
+    await User.findByIdAndUpdate(req.user._id, {
+      $inc: { "aiUsage.messagesThisMonth": 1 }
+    });
 
     res.json({
       success: true,
-      topic,
-      analysis,
-      questions: predictedQuestions,
-      historicalCount: historicalQuestions.length
+      conversationId: conversation._id,
+      message: aiResponse.message,
+      tokens: aiResponse.tokens,
+      cost: aiResponse.cost
+    });
+  } catch (error) {
+    console.error("Chat error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * GET /api/ai/chat/:courseId
+ * Get chat history for a course
+ */
+router.get("/chat/:courseId", protect, async (req, res) => {
+  try {
+    const { courseId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(courseId)) {
+      return res.status(400).json({ success: false, message: "Invalid course ID" });
+    }
+
+    const conversations = await AIConversation.find({
+      user: req.user._id,
+      course: courseId
+    }).sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      conversations,
+      count: conversations.length
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
-};
+});
 
-// Allow authenticated users (AI/chatbot) full access to search content
-router.post("/generate-quiz", protect, generateQuizHandler);
-router.post("/generate-questions", protect, generateQuizHandler);
-
-// Search courses and past questions for AI usage. Returns both matching courses and questions.
-router.post("/search-materials", protect, async (req, res) => {
+/**
+ * GET /api/ai/chat/conversation/:conversationId
+ * Get full conversation details
+ */
+router.get("/chat/conversation/:conversationId", protect, async (req, res) => {
   try {
-    const { query, courseId, departmentId, limit = 20 } = req.body;
-    if (!query) {
-      return res.status(400).json({ success: false, message: "Query is required" });
+    const { conversationId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(conversationId)) {
+      return res.status(400).json({ success: false, message: "Invalid conversation ID" });
     }
 
-    const textSearch = new RegExp(query, 'i');
+    const conversation = await AIConversation.findOne({
+      _id: conversationId,
+      user: req.user._id
+    }).populate("course");
 
-    const courseFilter = {
-      $or: [
-        { title: textSearch },
-        { code: textSearch },
-        { description: textSearch }
-      ]
-    };
-
-    if (courseId) {
-      courseFilter._id = courseId;
+    if (!conversation) {
+      return res.status(404).json({ success: false, message: "Conversation not found" });
     }
 
-    if (departmentId) {
-      courseFilter.department = departmentId;
-    }
-
-    const courses = await Course.find(courseFilter).limit(parseInt(limit)).lean();
-
-    const questionFilter = {
-      $or: [
-        { question: textSearch },
-        { topic: textSearch },
-        { explanation: textSearch },
-        { options: { $elemMatch: { $regex: textSearch } } }
-      ]
-    };
-
-    if (courseId) questionFilter.course = courseId;
-    if (departmentId) questionFilter.department = departmentId;
-
-    const questions = await Question.find(questionFilter).populate('course').limit(parseInt(limit)).lean();
-
-    res.json({ success: true, query, courses, questions, totalCourses: courses.length, totalQuestions: questions.length });
+    res.json({ success: true, conversation });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// Fetch single course and its questions (full access)
-router.get("/course/:id", protect, async (req, res) => {
+/**
+ * DELETE /api/ai/chat/:conversationId
+ * Delete conversation
+ */
+router.delete("/chat/:conversationId", protect, async (req, res) => {
   try {
-    const { id } = req.params;
-    if (!id) return res.status(400).json({ success: false, message: 'Course id required' });
+    const { conversationId } = req.params;
 
-    const course = await Course.findById(id).lean();
-    if (!course) return res.status(404).json({ success: false, message: 'Course not found' });
+    if (!mongoose.Types.ObjectId.isValid(conversationId)) {
+      return res.status(400).json({ success: false, message: "Invalid conversation ID" });
+    }
 
-    const questions = await Question.find({ course: id }).lean();
-    res.json({ success: true, course, questions });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// Fetch single question (full access)
-router.get("/question/:id", protect, async (req, res) => {
-  try {
-    const { id } = req.params;
-    if (!id) return res.status(400).json({ success: false, message: 'Question id required' });
-
-    const question = await Question.findById(id).populate('course').lean();
-    if (!question) return res.status(404).json({ success: false, message: 'Question not found' });
-
-    res.json({ success: true, question });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-router.post("/submit-quiz", protect, requirePremium, (req, res) => {
-  const { answers, quiz } = req.body;
-
-  if (!answers || !quiz) {
-    return res.status(400).json({
-      success: false,
-      message: "Answers and quiz are required"
+    const conversation = await AIConversation.findOneAndDelete({
+      _id: conversationId,
+      user: req.user._id
     });
-  }
 
-  let score = 0;
-
-  quiz.forEach((q, index) => {
-    if (answers[index] === q.answer) {
-      score++;
+    if (!conversation) {
+      return res.status(404).json({ success: false, message: "Conversation not found" });
     }
-  });
 
-  res.json({
-    success: true,
-    totalQuestions: quiz.length,
-    score,
-    percentage: (score / quiz.length) * 100
-  });
+    res.json({ success: true, message: "Conversation deleted" });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ============================================================================
+// 2. NOTE ENHANCER ENDPOINTS
+// ============================================================================
+
+/**
+ * POST /api/ai/notes/upload
+ * Upload and process lecture notes
+ */
+router.post("/notes/upload", protect, requirePremium, upload.single("file"), async (req, res) => {
+  try {
+    const { courseId, title } = req.body;
+
+    if (!courseId || !title || !req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "courseId, title, and file are required"
+      });
+    }
+
+    // Validate course
+    const course = await Course.findById(courseId);
+    if (!course) {
+      return res.status(404).json({ success: false, message: "Course not found" });
+    }
+
+    // In production, extract text from PDF/image using OCR library
+    let extractedContent = `[File uploaded: ${req.file.originalname}]\n`;
+    if (req.body.manualContent) {
+      extractedContent += req.body.manualContent;
+    }
+
+    // Call OpenAI to enhance the content
+    const enhancements = await openaiService.enhanceNoteContent(
+      extractedContent,
+      course.title,
+      course.courseCharacteristics || {
+        isMathHeavy: false,
+        requiresCodeExamples: false,
+        requiresDiagrams: false,
+        examFormat: "multiple-choice"
+      }
+    );
+
+    // Create StudentNote
+    const note = new StudentNote({
+      user: req.user._id,
+      course: courseId,
+      title,
+      fileName: req.file.filename,
+      fileUrl: `/uploads/${req.file.filename}`,
+      fileType: req.file.mimetype.includes("image") ? "image" :
+               req.file.mimetype === "application/pdf" ? "pdf" : "text",
+      rawContent: extractedContent,
+      enhancements: enhancements.enhancements
+    });
+
+    await note.save();
+
+    // Track usage
+    await User.findByIdAndUpdate(req.user._id, {
+      $inc: { "aiUsage.notesProcessedThisMonth": 1 }
+    });
+
+    res.json({
+      success: true,
+      noteId: note._id,
+      enhancements: enhancements.enhancements,
+      tokens: enhancements.tokens,
+      cost: enhancements.cost
+    });
+  } catch (error) {
+    console.error("Note upload error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * GET /api/ai/notes/:courseId
+ * Get all processed notes for a course
+ */
+router.get("/notes/:courseId", protect, async (req, res) => {
+  try {
+    const { courseId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(courseId)) {
+      return res.status(400).json({ success: false, message: "Invalid course ID" });
+    }
+
+    const notes = await StudentNote.find({
+      user: req.user._id,
+      course: courseId
+    }).sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      notes,
+      count: notes.length
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * GET /api/ai/notes/detail/:noteId
+ * Get full note details with enhancements
+ */
+router.get("/notes/detail/:noteId", protect, async (req, res) => {
+  try {
+    const { noteId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(noteId)) {
+      return res.status(400).json({ success: false, message: "Invalid note ID" });
+    }
+
+    const note = await StudentNote.findOne({
+      _id: noteId,
+      user: req.user._id
+    }).populate("course");
+
+    if (!note) {
+      return res.status(404).json({ success: false, message: "Note not found" });
+    }
+
+    // Update review count
+    note.lastReviewedAt = new Date();
+    note.reviewCount += 1;
+    await note.save();
+
+    res.json({ success: true, note });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * DELETE /api/ai/notes/:noteId
+ * Delete note
+ */
+router.delete("/notes/:noteId", protect, async (req, res) => {
+  try {
+    const { noteId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(noteId)) {
+      return res.status(400).json({ success: false, message: "Invalid note ID" });
+    }
+
+    const note = await StudentNote.findOneAndDelete({
+      _id: noteId,
+      user: req.user._id
+    });
+
+    if (!note) {
+      return res.status(404).json({ success: false, message: "Note not found" });
+    }
+
+    res.json({ success: true, message: "Note deleted" });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ============================================================================
+// 3. PAST QUESTION EXPLAINER ENDPOINTS
+// ============================================================================
+
+/**
+ * POST /api/ai/explain-question
+ * Get detailed explanation for a past question
+ */
+router.post("/explain-question", protect, requirePremium, async (req, res) => {
+  try {
+    const { questionId } = req.body;
+
+    if (!questionId || !mongoose.Types.ObjectId.isValid(questionId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid questionId is required"
+      });
+    }
+
+    // Check cache first
+    const cachedExplanation = await PastQuestionExplanation.findOne({ question: questionId });
+    if (cachedExplanation) {
+      cachedExplanation.viewCount += 1;
+      await cachedExplanation.save();
+
+      await User.findByIdAndUpdate(req.user._id, {
+        $inc: { "aiUsage.questionsExplainedThisMonth": 1 }
+      });
+
+      return res.json({
+        success: true,
+        explanation: cachedExplanation,
+        cached: true
+      });
+    }
+
+    // Get question
+    const question = await Question.findById(questionId).populate("course");
+    if (!question) {
+      return res.status(404).json({ success: false, message: "Question not found" });
+    }
+
+    // Get course context
+    const course = await Course.findById(question.course);
+    const courseContext = {
+      courseName: course.title,
+      courseCode: course.code,
+      examFormat: course.courseCharacteristics?.examFormat || "multiple-choice"
+    };
+
+    // Generate explanation using OpenAI
+    const aiExplanation = await openaiService.explainQuestion(
+      question,
+      question.answer,
+      courseContext
+    );
+
+    // Cache the explanation
+    const explanation = new PastQuestionExplanation({
+      question: questionId,
+      ...aiExplanation.explanation,
+      generatedAt: new Date(),
+      viewCount: 1
+    });
+
+    await explanation.save();
+
+    // Track usage
+    await User.findByIdAndUpdate(req.user._id, {
+      $inc: { "aiUsage.questionsExplainedThisMonth": 1 }
+    });
+
+    res.json({
+      success: true,
+      explanation,
+      tokens: aiExplanation.tokens,
+      cost: aiExplanation.cost,
+      cached: false
+    });
+  } catch (error) {
+    console.error("Explanation error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * GET /api/ai/question/:questionId/explanation
+ * Get cached explanation
+ */
+router.get("/question/:questionId/explanation", protect, async (req, res) => {
+  try {
+    const { questionId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(questionId)) {
+      return res.status(400).json({ success: false, message: "Invalid question ID" });
+    }
+
+    const explanation = await PastQuestionExplanation.findOne({
+      question: questionId
+    }).populate({
+      path: "question",
+      populate: { path: "course" }
+    });
+
+    if (!explanation) {
+      return res.status(404).json({ success: false, message: "Explanation not found" });
+    }
+
+    explanation.viewCount += 1;
+    await explanation.save();
+
+    res.json({ success: true, explanation });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * POST /api/ai/question/:questionId/feedback
+ * Submit feedback on explanation
+ */
+router.post("/question/:questionId/feedback", protect, async (req, res) => {
+  try {
+    const { questionId } = req.params;
+    const { helpful } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(questionId)) {
+      return res.status(400).json({ success: false, message: "Invalid question ID" });
+    }
+
+    if (typeof helpful !== "boolean") {
+      return res.status(400).json({ success: false, message: "helpful must be boolean" });
+    }
+
+    const explanation = await PastQuestionExplanation.findOneAndUpdate(
+      { question: questionId },
+      {
+        $inc: helpful ? { helpfulCount: 1 } : { unhelpfulCount: 1 }
+      },
+      { new: true }
+    );
+
+    if (!explanation) {
+      return res.status(404).json({ success: false, message: "Explanation not found" });
+    }
+
+    res.json({ success: true, message: "Feedback recorded", explanation });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ============================================================================
+// 4. ADMIN ANALYTICS ENDPOINTS
+// ============================================================================
+
+/**
+ * GET /api/ai/usage/stats
+ * Get AI API usage statistics
+ */
+router.get("/usage/stats", protect, async (req, res) => {
+  try {
+    // Admin only check (if needed)
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ success: false, message: "Admin only" });
+    }
+
+    const stats = openaiService.getUsageStats();
+
+    res.json({
+      success: true,
+      stats,
+      message: "Current session usage statistics"
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * GET /api/ai/user/usage
+ * Get user's AI usage for the month
+ */
+router.get("/user/usage", protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+
+    res.json({
+      success: true,
+      usage: user.aiUsage,
+      limits: user.subscriptionFeatures
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ============================================================================
+// LEARNING PATH ROUTES
+// ============================================================================
+
+/**
+ * POST /api/ai/learning-path/generate
+ * Generate personalized learning path
+ */
+router.post("/learning-path/generate", protect, requirePremium, async (req, res) => {
+  try {
+    const { courseId, targetExamDate, studyHoursPerDay } = req.body;
+
+    if (!courseId) {
+      return res.status(400).json({
+        success: false,
+        message: "courseId is required"
+      });
+    }
+
+    // Get course
+    const course = await Course.findById(courseId);
+    if (!course) {
+      return res.status(404).json({ success: false, message: "Course not found" });
+    }
+
+    // Get student performance
+    let performance = await StudentPerformance.findOne({
+      user: req.user._id,
+      course: courseId
+    });
+
+    if (!performance) {
+      performance = new StudentPerformance({
+        user: req.user._id,
+        course: courseId,
+        topStrengths: [],
+        areasToImprove: ["General practice needed"]
+      });
+    }
+
+    // Generate learning path using OpenAI
+    const pathData = await openaiService.generateLearningPath(
+      performance,
+      course.title,
+      targetExamDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      studyHoursPerDay || 2
+    );
+
+    // Create LearningPath document
+    const path = new LearningPath({
+      user: req.user._id,
+      course: courseId,
+      title: pathData.path.title,
+      targetExamDate: targetExamDate,
+      schedule: pathData.path.schedule
+    });
+
+    await path.save();
+
+    res.json({
+      success: true,
+      path,
+      tokens: pathData.tokens,
+      cost: pathData.cost
+    });
+  } catch (error) {
+    console.error("Learning path error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * GET /api/ai/learning-path/:courseId
+ * Get learning path for course
+ */
+router.get("/learning-path/:courseId", protect, async (req, res) => {
+  try {
+    const { courseId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(courseId)) {
+      return res.status(400).json({ success: false, message: "Invalid course ID" });
+    }
+
+    const path = await LearningPath.findOne({
+      user: req.user._id,
+      course: courseId
+    }).sort({ createdAt: -1 });
+
+    if (!path) {
+      return res.status(404).json({ success: false, message: "No learning path found for this course" });
+    }
+
+    res.json({ success: true, path });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * PUT /api/ai/learning-path/:pathId/update-progress
+ * Update learning path progress
+ */
+router.put("/learning-path/:pathId/update-progress", protect, async (req, res) => {
+  try {
+    const { pathId } = req.params;
+    const { dayIndex, activityIndex, completed, score } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(pathId)) {
+      return res.status(400).json({ success: false, message: "Invalid path ID" });
+    }
+
+    const path = await LearningPath.findOne({
+      _id: pathId,
+      user: req.user._id
+    });
+
+    if (!path) {
+      return res.status(404).json({ success: false, message: "Path not found" });
+    }
+
+    if (dayIndex >= 0 && dayIndex < path.schedule.length) {
+      const day = path.schedule[dayIndex];
+      if (activityIndex >= 0 && activityIndex < day.activities.length) {
+        day.activities[activityIndex].completed = completed;
+        if (score !== undefined) {
+          day.activities[activityIndex].score = score;
+        }
+        day.activities[activityIndex].completedAt = new Date();
+      }
+    }
+
+    await path.save();
+
+    res.json({ success: true, message: "Progress updated", path });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 module.exports = router;

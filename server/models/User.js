@@ -117,6 +117,77 @@ const userSchema = new mongoose.Schema({
   devices: {
     type: [String],
     default: []
+  },
+
+  // AI FEATURE USAGE (for analytics & rate limiting)
+  aiUsage: {
+    messagesThisMonth: {
+      type: Number,
+      default: 0
+    },
+    notesProcessedThisMonth: {
+      type: Number,
+      default: 0
+    },
+    questionsExplainedThisMonth: {
+      type: Number,
+      default: 0
+    },
+    lastResetDate: {
+      type: Date,
+      default: Date.now
+    }
+  },
+
+  // LEARNING PREFERENCES
+  preferences: {
+    preferredLearningStyle: {
+      type: String,
+      enum: ["visual", "textual", "mixed"],
+      default: "mixed"
+    },
+    studyHoursPerDay: {
+      type: Number,
+      default: 2
+    },
+    targetGPA: {
+      type: Number,
+      default: 3.0
+    },
+    notificationSettings: {
+      dailyReminders: {
+        type: Boolean,
+        default: true
+      },
+      performanceAlerts: {
+        type: Boolean,
+        default: true
+      },
+      newResourcesNotification: {
+        type: Boolean,
+        default: true
+      }
+    }
+  },
+
+  // SUBSCRIPTION FEATURES & LIMITS
+  subscriptionFeatures: {
+    aiChatMessages: {
+      type: Number,
+      default: 50 // Monthly limit for free tier
+    },
+    notesPerMonth: {
+      type: Number,
+      default: 5
+    },
+    learningPathsPerCourse: {
+      type: Number,
+      default: 1
+    },
+    analyticsAccess: {
+      type: Boolean,
+      default: false
+    }
   }
 
 }, { timestamps: true });
@@ -184,4 +255,4 @@ userSchema.methods.clearAllRefreshTokens = function() {
   this.refreshTokens = [];
 };
 
-module.exports = mongoose.model("User", userSchema);
+module.exports = mongoose.models.User || mongoose.model("User", userSchema);

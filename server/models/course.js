@@ -60,7 +60,46 @@ const courseSchema = new mongoose.Schema(
     enrollmentCount: {
       type: Number,
       default: 0
-    }
+    },
+
+    // AI-SPECIFIC METADATA
+    topicsBreakdown: [{
+      name: String,
+      subtopics: [String],
+      estimatedHours: Number,
+      keyResources: [String] // URLs to textbooks, videos, etc.
+    }],
+
+    // Course characteristics (for smarter AI responses)
+    courseCharacteristics: {
+      isMathHeavy: {
+        type: Boolean,
+        default: false
+      },
+      requiresCodeExamples: {
+        type: Boolean,
+        default: false
+      },
+      requiresDiagrams: {
+        type: Boolean,
+        default: false
+      },
+      examFormat: {
+        type: String,
+        enum: ["multiple-choice", "essay", "practical", "mixed"],
+        default: "multiple-choice"
+      }
+    },
+
+    // Linkage to recommended resources
+    recommendedResources: [{
+      type: {
+        type: String,
+        enum: ["textbook", "video", "article", "podcast"]
+      },
+      url: String,
+      title: String
+    }]
   },
   { timestamps: true }
 );
@@ -73,4 +112,4 @@ courseSchema.index({ isPremium: 1 });
 // Text index for search
 courseSchema.index({ title: "text", code: "text", description: "text" });
 
-module.exports = mongoose.model("Course", courseSchema);
+module.exports = mongoose.models.Course || mongoose.model("Course", courseSchema);

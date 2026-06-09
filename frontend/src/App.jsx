@@ -18,6 +18,8 @@ import OAuthCallback from './pages/OAuthCallback'
 import VerifyEmail from './pages/VerifyEmail'
 import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
+import AIChatPage from './pages/AIChatPage'
+import AnalyticsDashboard from './pages/AnalyticsDashboard'
 
 function Protected({ children }) {
   const { user, loading } = useAuth()
@@ -74,6 +76,8 @@ export default function App() {
           <Route path="/past-questions" element={<Protected><PastQuestions /></Protected>} />
           <Route path="/cbt" element={<Protected><CBTQuiz /></Protected>} />
           <Route path="/ai" element={<Protected><AI /></Protected>} />
+          <Route path="/ai-chat" element={<Protected><AIChatPage /></Protected>} />
+          <Route path="/analytics" element={<Protected><AnalyticsDashboard /></Protected>} />
           <Route path="/upgrade" element={<Protected><Upgrade /></Protected>} />
           <Route path="/admin" element={<AdminOnly><AdminPanel /></AdminOnly>} />
 

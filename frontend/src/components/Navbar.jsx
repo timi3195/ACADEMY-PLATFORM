@@ -22,6 +22,8 @@ export default function Navbar() {
             <Link to="/past-questions">Past Questions</Link>
             <Link to="/cbt">CBT</Link>
             <Link to="/ai">AI</Link>
+            <Link to="/ai-chat">🤖 AI Assistant</Link>
+            <Link to="/analytics">📊 Analytics</Link>
             {user.role === 'admin' && <Link to="/admin">Admin</Link>}
             {user.subscriptionType !== 'premium' && user.plan !== 'premium' && <Link to="/upgrade">Upgrade</Link>}
             <button onClick={handleLogout}>Logout</button>
