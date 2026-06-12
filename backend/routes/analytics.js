@@ -12,7 +12,7 @@ const AIConversation = require("../models/AIConversation");
 const StudentNote = require("../models/StudentNote");
 const LearningPath = require("../models/LearningPath");
 const Question = require("../models/Question");
-const Course = require("../models/Course");
+const Course = require("../models/course");
 
 console.log("📊 ANALYTICS ROUTES LOADED");
 

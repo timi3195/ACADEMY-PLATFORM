@@ -15,7 +15,7 @@ const PastQuestionExplanation = require("../models/PastQuestionExplanation");
 const StudentPerformance = require("../models/StudentPerformance");
 const LearningPath = require("../models/LearningPath");
 const Question = require("../models/Question");
-const Course = require("../models/Course");
+const Course = require("../models/course");
 const User = require("../models/User");
 
 // Services
