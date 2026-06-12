@@ -65,7 +65,7 @@ router.post("/chat", protect, requirePremium, async (req, res) => {
     const { courseId, message, conversationId } = req.body;
 
     // Debug: Check if user is authenticated
-    if (!req.user || !req.user._id) {
+    if (!req.user || !req.user.id) {
       console.error("❌ Authentication failed - req.user:", req.user);
       return res.status(401).json({ success: false, message: "Not authenticated" });
     }
@@ -88,14 +88,14 @@ router.post("/chat", protect, requirePremium, async (req, res) => {
     if (conversationId && mongoose.Types.ObjectId.isValid(conversationId)) {
       conversation = await AIConversation.findById(conversationId);
       // Verify conversation belongs to current user
-      if (conversation && conversation.user && conversation.user.toString() !== req.user._id.toString()) {
+      if (conversation && conversation.user && conversation.user.toString() !== req.user.id.toString()) {
         return res.status(403).json({ success: false, message: "Unauthorized access to conversation" });
       }
     }
 
     if (!conversation) {
       conversation = new AIConversation({
-        user: req.user._id,
+        user: req.user.id,
         course: courseId,
         department: course.department._id,
         messages: []
@@ -103,7 +103,7 @@ router.post("/chat", protect, requirePremium, async (req, res) => {
     } else if (!conversation.user) {
       // Ensure user field is set (defensive check)
       console.warn("⚠️ Conversation missing user field, setting it now");
-      conversation.user = req.user._id;
+      conversation.user = req.user.id;
     }
 
     // Add user message
@@ -121,7 +121,7 @@ router.post("/chat", protect, requirePremium, async (req, res) => {
 
     // Get user performance data for context
     const performance = await StudentPerformance.findOne({
-      user: req.user._id,
+      user: req.user.id,
       course: courseId
     });
 
@@ -160,7 +160,7 @@ router.post("/chat", protect, requirePremium, async (req, res) => {
     console.log("📝 Saving conversation:", {
       _id: conversation._id,
       user: conversation.user,
-      userId: req.user._id,
+      userId: req.user.id,
       course: conversation.course,
       messagesCount: conversation.messages.length
     });
@@ -169,7 +169,7 @@ router.post("/chat", protect, requirePremium, async (req, res) => {
     await conversation.save();
 
     // Track user AI usage
-    await User.findByIdAndUpdate(req.user._id, {
+    await User.findByIdAndUpdate(req.user.id, {
       $inc: { "aiUsage.messagesThisMonth": 1 }
     });
 
@@ -199,7 +199,7 @@ router.get("/chat/:courseId", protect, async (req, res) => {
     }
 
     const conversations = await AIConversation.find({
-      user: req.user._id,
+      user: req.user.id,
       course: courseId
     }).sort({ createdAt: -1 });
 
@@ -227,7 +227,7 @@ router.get("/chat/conversation/:conversationId", protect, async (req, res) => {
 
     const conversation = await AIConversation.findOne({
       _id: conversationId,
-      user: req.user._id
+      user: req.user.id
     }).populate("course");
 
     if (!conversation) {
@@ -254,7 +254,7 @@ router.delete("/chat/:conversationId", protect, async (req, res) => {
 
     const conversation = await AIConversation.findOneAndDelete({
       _id: conversationId,
-      user: req.user._id
+      user: req.user.id
     });
 
     if (!conversation) {
@@ -312,7 +312,7 @@ router.post("/notes/upload", protect, requirePremium, upload.single("file"), asy
 
     // Create StudentNote
     const note = new StudentNote({
-      user: req.user._id,
+      user: req.user.id,
       course: courseId,
       title,
       fileName: req.file.filename,
@@ -326,7 +326,7 @@ router.post("/notes/upload", protect, requirePremium, upload.single("file"), asy
     await note.save();
 
     // Track usage
-    await User.findByIdAndUpdate(req.user._id, {
+    await User.findByIdAndUpdate(req.user.id, {
       $inc: { "aiUsage.notesProcessedThisMonth": 1 }
     });
 
@@ -356,7 +356,7 @@ router.get("/notes/:courseId", protect, async (req, res) => {
     }
 
     const notes = await StudentNote.find({
-      user: req.user._id,
+      user: req.user.id,
       course: courseId
     }).sort({ createdAt: -1 });
 
@@ -384,7 +384,7 @@ router.get("/notes/detail/:noteId", protect, async (req, res) => {
 
     const note = await StudentNote.findOne({
       _id: noteId,
-      user: req.user._id
+      user: req.user.id
     }).populate("course");
 
     if (!note) {
@@ -416,7 +416,7 @@ router.delete("/notes/:noteId", protect, async (req, res) => {
 
     const note = await StudentNote.findOneAndDelete({
       _id: noteId,
-      user: req.user._id
+      user: req.user.id
     });
 
     if (!note) {
@@ -454,7 +454,7 @@ router.post("/explain-question", protect, requirePremium, async (req, res) => {
       cachedExplanation.viewCount += 1;
       await cachedExplanation.save();
 
-      await User.findByIdAndUpdate(req.user._id, {
+      await User.findByIdAndUpdate(req.user.id, {
         $inc: { "aiUsage.questionsExplainedThisMonth": 1 }
       });
 
@@ -497,7 +497,7 @@ router.post("/explain-question", protect, requirePremium, async (req, res) => {
     await explanation.save();
 
     // Track usage
-    await User.findByIdAndUpdate(req.user._id, {
+    await User.findByIdAndUpdate(req.user.id, {
       $inc: { "aiUsage.questionsExplainedThisMonth": 1 }
     });
 
@@ -614,7 +614,7 @@ router.get("/usage/stats", protect, async (req, res) => {
  */
 router.get("/user/usage", protect, async (req, res) => {
   try {
-    const user = await User.findById(req.user._id);
+    const user = await User.findById(req.user.id);
 
     res.json({
       success: true,
@@ -653,13 +653,13 @@ router.post("/learning-path/generate", protect, requirePremium, async (req, res)
 
     // Get student performance
     let performance = await StudentPerformance.findOne({
-      user: req.user._id,
+      user: req.user.id,
       course: courseId
     });
 
     if (!performance) {
       performance = new StudentPerformance({
-        user: req.user._id,
+        user: req.user.id,
         course: courseId,
         topStrengths: [],
         areasToImprove: ["General practice needed"]
@@ -676,7 +676,7 @@ router.post("/learning-path/generate", protect, requirePremium, async (req, res)
 
     // Create LearningPath document
     const path = new LearningPath({
-      user: req.user._id,
+      user: req.user.id,
       course: courseId,
       title: pathData.path.title,
       targetExamDate: targetExamDate,
@@ -710,7 +710,7 @@ router.get("/learning-path/:courseId", protect, async (req, res) => {
     }
 
     const path = await LearningPath.findOne({
-      user: req.user._id,
+      user: req.user.id,
       course: courseId
     }).sort({ createdAt: -1 });
 
@@ -739,7 +739,7 @@ router.put("/learning-path/:pathId/update-progress", protect, async (req, res) =
 
     const path = await LearningPath.findOne({
       _id: pathId,
-      user: req.user._id
+      user: req.user.id
     });
 
     if (!path) {
