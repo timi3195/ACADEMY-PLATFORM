@@ -7,13 +7,21 @@ const Anthropic = require("@anthropic-ai/sdk");
 
 class ClaudeService {
   constructor() {
-    if (!process.env.ANTHROPIC_API_KEY) {
-      throw new Error("ANTHROPIC_API_KEY environment variable is not set");
-    }
+    // Enable mock mode if USE_MOCK_AI is set
+    this.useMockAI = process.env.USE_MOCK_AI === "true";
 
-    this.client = new Anthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY
-    });
+    if (this.useMockAI) {
+      console.log("🎭 Mock AI mode enabled - using demo responses");
+      this.client = null;
+    } else {
+      if (!process.env.ANTHROPIC_API_KEY) {
+        throw new Error("ANTHROPIC_API_KEY environment variable is not set");
+      }
+
+      this.client = new Anthropic({
+        apiKey: process.env.ANTHROPIC_API_KEY
+      });
+    }
 
     // Pricing as of June 2024 (adjust as needed)
     // Claude 3.5 Sonnet
@@ -44,6 +52,20 @@ class ClaudeService {
    */
   async chatWithStudent(messages, courseContext, modelChoice = "claude-3-5-sonnet-20241022") {
     try {
+      // Use mock mode if enabled
+      if (this.useMockAI) {
+        console.log("🎭 Using mock AI response");
+        const lastUserMessage = messages[messages.length - 1]?.content || "your question";
+        return {
+          success: true,
+          message: this._generateMockResponse(lastUserMessage, courseContext),
+          tokens: { input: 0, output: 0, total: 0 },
+          cost: 0,
+          isMockData: true,
+          notice: "🎭 Demo mode: Using mock response for testing"
+        };
+      }
+
       // Build system prompt with course context
       const systemPrompt = this._buildStudyAssistantPrompt(courseContext);
 
@@ -129,6 +151,35 @@ class ClaudeService {
    */
   async enhanceNoteContent(noteText, courseName, courseCharacteristics) {
     try {
+      // Use mock mode if enabled
+      if (this.useMockAI) {
+        console.log("🎭 Using mock note enhancement");
+        return {
+          success: true,
+          enhancements: {
+            summary: `${courseName} - Study Notes Enhanced\n\nKey areas covered in your notes have been organized for optimal learning. This is a demo response showing the structure of enhanced notes.`,
+            keyPoints: ["Core concept 1", "Core concept 2", "Core concept 3", "Important relationships", "Real-world applications"],
+            mindMap: { 
+              [courseName]: {
+                "Theory": ["Fundamentals", "Key principles", "Historical context"],
+                "Practice": ["Worked examples", "Problem sets", "Case studies"],
+                "Application": ["Real-world uses", "Industry standards", "Best practices"]
+              }
+            },
+            flashcards: [
+              { question: "What is the main concept?", answer: "Key insight from the notes", difficulty: "easy" },
+              { question: "How does this apply?", answer: "Practical application of the theory", difficulty: "medium" }
+            ],
+            knowledgeGaps: ["Prerequisites to review", "Advanced topics to explore"],
+            examFocus: "Focus on fundamental concepts and their relationships"
+          },
+          tokens: 0,
+          cost: 0,
+          isMockData: true,
+          notice: "🎭 Demo mode: Showing sample note enhancements"
+        };
+      }
+
       const systemPrompt = this._buildNoteEnhancerPrompt(courseCharacteristics);
 
       const response = await this.client.messages.create({
@@ -203,6 +254,30 @@ class ClaudeService {
    */
   async explainQuestion(question, correctAnswer, courseContext) {
     try {
+      // Use mock mode if enabled
+      if (this.useMockAI) {
+        console.log("🎭 Using mock question explanation");
+        return {
+          success: true,
+          explanation: {
+            explanation: `The correct answer is ${correctAnswer}. This question tests your understanding of key concepts covered in ${courseContext?.courseName || 'this course'}. The answer demonstrates how these concepts apply in practice.`,
+            stepByStepSolution: [
+              { step: 1, description: "Identify what the question is asking", formula: "" },
+              { step: 2, description: "Review relevant concepts from your notes", formula: "" },
+              { step: 3, description: "Apply the concepts to each option", formula: "" },
+              { step: 4, description: "Verify your reasoning matches the correct answer", formula: "" }
+            ],
+            alternativeSolutions: ["Alternative approach using different framework", "Alternative using numerical method"],
+            commonMistakes: ["Confusing similar concepts", "Misinterpreting the question wording", "Arithmetic or calculation errors"],
+            similarQuestions: []
+          },
+          tokens: 0,
+          cost: 0,
+          isMockData: true,
+          notice: "🎭 Demo mode: Using sample explanation structure"
+        };
+      }
+
       const systemPrompt = this._buildQuestionExplainerPrompt();
 
       const questionText = `
@@ -286,6 +361,44 @@ ${question.explanation ? `Context: ${question.explanation}` : ""}
    */
   async generateLearningPath(studentPerformance, courseName, examDate, studyHours) {
     try {
+      // Use mock mode if enabled
+      if (this.useMockAI) {
+        console.log("🎭 Using mock learning path");
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        
+        return {
+          success: true,
+          path: {
+            title: "7-Day Learning Path",
+            schedule: [
+              {
+                day: 1,
+                date: tomorrow.toISOString().split('T')[0],
+                activities: [
+                  { type: "read-notes", title: "Review Core Concepts", description: "Read and understand basic principles", topic: courseName, duration: 45, difficulty: "easy" },
+                  { type: "practice-questions", title: "Practice Easy Questions", description: "Solve 5-10 practice questions", topic: courseName, duration: 30, difficulty: "easy" }
+                ],
+                summary: "Foundation building day - focus on understanding basics"
+              },
+              {
+                day: 2,
+                date: new Date(tomorrow.getTime() + 86400000).toISOString().split('T')[0],
+                activities: [
+                  { type: "chat-ai", title: "Ask Questions", description: "Clarify difficult concepts with AI", topic: courseName, duration: 30, difficulty: "medium" },
+                  { type: "practice-questions", title: "Medium Level Practice", description: "Solve medium difficulty problems", topic: courseName, duration: 45, difficulty: "medium" }
+                ],
+                summary: "Deepen understanding - tackle intermediate problems"
+              }
+            ]
+          },
+          tokens: 0,
+          cost: 0,
+          isMockData: true,
+          notice: "🎭 Demo mode: Sample 7-day learning path"
+        };
+      }
+
       const systemPrompt = `You are an expert personalized learning path generator for Nigerian university students.
 
 Generate a structured 7-day learning path based on:
