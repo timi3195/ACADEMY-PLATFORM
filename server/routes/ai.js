@@ -19,7 +19,7 @@ const Course = require("../models/Course");
 const User = require("../models/User");
 
 // Services
-const openaiService = require("../utils/openai");
+const claudeService = require("../utils/claude");
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -134,7 +134,7 @@ router.post("/chat", protect, requirePremium, async (req, res) => {
     };
 
     // Call OpenAI
-    const aiResponse = await openaiService.chatWithStudent(
+    const aiResponse = await claudeService.chatWithStudent(
       messagesForAI,
       courseContext,
       "gpt-3.5-turbo"
@@ -299,7 +299,7 @@ router.post("/notes/upload", protect, requirePremium, upload.single("file"), asy
     }
 
     // Call OpenAI to enhance the content
-    const enhancements = await openaiService.enhanceNoteContent(
+    const enhancements = await claudeService.enhanceNoteContent(
       extractedContent,
       course.title,
       course.courseCharacteristics || {
@@ -480,7 +480,7 @@ router.post("/explain-question", protect, requirePremium, async (req, res) => {
     };
 
     // Generate explanation using OpenAI
-    const aiExplanation = await openaiService.explainQuestion(
+    const aiExplanation = await claudeService.explainQuestion(
       question,
       question.answer,
       courseContext
@@ -596,7 +596,7 @@ router.get("/usage/stats", protect, async (req, res) => {
       return res.status(403).json({ success: false, message: "Admin only" });
     }
 
-    const stats = openaiService.getUsageStats();
+    const stats = claudeService.getUsageStats();
 
     res.json({
       success: true,
@@ -667,7 +667,7 @@ router.post("/learning-path/generate", protect, requirePremium, async (req, res)
     }
 
     // Generate learning path using OpenAI
-    const pathData = await openaiService.generateLearningPath(
+    const pathData = await claudeService.generateLearningPath(
       performance,
       course.title,
       targetExamDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
