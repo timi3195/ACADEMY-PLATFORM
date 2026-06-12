@@ -1,4 +1,0 @@
-◇ injected env (1) from server\.env // tip: ⌁ auth for agents [www.vestauth.com]
-AUTH ROUTE LOADED
-Server running on port 5002
-MongoDB Connected Successfully
