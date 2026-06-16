@@ -93,6 +93,10 @@ const analyticsRoutes = require("./routes/analytics");
 console.log("MOUNTING /api/analytics");
 app.use("/api/analytics", analyticsRoutes);
 
+const assignmentRoutes = require("./routes/assignment");
+console.log("📝 MOUNTING /api/assignments");
+app.use("/api/assignments", assignmentRoutes);
+
 app.get("/api/protected", protect, (req, res) => {
   res.json({
     message: "You accessed protected data",
