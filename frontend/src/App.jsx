@@ -8,7 +8,6 @@ import PastQuestions from './pages/PastQuestions'
 import Courses from './pages/Courses'
 import CourseDetail from './pages/CourseDetail'
 import CourseMaterials from './pages/CourseMaterials'
-import AssignmentDetail from './pages/AssignmentDetail'
 import AdminPanel from './pages/AdminPanel'
 import AI from './pages/AI'
 import Upgrade from './pages/Upgrade'
@@ -72,7 +71,6 @@ export default function App() {
           <Route path="/courses" element={<Protected><Courses /></Protected>} />
           <Route path="/courses/:courseId" element={<Protected><CourseDetail /></Protected>} />
           <Route path="/courses/:courseId/materials" element={<Protected><CourseMaterials /></Protected>} />
-          <Route path="/assignment/:assignmentId" element={<Protected><AssignmentDetail /></Protected>} />
           <Route path="/notes" element={<Protected><Notes /></Protected>} />
           <Route path="/past-questions" element={<Protected><PastQuestions /></Protected>} />
           <Route path="/ai" element={<Protected><AI /></Protected>} />

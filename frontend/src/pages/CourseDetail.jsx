@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { apiGet } from '../utils/api'
 import { useAuth } from '../utils/auth'
-import StudentAssignmentList from '../components/StudentAssignmentList'
 
 export default function CourseDetail() {
   const { courseId } = useParams()
@@ -137,7 +136,7 @@ export default function CourseDetail() {
       <div className="max-w-6xl mx-auto px-6 py-8">
         {/* Tabs */}
         <div className="flex gap-4 border-b border-gray-200 mb-6">
-          {['overview', 'materials', 'assignments', 'questions'].map(tab => (
+          {['overview', 'materials', 'questions'].map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -149,7 +148,6 @@ export default function CourseDetail() {
             >
               {tab === 'overview' && '📖 Overview'}
               {tab === 'materials' && '📁 Materials'}
-              {tab === 'assignments' && '📝 Assignments'}
               {tab === 'questions' && '❓ Past Questions'}
             </button>
           ))}
@@ -240,10 +238,6 @@ export default function CourseDetail() {
             </div>
           )}
 
-          {/* Assignments Tab */}
-          {activeTab === 'assignments' && (
-            <StudentAssignmentList courseId={courseId} />
-          )}
 
           {/* Past Questions Tab */}
           {activeTab === 'questions' && (
