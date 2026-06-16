@@ -18,8 +18,10 @@ export default function CourseDetail() {
 
   useEffect(() => {
     if (courseId) {
-      fetchCourse()
-      fetchMaterials()
+      setLoading(true)
+      Promise.all([fetchCourse(), fetchMaterials()]).finally(() => {
+        setLoading(false)
+      })
     }
   }, [courseId])
 
