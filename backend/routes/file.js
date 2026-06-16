@@ -115,7 +115,17 @@ router.get('/download/:filename', protect, async (req, res) => {
       });
     }
 
-    res.download(filePath, file.title);
+    // For PDFs, display inline; for other files, force download
+    const ext = path.extname(filename).toLowerCase();
+    if (ext === '.pdf') {
+      // Set headers for inline PDF viewing
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'inline; filename="' + file.title + '"');
+      res.sendFile(filePath);
+    } else {
+      // For other file types, force download
+      res.download(filePath, file.title);
+    }
   } catch (err) {
     res.status(500).json({
       success: false,

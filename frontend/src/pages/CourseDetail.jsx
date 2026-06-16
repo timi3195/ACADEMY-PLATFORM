@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { apiGet } from '../utils/api'
 import { useAuth } from '../utils/auth'
+import PDFViewer from '../components/PDFViewer'
 
 export default function CourseDetail() {
   const { courseId } = useParams()
@@ -186,51 +187,62 @@ export default function CourseDetail() {
 
           {/* Materials Tab */}
           {activeTab === 'materials' && (
-            <div className="space-y-4">
+            <div className="space-y-6">
               {materials.length === 0 ? (
                 <p className="text-gray-600 text-center py-8">No materials available for this course yet.</p>
               ) : (
                 materials.map(file => {
                   const canAccess = canAccessMaterial(file)
+                  const isPDF = file.fileUrl?.toLowerCase().endsWith('.pdf') || file.fileUrl?.includes('.pdf')
+                  
                   return (
                     <div
                       key={file._id}
-                      className={`p-4 rounded-lg border-2 transition ${
+                      className={`rounded-lg border-2 transition overflow-hidden ${
                         canAccess
-                          ? 'border-green-200 bg-green-50 hover:bg-green-100'
+                          ? 'border-green-200 bg-green-50'
                           : 'border-red-200 bg-red-50'
                       }`}
                     >
-                      <div className="flex items-center justify-between">
+                      {/* Material Header */}
+                      <div className="p-4 flex items-center justify-between">
                         <div className="flex-1">
-                          <h4 className="font-bold text-gray-800">{file.title}</h4>
+                          <h4 className="font-bold text-gray-800 text-lg">{file.title}</h4>
                           <p className="text-sm text-gray-600">
                             {new Date(file.createdAt).toLocaleDateString()}
                             {file.isPremium && ' • 🔒 Premium'}
                           </p>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                          {canAccess ? (
-                            <a
-                              href={file.fileUrl}
-                              download
-                              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition"
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              📥 Download
-                            </a>
+                        {!canAccess && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-red-700 font-bold">Locked</span>
+                            <Link to="/upgrade" className="bg-yellow-400 hover:bg-yellow-500 text-yellow-900 px-4 py-2 rounded-lg transition font-bold text-sm">
+                              ⭐ Unlock
+                            </Link>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Material Content */}
+                      {canAccess && (
+                        <div className="border-t border-green-200 p-4">
+                          {isPDF ? (
+                            <PDFViewer fileUrl={file.fileUrl} fileName={file.title} />
                           ) : (
-                            <>
-                              <span className="text-sm text-red-700 font-bold">Locked</span>
-                              <Link to="/upgrade" className="bg-yellow-400 hover:bg-yellow-500 text-yellow-900 px-4 py-2 rounded-lg transition font-bold">
-                                ⭐ Unlock
-                              </Link>
-                            </>
+                            <div className="flex flex-col items-center justify-center py-8 text-center">
+                              <p className="text-gray-600 mb-4">📄 {file.title}</p>
+                              <a
+                                href={file.fileUrl}
+                                download
+                                className="inline-block px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition font-semibold"
+                              >
+                                📥 Download File
+                              </a>
+                            </div>
                           )}
                         </div>
-                      </div>
+                      )}
                     </div>
                   )
                 })
