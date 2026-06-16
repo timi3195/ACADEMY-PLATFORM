@@ -36,7 +36,11 @@ export default function Courses() {
   }
 
   const visibleCourses = user && user.role !== 'admin' && user.department && user.yearOfStudy
-    ? courses.filter(course => course.department?._id === (user.department._id || user.department) && course.level === user.yearOfStudy)
+    ? courses.filter(course => {
+        const courseDeptId = course.department?._id?.toString?.() || course.department?._id
+        const userDeptId = (user.department._id || user.department)?.toString?.() || (user.department._id || user.department)
+        return courseDeptId === userDeptId && course.level === user.yearOfStudy
+      })
     : courses
 
   const filteredCourses = visibleCourses.filter(course => {

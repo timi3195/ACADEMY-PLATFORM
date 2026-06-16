@@ -44,7 +44,9 @@ export default function CourseMaterials() {
     if (!course) return false
     if (user?.role === 'admin') return true
     if (!user?.department || !user?.yearOfStudy) return false
-    return course.department?._id === (user.department._id || user.department) && course.level === user.yearOfStudy
+    const courseDeptId = course.department?._id?.toString?.() || course.department?._id
+    const userDeptId = (user.department._id || user.department)?.toString?.() || (user.department._id || user.department)
+    return courseDeptId === userDeptId && course.level === user.yearOfStudy
   }
 
   if (loading && !course) {

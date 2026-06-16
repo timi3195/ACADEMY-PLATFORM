@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node app.js",
     "dev": "nodemon app.js",
-    "promote-admin": "node promote-admin.js",
+    "promote-admin": "node scripts/promote-admin.js",
     "reset-platform": "node reset_platform.js",
     "mark-questions-premium": "node scripts/mark_questions_premium.js",
     "test": "echo \"Error: no test specified\" && exit 1"
