@@ -57,7 +57,8 @@ app.use((req,res,next)=>{
   next();
 });
 app.use(express.json());
-app.use("/uploads", express.static("uploads"));
+// File downloads are now served through protected API endpoint /api/files/download/
+// app.use("/uploads", express.static("uploads")); // Commented out - use protected download route instead
 app.use(express.urlencoded({ extended: true }));
 
 // handle malformed JSON body errors gracefully

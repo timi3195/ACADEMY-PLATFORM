@@ -11,15 +11,15 @@ export default function Upgrade() {
   const [statusMessage, setStatusMessage] = useState('')
   const [semester, setSemester] = useState('2025-1')
   const [plan, setPlan] = useState('premium')
-  const [amount, setAmount] = useState(5000)
+  const [amount, setAmount] = useState(15000)
   const location = useLocation()
 
   // Update amount when plan changes
   useEffect(() => {
     if (plan === 'basic') {
-      setAmount(2500)
+      setAmount(7500)
     } else {
-      setAmount(5000)
+      setAmount(15000)
     }
   }, [plan])
 
@@ -114,8 +114,8 @@ export default function Upgrade() {
           <div className="form-group">
             <label>Select Plan:</label>
             <select value={plan} onChange={(e) => setPlan(e.target.value)} disabled={loading}>
-              <option value="basic">Basic - ₦2,500</option>
-              <option value="premium">Premium - ₦5,000</option>
+              <option value="basic">Basic - ₦7,500</option>
+              <option value="premium">Premium - ₦15,000</option>
             </select>
           </div>
 

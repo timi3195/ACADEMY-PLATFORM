@@ -36,13 +36,86 @@ router.post("/upload", protect, adminOnly, upload.single("file"), async (req, re
       title: req.body.title,
       course: req.body.course,
       isPremium,
-      fileUrl: `/uploads/${req.file.filename}`
+      fileUrl: `/api/files/download/${Date.now()}-${req.file.filename}`
     });
 
     res.json({
       success: true,
       file: newFile
     });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
+});
+
+// Protected download route - validates user has access
+router.get('/download/:filename', protect, async (req, res) => {
+  try {
+    const filename = req.params.filename;
+    
+    // Find the file in database
+    const file = await File.findOne({ fileUrl: `/api/files/download/${filename}` }).populate('course');
+    
+    if (!file) {
+      return res.status(404).json({
+        success: false,
+        message: 'File not found'
+      });
+    }
+
+    const User = require('../models/User');
+    const user = req.user && req.user.id ? await User.findById(req.user.id).populate('department') : null;
+
+    // Admin can download any file
+    if (user && user.role === 'admin') {
+      // Serve the file
+      const filePath = path.join(uploadDir, filename);
+      return res.download(filePath, file.title);
+    }
+
+    // Check if user has course access
+    if (!user || !user.department || !user.yearOfStudy) {
+      return res.status(403).json({
+        success: false,
+        message: 'Please complete your profile to download files'
+      });
+    }
+
+    const course = file.course;
+    if (user.department._id.toString() !== course.department._id.toString() || user.yearOfStudy !== course.level) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have access to this course'
+      });
+    }
+
+    // Check if file is premium
+    if (file.isPremium) {
+      const isPremium = user && ((user.plan && user.plan === 'premium') || (user.subscriptionType && user.subscriptionType === 'premium'));
+      const now = new Date();
+      const notExpired = !user.subscriptionExpiresAt ? false : (new Date(user.subscriptionExpiresAt) > now);
+      
+      if (!isPremium || !notExpired) {
+        return res.status(403).json({
+          success: false,
+          message: 'This file requires an active premium subscription to download'
+        });
+      }
+    }
+
+    // Serve the file
+    const filePath = path.join(uploadDir, filename);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({
+        success: false,
+        message: 'File not found on server'
+      });
+    }
+
+    res.download(filePath, file.title);
   } catch (err) {
     res.status(500).json({
       success: false,
