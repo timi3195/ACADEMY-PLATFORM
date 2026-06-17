@@ -215,16 +215,7 @@ export default function CourseDetail() {
 
                         <div className="flex items-center gap-2">
                           {canAccess ? (
-                            isPDF ? (
-                              <a
-                                href={file.fileUrl}
-                                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition"
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                📥 Download
-                              </a>
-                            ) : (
+                            !isPDF && (
                               <a
                                 href={file.fileUrl}
                                 download
@@ -246,9 +237,9 @@ export default function CourseDetail() {
                         </div>
                       </div>
 
-                      {/* PDF Viewer - only show if user can access and file is PDF */}
+                      {/* PDF Viewer - embedded for inline viewing */}
                       {canAccess && isPDF && (
-                        <div className="mt-4 border-t pt-4">
+                        <div className="mt-4">
                           <PDFViewer fileUrl={file.fileUrl} fileName={file.title} />
                         </div>
                       )}

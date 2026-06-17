@@ -104,9 +104,7 @@ export default function CourseMaterials() {
 
                   <div className="flex items-center gap-2">
                     {f.accessible ? (
-                      isPDF ? (
-                        <a href={f.fileUrl} className="bg-blue-600 text-white px-3 py-2 rounded" target="_blank" rel="noreferrer">Download</a>
-                      ) : (
+                      !isPDF && (
                         <a href={f.fileUrl} download className="bg-blue-600 text-white px-3 py-2 rounded" target="_blank" rel="noreferrer">Download</a>
                       )
                     ) : (
@@ -118,9 +116,9 @@ export default function CourseMaterials() {
                   </div>
                 </div>
 
-                {/* PDF Viewer - only show if accessible and is PDF */}
+                {/* PDF Viewer - embedded for inline viewing */}
                 {f.accessible && isPDF && (
-                  <div className="mt-3 border-t pt-3">
+                  <div className="mt-3">
                     <PDFViewer fileUrl={f.fileUrl} fileName={f.title} />
                   </div>
                 )}
