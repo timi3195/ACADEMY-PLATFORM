@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { apiGet } from '../utils/api'
 import { useAuth } from '../utils/auth'
-import PDFViewer from '../components/PDFViewer'
 
 export default function CourseMaterials() {
   const { courseId } = useParams()
@@ -82,62 +81,37 @@ export default function CourseMaterials() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto py-8 px-6">
+    <div className="max-w-4xl mx-auto py-8">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold">📚 Course Materials</h1>
-        <Link to={`/courses/${courseId}`} className="text-blue-600 hover:text-blue-700 font-semibold">← Back to course</Link>
+        <h1 className="text-2xl font-bold">Course Materials</h1>
+        <Link to={`/courses/${courseId}`} className="text-sm text-blue-600">Back to course</Link>
       </div>
 
       {files.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-lg shadow">
-          <p className="text-gray-600 text-lg">No materials uploaded for this course yet.</p>
-        </div>
+        <p className="text-gray-600">No materials uploaded for this course yet.</p>
       ) : (
-        <div className="space-y-6">
-          {files.map(f => {
-            const isPDF = f.fileUrl?.toLowerCase().endsWith('.pdf') || f.fileUrl?.includes('.pdf')
-            
-            return (
-              <div key={f._id} className={`rounded-lg border-2 overflow-hidden ${f.accessible ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}>
-                {/* Material Header */}
-                <div className="p-4 flex items-center justify-between">
-                  <div className="flex-1">
-                    <h3 className="font-bold text-lg text-gray-900">{f.title}</h3>
-                    <p className="text-sm text-gray-600">Uploaded: {new Date(f.createdAt).toLocaleString()}</p>
-                  </div>
-
-                  {!f.accessible && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-red-700 font-bold">Premium Required</span>
-                      <Link to="/upgrade" className="bg-yellow-400 hover:bg-yellow-500 text-yellow-900 px-4 py-2 rounded font-bold text-sm">
-                        Upgrade
-                      </Link>
-                    </div>
-                  )}
+        <div className="space-y-4">
+          {files.map(f => (
+            <div key={f._id} className={`p-4 rounded-lg border ${f.accessible ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-semibold">{f.title}</h3>
+                  <p className="text-xs text-gray-600">Uploaded: {new Date(f.createdAt).toLocaleString()}</p>
                 </div>
 
-                {/* Material Content */}
-                {f.accessible && (
-                  <div className="border-t border-green-200 p-4">
-                    {isPDF ? (
-                      <PDFViewer fileUrl={f.fileUrl} fileName={f.title} />
-                    ) : (
-                      <div className="flex flex-col items-center justify-center py-8 text-center">
-                        <p className="text-gray-600 mb-4">📄 {f.title}</p>
-                        <a
-                          href={f.fileUrl}
-                          download
-                          className="inline-block px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition font-semibold"
-                        >
-                          📥 Download File
-                        </a>
-                      </div>
-                    )}
-                  </div>
-                )}
+                <div className="flex items-center gap-2">
+                  {f.accessible ? (
+                    <a href={f.fileUrl} className="bg-blue-600 text-white px-3 py-2 rounded" target="_blank" rel="noreferrer">Download</a>
+                  ) : (
+                    <>
+                      <span className="text-sm text-red-700 font-bold">Premium</span>
+                      <Link to="/upgrade" className="bg-yellow-400 text-yellow-900 px-3 py-2 rounded">Upgrade</Link>
+                    </>
+                  )}
+                </div>
               </div>
-            )
-          })}
+            </div>
+          ))}
         </div>
       )}
     </div>
