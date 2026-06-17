@@ -115,7 +115,18 @@ router.get('/download/:filename', protect, async (req, res) => {
       });
     }
 
-    res.download(filePath, file.title);
+    // Check if file is PDF - if so, serve inline for viewing; otherwise, force download
+    const isPDF = filename.toLowerCase().endsWith('.pdf');
+    
+    if (isPDF) {
+      // Serve PDF inline for browser viewing
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'inline; filename="' + file.title + '"');
+      res.sendFile(filePath);
+    } else {
+      // Force download for non-PDF files
+      res.download(filePath, file.title);
+    }
   } catch (err) {
     res.status(500).json({
       success: false,
