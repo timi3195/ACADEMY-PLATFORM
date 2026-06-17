@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { apiGet } from '../utils/api'
 import { useAuth } from '../utils/auth'
+import PDFViewer from '../components/PDFViewer'
 
 export default function CourseMaterials() {
   const { courseId } = useParams()
@@ -91,27 +92,41 @@ export default function CourseMaterials() {
         <p className="text-gray-600">No materials uploaded for this course yet.</p>
       ) : (
         <div className="space-y-4">
-          {files.map(f => (
-            <div key={f._id} className={`p-4 rounded-lg border ${f.accessible ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}>
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-semibold">{f.title}</h3>
-                  <p className="text-xs text-gray-600">Uploaded: {new Date(f.createdAt).toLocaleString()}</p>
+          {files.map(f => {
+            const isPDF = f.fileUrl?.toLowerCase().endsWith('.pdf') || f.fileUrl?.includes('.pdf')
+            return (
+              <div key={f._id} className={`p-4 rounded-lg border ${f.accessible ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}>
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h3 className="font-semibold">{f.title}</h3>
+                    <p className="text-xs text-gray-600">Uploaded: {new Date(f.createdAt).toLocaleString()}</p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {f.accessible ? (
+                      isPDF ? (
+                        <a href={f.fileUrl} className="bg-blue-600 text-white px-3 py-2 rounded" target="_blank" rel="noreferrer">Download</a>
+                      ) : (
+                        <a href={f.fileUrl} download className="bg-blue-600 text-white px-3 py-2 rounded" target="_blank" rel="noreferrer">Download</a>
+                      )
+                    ) : (
+                      <>
+                        <span className="text-sm text-red-700 font-bold">Premium</span>
+                        <Link to="/upgrade" className="bg-yellow-400 text-yellow-900 px-3 py-2 rounded">Upgrade</Link>
+                      </>
+                    )}
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  {f.accessible ? (
-                    <a href={f.fileUrl} className="bg-blue-600 text-white px-3 py-2 rounded" target="_blank" rel="noreferrer">Download</a>
-                  ) : (
-                    <>
-                      <span className="text-sm text-red-700 font-bold">Premium</span>
-                      <Link to="/upgrade" className="bg-yellow-400 text-yellow-900 px-3 py-2 rounded">Upgrade</Link>
-                    </>
-                  )}
-                </div>
+                {/* PDF Viewer - only show if accessible and is PDF */}
+                {f.accessible && isPDF && (
+                  <div className="mt-3 border-t pt-3">
+                    <PDFViewer fileUrl={f.fileUrl} fileName={f.title} />
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

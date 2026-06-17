@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { apiGet } from '../utils/api'
 import { useAuth } from '../utils/auth'
+import PDFViewer from '../components/PDFViewer'
 
 export default function CourseDetail() {
   const { courseId } = useParams()
@@ -192,6 +193,8 @@ export default function CourseDetail() {
               ) : (
                 materials.map(file => {
                   const canAccess = canAccessMaterial(file)
+                  const isPDF = file.fileUrl?.toLowerCase().endsWith('.pdf') || file.fileUrl?.includes('.pdf')
+                  
                   return (
                     <div
                       key={file._id}
@@ -201,7 +204,7 @@ export default function CourseDetail() {
                           : 'border-red-200 bg-red-50'
                       }`}
                     >
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between mb-3">
                         <div className="flex-1">
                           <h4 className="font-bold text-gray-800">{file.title}</h4>
                           <p className="text-sm text-gray-600">
@@ -212,15 +215,26 @@ export default function CourseDetail() {
 
                         <div className="flex items-center gap-2">
                           {canAccess ? (
-                            <a
-                              href={file.fileUrl}
-                              download
-                              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition"
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              📥 Download
-                            </a>
+                            isPDF ? (
+                              <a
+                                href={file.fileUrl}
+                                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition"
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                📥 Download
+                              </a>
+                            ) : (
+                              <a
+                                href={file.fileUrl}
+                                download
+                                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition"
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                📥 Download
+                              </a>
+                            )
                           ) : (
                             <>
                               <span className="text-sm text-red-700 font-bold">Locked</span>
@@ -231,6 +245,13 @@ export default function CourseDetail() {
                           )}
                         </div>
                       </div>
+
+                      {/* PDF Viewer - only show if user can access and file is PDF */}
+                      {canAccess && isPDF && (
+                        <div className="mt-4 border-t pt-4">
+                          <PDFViewer fileUrl={file.fileUrl} fileName={file.title} />
+                        </div>
+                      )}
                     </div>
                   )
                 })
