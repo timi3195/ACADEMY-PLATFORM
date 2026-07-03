@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
 
 // Set up PDF.js worker from CDN
@@ -9,6 +9,25 @@ export default function PDFViewer({ fileUrl, fileName }) {
   const [pageNumber, setPageNumber] = useState(1)
   const [scale, setScale] = useState(1)
   const [error, setError] = useState(null)
+  const [fileWithAuth, setFileWithAuth] = useState(null)
+
+  useEffect(() => {
+    // Prepare file object with authentication headers for protected routes
+    if (fileUrl) {
+      const token = localStorage.getItem('token')
+      const fileObj = {
+        url: fileUrl,
+        withCredentials: true
+      }
+      // Include auth header if token exists
+      if (token) {
+        fileObj.httpHeaders = {
+          'Authorization': `Bearer ${token}`
+        }
+      }
+      setFileWithAuth(fileObj)
+    }
+  }, [fileUrl])
 
   const onDocumentLoadSuccess = ({ numPages }) => {
     setNumPages(numPages)
@@ -134,19 +153,21 @@ export default function PDFViewer({ fileUrl, fileName }) {
       {/* PDF Viewer */}
       <div className="bg-white rounded-lg shadow-lg p-4 overflow-auto" style={{ maxHeight: '70vh' }}>
         <div className="flex justify-center">
-          <Document
-            file={fileUrl}
-            onLoadSuccess={onDocumentLoadSuccess}
-            onError={(error) => setError(error)}
-            loading={<p className="text-gray-600">Loading PDF...</p>}
-          >
-            <Page
-              pageNumber={pageNumber}
-              scale={scale}
-              renderTextLayer={true}
-              renderAnnotationLayer={true}
-            />
-          </Document>
+          {fileWithAuth && (
+            <Document
+              file={fileWithAuth}
+              onLoadSuccess={onDocumentLoadSuccess}
+              onError={(error) => setError(error)}
+              loading={<p className="text-gray-600">Loading PDF...</p>}
+            >
+              <Page
+                pageNumber={pageNumber}
+                scale={scale}
+                renderTextLayer={true}
+                renderAnnotationLayer={true}
+              />
+            </Document>
+          )}
         </div>
       </div>
 

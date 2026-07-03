@@ -36,7 +36,7 @@ router.post("/upload", protect, adminOnly, upload.single("file"), async (req, re
       title: req.body.title,
       course: req.body.course,
       isPremium,
-      fileUrl: `/api/files/download/${Date.now()}-${req.file.filename}`
+      fileUrl: `/api/files/download/${req.file.filename}`
     });
 
     res.json({
@@ -55,9 +55,26 @@ router.post("/upload", protect, adminOnly, upload.single("file"), async (req, re
 router.get('/download/:filename', protect, async (req, res) => {
   try {
     const filename = req.params.filename;
+    const filePath = path.join(uploadDir, filename);
     
+    // Check if file exists on server first
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({
+        success: false,
+        message: 'File not found on server'
+      });
+    }
+
     // Find the file in database
-    const file = await File.findOne({ fileUrl: `/api/files/download/${filename}` }).populate('course');
+    // Try exact match first, then try fallback for files with double timestamps
+    let file = await File.findOne({ fileUrl: `/api/files/download/${filename}` }).populate('course');
+    
+    // Fallback: if not found, try looking for files with double timestamp format
+    if (!file) {
+      // Try to find any file that ends with this filename (handles double timestamp case)
+      const allFiles = await File.find().populate('course');
+      file = allFiles.find(f => f.fileUrl?.endsWith(filename) || f.fileUrl?.endsWith(`-${filename}`));
+    }
     
     if (!file) {
       return res.status(404).json({
@@ -68,19 +85,26 @@ router.get('/download/:filename', protect, async (req, res) => {
 
     const User = require('../models/User');
     const user = req.user && req.user.id ? await User.findById(req.user.id).populate('department') : null;
+    const isPDF = filename.toLowerCase().endsWith('.pdf');
 
-    // Admin can download any file
+    // Admin can access any file
     if (user && user.role === 'admin') {
-      // Serve the file
-      const filePath = path.join(uploadDir, filename);
-      return res.download(filePath, file.title);
+      // For PDFs, serve inline; for other files, force download
+      if (isPDF) {
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', 'inline; filename="' + file.title + '"');
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        return res.sendFile(filePath);
+      } else {
+        return res.download(filePath, file.title);
+      }
     }
 
     // Check if user has course access
     if (!user || !user.department || !user.yearOfStudy) {
       return res.status(403).json({
         success: false,
-        message: 'Please complete your profile to download files'
+        message: 'Please complete your profile to access files'
       });
     }
 
@@ -101,27 +125,17 @@ router.get('/download/:filename', protect, async (req, res) => {
       if (!isPremium || !notExpired) {
         return res.status(403).json({
           success: false,
-          message: 'This file requires an active premium subscription to download'
+          message: 'This file requires an active premium subscription to access'
         });
       }
     }
 
-    // Serve the file
-    const filePath = path.join(uploadDir, filename);
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({
-        success: false,
-        message: 'File not found on server'
-      });
-    }
-
-    // Check if file is PDF - if so, serve inline for viewing; otherwise, force download
-    const isPDF = filename.toLowerCase().endsWith('.pdf');
-    
+    // For PDFs, serve inline for viewing; for other files, force download
     if (isPDF) {
       // Serve PDF inline for browser viewing
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', 'inline; filename="' + file.title + '"');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
       res.sendFile(filePath);
     } else {
       // Force download for non-PDF files
