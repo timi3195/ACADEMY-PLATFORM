@@ -27,23 +27,40 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-// Upload file
+// Upload file - admin only
 router.post("/upload", protect, adminOnly, upload.single("file"), async (req, res) => {
   try {
     const isPremium = req.body.isPremium === 'true' || req.body.isPremium === 'on' || req.body.isPremium === true;
+
+    // Validate course exists
+    const Course = require("../models/course");
+    const course = await Course.findById(req.body.course);
+    if (!course) {
+      return res.status(404).json({
+        success: false,
+        message: 'Course not found. Please select a valid course.'
+      });
+    }
+
+    console.log(`📤 Uploading file "${req.body.title}" to course "${course.title}" (Dept: ${course.department})`);
 
     const newFile = await File.create({
       title: req.body.title,
       course: req.body.course,
       isPremium,
-      fileUrl: `/api/files/download/${req.file.filename}`
+      fileUrl: `/api/files/download/${req.file.filename}`,
+      uploadedAt: new Date()
     });
+
+    console.log(`✅ File uploaded successfully. Will be visible to students in ${course.title}`);
 
     res.json({
       success: true,
-      file: newFile
+      file: newFile,
+      message: `Material uploaded successfully and is now available to students in ${course.title}`
     });
   } catch (err) {
+    console.error('❌ File upload error:', err.message);
     res.status(500).json({
       success: false,
       message: err.message

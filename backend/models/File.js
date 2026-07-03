@@ -19,12 +19,9 @@ const fileSchema = new mongoose.Schema({
   isPremium: {
     type: Boolean,
     default: false
-  },
-
-  uploadedAt: {
-    type: Date,
-    default: Date.now
   }
+}, {
+  timestamps: true  // Automatically adds createdAt and updatedAt
 });
 
 module.exports = mongoose.models.File || mongoose.model("File", fileSchema);
