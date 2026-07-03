@@ -14,8 +14,8 @@ export default function PDFViewer({ fileUrl, fileName }) {
   useEffect(() => {
     // Prepare file object with authentication headers for protected routes
     if (fileUrl) {
-      // Try both token and accessToken (accessToken is the correct key used by api.js)
-      const token = localStorage.getItem('accessToken') || localStorage.getItem('token')
+      const token = localStorage.getItem('accessToken')
+      console.log('📄 PDFViewer: Setting up file', { fileUrl, hasToken: !!token })
       const fileObj = {
         url: fileUrl,
         withCredentials: true
@@ -25,6 +25,9 @@ export default function PDFViewer({ fileUrl, fileName }) {
         fileObj.httpHeaders = {
           'Authorization': `Bearer ${token}`
         }
+        console.log('✅ PDFViewer: Auth token added to headers')
+      } else {
+        console.warn('⚠️ PDFViewer: No auth token found in localStorage.accessToken')
       }
       setFileWithAuth(fileObj)
     }
@@ -59,7 +62,8 @@ export default function PDFViewer({ fileUrl, fileName }) {
     return (
       <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
         <p className="text-red-700 font-semibold mb-4">Error loading PDF</p>
-        <p className="text-red-600 text-sm mb-4">{error.message}</p>
+        <p className="text-red-600 text-sm mb-2">{error.message}</p>
+        <p className="text-red-500 text-xs mb-4">Error details: {JSON.stringify(error)}</p>
         <a
           href={fileUrl}
           download
@@ -158,10 +162,7 @@ export default function PDFViewer({ fileUrl, fileName }) {
             <Document
               file={fileWithAuth}
               onLoadSuccess={onDocumentLoadSuccess}
-              onError={(error) => {
-                console.error('PDF load error:', error)
-                setError(error)
-              }}
+              onError={(error) => setError(error)}
               loading={<p className="text-gray-600">Loading PDF...</p>}
             >
               <Page
@@ -171,8 +172,6 @@ export default function PDFViewer({ fileUrl, fileName }) {
                 renderAnnotationLayer={true}
               />
             </Document>
-          ) || (
-            <p className="text-gray-500 text-center py-8">Loading PDF viewer...</p>
           )}
         </div>
       </div>

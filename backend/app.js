@@ -59,15 +59,18 @@ app.use((req,res,next)=>{
 app.use(express.json());
 
 // Middleware to serve PDFs inline instead of forcing download
-app.use("/uploads", (req, res, next) => {
-  // Set headers for inline PDF viewing
-  if (req.path.toLowerCase().endsWith('.pdf')) {
+app.use((req, res, next) => {
+  // Check if request is for a PDF file
+  if (req.path.endsWith('.pdf')) {
+    res.setHeader('Content-Disposition', 'inline; filename="document.pdf"');
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'inline');
   }
   next();
-}, express.static("uploads"));
+});
 
+// Serve uploads for backward compatibility with existing files
+// New files use protected endpoint: /api/files/download/:filename
+app.use("/uploads", express.static("uploads"));
 app.use(express.urlencoded({ extended: true }));
 
 // handle malformed JSON body errors gracefully
