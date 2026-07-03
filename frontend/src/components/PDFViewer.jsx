@@ -14,7 +14,8 @@ export default function PDFViewer({ fileUrl, fileName }) {
   useEffect(() => {
     // Prepare file object with authentication headers for protected routes
     if (fileUrl) {
-      const token = localStorage.getItem('token')
+      // Try both token and accessToken (accessToken is the correct key used by api.js)
+      const token = localStorage.getItem('accessToken') || localStorage.getItem('token')
       const fileObj = {
         url: fileUrl,
         withCredentials: true
@@ -157,7 +158,10 @@ export default function PDFViewer({ fileUrl, fileName }) {
             <Document
               file={fileWithAuth}
               onLoadSuccess={onDocumentLoadSuccess}
-              onError={(error) => setError(error)}
+              onError={(error) => {
+                console.error('PDF load error:', error)
+                setError(error)
+              }}
               loading={<p className="text-gray-600">Loading PDF...</p>}
             >
               <Page
@@ -167,6 +171,8 @@ export default function PDFViewer({ fileUrl, fileName }) {
                 renderAnnotationLayer={true}
               />
             </Document>
+          ) || (
+            <p className="text-gray-500 text-center py-8">Loading PDF viewer...</p>
           )}
         </div>
       </div>
