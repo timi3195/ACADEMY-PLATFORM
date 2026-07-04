@@ -67,7 +67,14 @@ export default function CourseDetail() {
     }
   }
 
+  // Use the 'accessible' field from backend if available (already calculated server-side)
+  // Otherwise fall back to client-side calculation
   const canAccessMaterial = (file) => {
+    // Backend already calculated this - use it if available
+    if ('accessible' in file) {
+      return file.accessible
+    }
+    // Fallback: client-side calculation
     if (!file.isPremium) return true
     if (!user) return false
     if (user.role === 'admin') return true

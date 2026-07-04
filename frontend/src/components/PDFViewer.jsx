@@ -34,8 +34,14 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload 
   }, [fileUrl])
 
   const onDocumentLoadSuccess = ({ numPages }) => {
+    console.log(`✅ PDF loaded successfully with ${numPages} pages`)
     setNumPages(numPages)
     setPageNumber(1)
+  }
+
+  const onDocumentLoadError = (error) => {
+    console.error('❌ PDF load error:', error)
+    setError(error)
   }
 
   const goToPreviousPage = () => {
@@ -59,26 +65,33 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload 
   }
 
   if (error) {
+    const isAuthError = error.message && (error.message.includes('403') || error.message.includes('unauthorized') || error.message.includes('premium') || error.message.includes('subscription'));
+    
     return (
       <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
-        <p className="text-red-700 font-semibold mb-4">Error loading PDF</p>
-        <p className="text-red-600 text-sm mb-2">{error.message}</p>
-        <p className="text-red-500 text-xs mb-4">Error details: {JSON.stringify(error)}</p>
-        {downloadUrl ? (
-          <a
-            href={downloadUrl}
-            className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition"
-          >
-            Download Instead
-          </a>
-        ) : (
-          <a
-            href={fileUrl}
-            className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition"
-          >
-            Open Link
-          </a>
+        <p className="text-red-700 font-semibold mb-4">❌ Cannot Load PDF</p>
+        <p className="text-red-600 text-sm mb-2">{error.message || 'Failed to load the PDF file'}</p>
+        {isAuthError && (
+          <p className="text-amber-600 text-sm mb-4 font-semibold">💡 This may require a premium subscription to access</p>
         )}
+        <div className="flex gap-2 justify-center flex-wrap">
+          {downloadUrl && (
+            <a
+              href={downloadUrl}
+              className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition"
+            >
+              📥 Try Direct Download
+            </a>
+          )}
+          {!downloadUrl && fileUrl && (
+            <a
+              href={fileUrl}
+              className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition"
+            >
+              🔗 Open Link
+            </a>
+          )}
+        </div>
       </div>
     )
   }
@@ -171,8 +184,8 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload 
             <Document
               file={fileWithAuth}
               onLoadSuccess={onDocumentLoadSuccess}
-              onError={(error) => setError(error)}
-              loading={<p className="text-gray-600">Loading PDF...</p>}
+              onError={onDocumentLoadError}
+              loading={<p className="text-gray-600">📄 Loading PDF...</p>}
             >
               <Page
                 pageNumber={pageNumber}

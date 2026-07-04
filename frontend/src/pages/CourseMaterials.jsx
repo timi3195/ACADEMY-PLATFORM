@@ -93,10 +93,12 @@ export default function CourseMaterials() {
       ) : (
         <div className="space-y-4">
           {files.map(f => {
+            // Use backend 'accessible' field if available
+            const isAccessible = 'accessible' in f ? f.accessible : true
             const canDownload = user && (user.role === 'admin' || ((user.plan === 'premium' || user.subscriptionType === 'premium') && (!user.subscriptionExpiresAt || new Date(user.subscriptionExpiresAt) > new Date())));
-            const isPDF = f.title?.toLowerCase().endsWith('.pdf') || f.fileUrl?.toLowerCase().includes('.pdf') || f.originalName?.toLowerCase?.().endsWith?.('.pdf')
+            const isPDF = f.title?.toLowerCase().endsWith('.pdf') || f.originalName?.toLowerCase?.().endsWith?.('.pdf')
             return (
-              <div key={f._id} className={`p-4 rounded-lg border ${f.accessible ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}>
+              <div key={f._id} className={`p-4 rounded-lg border ${isAccessible ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}>
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <h3 className="font-semibold">{f.title}</h3>
@@ -104,7 +106,7 @@ export default function CourseMaterials() {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {f.accessible ? (
+                    {isAccessible ? (
                       !isPDF && (
                         (canDownload ? (
                           <a href={`/api/files/download/${f._id}`} className="bg-blue-600 text-white px-3 py-2 rounded" target="_blank" rel="noreferrer">Download</a>
@@ -122,7 +124,7 @@ export default function CourseMaterials() {
                 </div>
 
                 {/* PDF Viewer - embedded for inline viewing */}
-                {f.accessible && isPDF && (
+                {isAccessible && isPDF && (
                   <div className="mt-3">
                     <PDFViewer fileUrl={f.fileUrl} fileName={f.title} downloadUrl={`/api/files/download/${f._id}`} canDownload={canDownload} />
                   </div>

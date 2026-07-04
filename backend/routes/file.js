@@ -92,6 +92,7 @@ const getMimeType = (filename) => {
 }
 
 // New view route - streams file inline after permission checks
+// Allows: Free users can view free materials, premium users can view all materials
 router.get('/view/:id', protect, async (req, res) => {
   try {
     const id = req.params.id;
@@ -101,8 +102,13 @@ router.get('/view/:id', protect, async (req, res) => {
     const User = require('../models/User');
     const user = req.user && req.user.id ? await User.findById(req.user.id).populate('department') : null;
 
+    console.log(`📖 View file ${id}: isPremium=${file.isPremium}, userId=${user?._id}`);
+
     // Admin can view any file
-    if (!(user && user.role === 'admin')) {
+    if (user && user.role === 'admin') {
+      console.log(`✅ Admin viewing file ${id}`);
+    } else {
+      // Non-admin: check profile, department, and premium status
       if (!user || !user.department || !user.yearOfStudy) {
         return res.status(403).json({ success: false, message: 'Please complete your profile to access files' });
       }
@@ -112,14 +118,18 @@ router.get('/view/:id', protect, async (req, res) => {
         return res.status(403).json({ success: false, message: 'You do not have access to this course' });
       }
 
+      // If file is premium, user must have active premium subscription
       if (file.isPremium) {
         const isPremium = user && ((user.plan && user.plan === 'premium') || (user.subscriptionType && user.subscriptionType === 'premium'));
         const now = new Date();
         const notExpired = !user.subscriptionExpiresAt ? false : (new Date(user.subscriptionExpiresAt) > now);
+        
         if (!isPremium || !notExpired) {
-          return res.status(403).json({ success: false, message: 'This file requires an active premium subscription to access' });
+          console.log(`❌ Premium file access denied: isPremium=${isPremium}, notExpired=${notExpired}`);
+          return res.status(403).json({ success: false, message: 'This material requires an active premium subscription to access' });
         }
       }
+      console.log(`✅ User viewing file ${id}`);
     }
 
     // Stream the file from storage
@@ -159,25 +169,33 @@ router.get('/download/:id', protect, async (req, res) => {
     const User = require('../models/User');
     const user = req.user && req.user.id ? await User.findById(req.user.id).populate('department') : null;
 
+    console.log(`📥 Download request for file ${id}, user ${user?._id}`);
+
     // Admin may always download
-    if (!(user && user.role === 'admin')) {
-      // Check basic profile and course access
+    if (user && user.role === 'admin') {
+      console.log(`✅ Admin download approved for file ${id}`);
+    } else {
+      // Non-admin: require profile
       if (!user || !user.department || !user.yearOfStudy) {
         return res.status(403).json({ success: false, message: 'Please complete your profile to download files' });
       }
 
+      // Non-admin: require course access
       const course = file.course;
       if (user.department._id.toString() !== course.department._id.toString() || user.yearOfStudy !== course.level) {
         return res.status(403).json({ success: false, message: 'You do not have access to this course' });
       }
 
-      // Only premium users may download
+      // Non-admin: MUST be premium to download (any file)
       const isPremium = user && ((user.plan && user.plan === 'premium') || (user.subscriptionType && user.subscriptionType === 'premium'));
       const now = new Date();
       const notExpired = !user.subscriptionExpiresAt ? false : (new Date(user.subscriptionExpiresAt) > now);
+      
       if (!isPremium || !notExpired) {
-        return res.status(403).json({ success: false, message: 'Downloading this file requires an active premium subscription' });
+        console.log(`❌ Download denied for file ${id}: isPremium=${isPremium}, notExpired=${notExpired}`);
+        return res.status(403).json({ success: false, message: 'Only premium members can download materials. Upgrade your plan to download.' });
       }
+      console.log(`✅ Premium user download approved for file ${id}`);
     }
 
     const storageName = file.storageFilename;
