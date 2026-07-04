@@ -193,8 +193,10 @@ export default function CourseDetail() {
               ) : (
                 materials.map(file => {
                   const canAccess = canAccessMaterial(file)
-                  const isPDF = file.fileUrl?.toLowerCase().endsWith('.pdf') || file.fileUrl?.includes('.pdf')
+                  const isPDF = file.title?.toLowerCase().endsWith('.pdf') || (file.originalName && file.originalName.toLowerCase().endsWith('.pdf'))
                   
+                  const canDownload = (user && (user.role === 'admin' || (user.plan === 'premium' || user.subscriptionType === 'premium') && (!user.subscriptionExpiresAt || new Date(user.subscriptionExpiresAt) > new Date())));
+
                   return (
                     <div
                       key={file._id}
@@ -216,15 +218,18 @@ export default function CourseDetail() {
                         <div className="flex items-center gap-2">
                           {canAccess ? (
                             !isPDF && (
-                              <a
-                                href={file.fileUrl}
-                                download
-                                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition"
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                📥 Download
-                              </a>
+                              (canDownload ? (
+                                <a
+                                  href={`/api/files/download/${file._id}`}
+                                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition"
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  📥 Download
+                                </a>
+                              ) : (
+                                <Link to="/upgrade" className="bg-yellow-400 hover:bg-yellow-500 text-yellow-900 px-4 py-2 rounded-lg transition font-bold">⭐ Upgrade to Download</Link>
+                              ))
                             )
                           ) : (
                             <>
@@ -240,7 +245,7 @@ export default function CourseDetail() {
                       {/* PDF Viewer - embedded for inline viewing */}
                       {canAccess && isPDF && (
                         <div className="mt-4">
-                          <PDFViewer fileUrl={file.fileUrl} fileName={file.title} />
+                          <PDFViewer fileUrl={file.fileUrl} fileName={file.title} downloadUrl={`/api/files/download/${file._id}`} canDownload={canDownload} />
                         </div>
                       )}
                     </div>

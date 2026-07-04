@@ -11,6 +11,16 @@ const fileSchema = new mongoose.Schema({
     required: true
   },
 
+  // The actual filename stored on disk (server-side). Keeps storage details out of public URLs.
+  storageFilename: {
+    type: String
+  },
+
+  // Original uploaded filename
+  originalName: {
+    type: String
+  },
+
   course: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Course"

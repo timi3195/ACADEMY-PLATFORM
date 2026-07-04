@@ -4,7 +4,7 @@ import { Document, Page, pdfjs } from 'react-pdf'
 // Set up PDF.js worker from CDN
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`
 
-export default function PDFViewer({ fileUrl, fileName }) {
+export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload }) {
   const [numPages, setNumPages] = useState(null)
   const [pageNumber, setPageNumber] = useState(1)
   const [scale, setScale] = useState(1)
@@ -64,13 +64,21 @@ export default function PDFViewer({ fileUrl, fileName }) {
         <p className="text-red-700 font-semibold mb-4">Error loading PDF</p>
         <p className="text-red-600 text-sm mb-2">{error.message}</p>
         <p className="text-red-500 text-xs mb-4">Error details: {JSON.stringify(error)}</p>
-        <a
-          href={fileUrl}
-          download
-          className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition"
-        >
-          Download Instead
-        </a>
+        {downloadUrl ? (
+          <a
+            href={downloadUrl}
+            className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition"
+          >
+            Download Instead
+          </a>
+        ) : (
+          <a
+            href={fileUrl}
+            className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition"
+          >
+            Open Link
+          </a>
+        )}
       </div>
     )
   }
@@ -144,14 +152,15 @@ export default function PDFViewer({ fileUrl, fileName }) {
         </div>
 
         <div>
-          <a
-            href={fileUrl}
-            download={fileName || 'document.pdf'}
-            className="inline-block px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition text-sm font-semibold"
-            title="Download PDF"
-          >
-            📥 Download
-          </a>
+          {canDownload && downloadUrl && (
+            <a
+              href={downloadUrl}
+              className="inline-block px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition text-sm font-semibold"
+              title="Download PDF"
+            >
+              📥 Download
+            </a>
+          )}
         </div>
       </div>
 

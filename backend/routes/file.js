@@ -44,19 +44,26 @@ router.post("/upload", protect, adminOnly, upload.single("file"), async (req, re
 
     console.log(`📤 Uploading file "${req.body.title}" to course "${course.title}" (Dept: ${course.department})`);
 
-    const newFile = await File.create({
+    // Persist metadata (store server-side filename separately)
+    const created = await File.create({
       title: req.body.title,
       course: req.body.course,
       isPremium,
-      fileUrl: `/api/files/download/${req.file.filename}`,
+      fileUrl: '',
+      storageFilename: req.file.filename,
+      originalName: req.file.originalname,
       uploadedAt: new Date()
     });
 
-    console.log(`✅ File uploaded successfully. Will be visible to students in ${course.title}`);
+    // Expose a safe view URL that streams through the backend by file id
+    created.fileUrl = `/api/files/view/${created._id}`;
+    await created.save();
+
+    console.log(`✅ File uploaded successfully (id=${created._id}). Will be visible to students in ${course.title}`);
 
     res.json({
       success: true,
-      file: newFile,
+      file: created,
       message: `Material uploaded successfully and is now available to students in ${course.title}`
     });
   } catch (err) {
@@ -65,6 +72,121 @@ router.post("/upload", protect, adminOnly, upload.single("file"), async (req, re
       success: false,
       message: err.message
     });
+  }
+});
+
+// Helper: simple mime lookup for common types
+const getMimeType = (filename) => {
+  const ext = path.extname(filename || '').toLowerCase();
+  switch (ext) {
+    case '.pdf': return 'application/pdf';
+    case '.png': return 'image/png';
+    case '.jpg':
+    case '.jpeg': return 'image/jpeg';
+    case '.gif': return 'image/gif';
+    case '.mp4': return 'video/mp4';
+    case '.docx': return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    case '.pptx': return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+    default: return 'application/octet-stream';
+  }
+}
+
+// New view route - streams file inline after permission checks
+router.get('/view/:id', protect, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const file = await File.findById(id).populate('course');
+    if (!file) return res.status(404).json({ success: false, message: 'File not found' });
+
+    const User = require('../models/User');
+    const user = req.user && req.user.id ? await User.findById(req.user.id).populate('department') : null;
+
+    // Admin can view any file
+    if (!(user && user.role === 'admin')) {
+      if (!user || !user.department || !user.yearOfStudy) {
+        return res.status(403).json({ success: false, message: 'Please complete your profile to access files' });
+      }
+
+      const course = file.course;
+      if (user.department._id.toString() !== course.department._id.toString() || user.yearOfStudy !== course.level) {
+        return res.status(403).json({ success: false, message: 'You do not have access to this course' });
+      }
+
+      if (file.isPremium) {
+        const isPremium = user && ((user.plan && user.plan === 'premium') || (user.subscriptionType && user.subscriptionType === 'premium'));
+        const now = new Date();
+        const notExpired = !user.subscriptionExpiresAt ? false : (new Date(user.subscriptionExpiresAt) > now);
+        if (!isPremium || !notExpired) {
+          return res.status(403).json({ success: false, message: 'This file requires an active premium subscription to access' });
+        }
+      }
+    }
+
+    // Stream the file from storage
+    const storageName = file.storageFilename;
+    const filePath = path.join(uploadDir, storageName);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ success: false, message: 'File missing on server' });
+
+    const mimeType = getMimeType(storageName || file.originalName || file.title);
+    res.setHeader('Content-Type', mimeType);
+    // Inline display for PDFs and common web types
+    if (mimeType === 'application/pdf' || mimeType.startsWith('image/') || mimeType.startsWith('video/')) {
+      res.setHeader('Content-Disposition', `inline; filename="${file.originalName || file.title}"`);
+    } else {
+      // For other types allow inline viewing where supported
+      res.setHeader('Content-Disposition', `inline; filename="${file.originalName || file.title}"`);
+    }
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+
+    const stream = fs.createReadStream(filePath);
+    stream.on('error', (err) => {
+      console.error('Stream error', err);
+      res.status(500).end('Server error streaming file');
+    });
+    stream.pipe(res);
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Download route by file id - only premium users or admin can download
+router.get('/download/:id', protect, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const file = await File.findById(id).populate('course');
+    if (!file) return res.status(404).json({ success: false, message: 'File not found' });
+
+    const User = require('../models/User');
+    const user = req.user && req.user.id ? await User.findById(req.user.id).populate('department') : null;
+
+    // Admin may always download
+    if (!(user && user.role === 'admin')) {
+      // Check basic profile and course access
+      if (!user || !user.department || !user.yearOfStudy) {
+        return res.status(403).json({ success: false, message: 'Please complete your profile to download files' });
+      }
+
+      const course = file.course;
+      if (user.department._id.toString() !== course.department._id.toString() || user.yearOfStudy !== course.level) {
+        return res.status(403).json({ success: false, message: 'You do not have access to this course' });
+      }
+
+      // Only premium users may download
+      const isPremium = user && ((user.plan && user.plan === 'premium') || (user.subscriptionType && user.subscriptionType === 'premium'));
+      const now = new Date();
+      const notExpired = !user.subscriptionExpiresAt ? false : (new Date(user.subscriptionExpiresAt) > now);
+      if (!isPremium || !notExpired) {
+        return res.status(403).json({ success: false, message: 'Downloading this file requires an active premium subscription' });
+      }
+    }
+
+    const storageName = file.storageFilename;
+    const filePath = path.join(uploadDir, storageName);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ success: false, message: 'File missing on server' });
+
+    return res.download(filePath, file.originalName || file.title);
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
@@ -175,10 +297,14 @@ const getFilesHandler = async (req, res) => {
     // Admin sees all files
     if (user && user.role === 'admin') {
       const files = await File.find().populate("course");
-      return res.json({
-        success: true,
-        files
-      });
+      const mapped = files.map(f => ({
+        _id: f._id,
+        title: f.title,
+        fileUrl: `/api/files/view/${f._id}`,
+        isPremium: f.isPremium,
+        createdAt: f.createdAt
+      }));
+      return res.json({ success: true, files: mapped });
     }
 
     // Students only see files from their department and year
@@ -191,15 +317,15 @@ const getFilesHandler = async (req, res) => {
         level: user.yearOfStudy
       }).select('_id');
       
-      const files = await File.find({
-        course: { $in: courseIds.map(c => c._id) }
-      }).populate("course");
-
-      return res.json({
-        success: true,
-        files,
-        filterApplied: true
-      });
+      const files = await File.find({ course: { $in: courseIds.map(c => c._id) } }).populate("course");
+      const mapped = files.map(f => ({
+        _id: f._id,
+        title: f.title,
+        fileUrl: `/api/files/view/${f._id}`,
+        isPremium: f.isPremium,
+        createdAt: f.createdAt
+      }));
+      return res.json({ success: true, files: mapped, filterApplied: true });
     }
 
     // If no profile info, return empty
@@ -261,7 +387,7 @@ router.get('/course/:courseId', protect, async (req, res) => {
       return {
         _id: f._id,
         title: f.title,
-        fileUrl: f.fileUrl,
+        fileUrl: `/api/files/view/${f._id}`,
         isPremium: f.isPremium,
         accessible,
         createdAt: f.createdAt
@@ -289,10 +415,14 @@ router.get("/admin/all", protect, async (req, res) => {
     }
     
     const files = await File.find().populate("course");
-    res.json({
-      success: true,
-      files
-    });
+    const mapped = files.map(f => ({
+      _id: f._id,
+      title: f.title,
+      fileUrl: `/api/files/view/${f._id}`,
+      isPremium: f.isPremium,
+      createdAt: f.createdAt
+    }));
+    res.json({ success: true, files: mapped });
   } catch (err) {
     res.status(500).json({
       success: false,

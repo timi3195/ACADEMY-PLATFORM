@@ -1,0 +1,633 @@
+[
+  {
+    "_id": "6a0eaf1a896fa8fa368fbebd",
+    "name": "Test User",
+    "email": "test@gmail.com",
+    "plan": "free",
+    "devices": [],
+    "createdAt": "2026-05-21T07:07:06.453Z",
+    "updatedAt": "2026-05-21T07:07:06.453Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a0ebd8d6b0b74135bcb6957",
+    "name": "Adegbite Timilehin",
+    "email": "timilehinadegbite0@gmail.com",
+    "googleId": "117839002373976093266",
+    "plan": "premium",
+    "devices": [],
+    "createdAt": "2026-05-21T08:08:45.732Z",
+    "updatedAt": "2026-07-03T09:17:50.096Z",
+    "__v": 10,
+    "authProvider": "email",
+    "coursesEnrolled": [],
+    "emailVerified": true,
+    "quizzesAttempted": [],
+    "refreshTokens": [
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMGViZDhkNmIwYjc0MTM1YmNiNjk1NyIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzgwOTI4MzI5LCJleHAiOjE3ODM1MjAzMjl9.otzZPwJn5MdG8NrZjTbZcDVT6krO8efSL_ZHttsD8M4",
+        "_id": "6a26cf49392b78af2a972b90",
+        "createdAt": "2026-06-08T14:18:49.739Z"
+      },
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMGViZDhkNmIwYjc0MTM1YmNiNjk1NyIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzgxNzk1OTk0LCJleHAiOjE3ODQzODc5OTR9.tr6DVIEUGDjx_L8MH6zrMCA_W447i-XnRe3-2cXzXSA",
+        "_id": "6a340c9a6b112c2dc8c21c6a",
+        "createdAt": "2026-06-18T15:19:54.921Z"
+      },
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMGViZDhkNmIwYjc0MTM1YmNiNjk1NyIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzgxNzk2OTUyLCJleHAiOjE3ODQzODg5NTJ9.PaLRcKgJ4JBvrVyVAO6-0mS_uF_k1kXm3YFq_v5LTEo",
+        "_id": "6a3410586b112c2dc8c21caf",
+        "createdAt": "2026-06-18T15:35:52.413Z"
+      },
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMGViZDhkNmIwYjc0MTM1YmNiNjk1NyIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzgzMDY3Mjk3LCJleHAiOjE3ODU2NTkyOTd9._LEKVpsZ8wrpUR-aTD3dISVYxWw5qI1gw3CRaCi4mjs",
+        "_id": "6a4772a1a36db011f334dcc3",
+        "createdAt": "2026-07-03T08:28:17.671Z"
+      },
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMGViZDhkNmIwYjc0MTM1YmNiNjk1NyIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzgzMDcwMjcwLCJleHAiOjE3ODU2NjIyNzB9.Xr--xuc2Ph08kK1W0YkK9XiliCGLu7kNJ41b-Yiozkw",
+        "_id": "6a477e3e1289f91724116196",
+        "createdAt": "2026-07-03T09:17:50.093Z"
+      }
+    ],
+    "resetPasswordExpires": null,
+    "resetPasswordToken": null,
+    "role": "student",
+    "subscriptionType": "free",
+    "password": "$2b$10$1dzZnd3PGdp9LtlwBv2KWuT2ATP69PIiWyiOR1EqXO3ZutFBQziQW",
+    "lastLogin": "2026-07-03T09:17:50.093Z",
+    "aiUsage": {
+      "lastResetDate": "2026-06-18T15:19:54.505Z",
+      "messagesThisMonth": 0,
+      "notesProcessedThisMonth": 0,
+      "questionsExplainedThisMonth": 0
+    },
+    "preferences": {
+      "notificationSettings": {
+        "dailyReminders": true,
+        "newResourcesNotification": true,
+        "performanceAlerts": true
+      },
+      "preferredLearningStyle": "mixed",
+      "studyHoursPerDay": 2,
+      "targetGPA": 3
+    },
+    "subscriptionFeatures": {
+      "aiChatMessages": 50,
+      "analyticsAccess": false,
+      "learningPathsPerCourse": 1,
+      "notesPerMonth": 5
+    }
+  },
+  {
+    "_id": "6a0edb76994202f21f798d9f",
+    "name": "Test User",
+    "email": "test@example.com",
+    "plan": "free",
+    "devices": [],
+    "createdAt": "2026-05-21T10:16:22.839Z",
+    "updatedAt": "2026-05-21T10:16:22.839Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a10474ae6a5ba8bbcc3ba9b",
+    "name": "Anonymous",
+    "email": "adegbitepelumi1@gmail.com",
+    "plan": "premium",
+    "devices": [],
+    "createdAt": "2026-05-22T12:08:42.099Z",
+    "updatedAt": "2026-05-22T12:30:03.976Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a14a03309276564f394ad3c",
+    "name": "Anonymous",
+    "email": "adegbitechristianna12@gmail.com",
+    "plan": "free",
+    "devices": [],
+    "subscriptionType": "free",
+    "subscriptionSemester": null,
+    "subscriptionExpiresAt": null,
+    "createdAt": "2026-05-25T19:17:07.271Z",
+    "updatedAt": "2026-05-25T19:17:07.271Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a14aaffb5d466fc65d32a8b",
+    "name": "Anonymous",
+    "email": "adegbitetrmmy@gmail.com",
+    "plan": "free",
+    "devices": [],
+    "subscriptionType": "free",
+    "subscriptionSemester": null,
+    "subscriptionExpiresAt": null,
+    "role": "student",
+    "department": null,
+    "coursesEnrolled": [],
+    "quizzesAttempted": [],
+    "createdAt": "2026-05-25T20:03:11.235Z",
+    "updatedAt": "2026-05-25T20:03:11.235Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a15d289461d31e8a4b3f002",
+    "name": "Micheal Levit",
+    "email": "alatiseabass79@gmail.com",
+    "password": "$2b$10$pfTjDPkf89NkDKSYS0UUN.bFtuMLeShgnsvCv6H3mPl/psU8BzQV.",
+    "googleId": null,
+    "authProvider": "email",
+    "emailVerified": false,
+    "emailVerificationToken": "822a47d627e5a2000ffd792d501a58faf38a9093b6d7dd04041ea19e380179fb",
+    "emailVerificationExpires": "2026-05-27T17:10:32.085Z",
+    "resetPasswordToken": null,
+    "resetPasswordExpires": null,
+    "plan": "free",
+    "subscriptionType": "free",
+    "subscriptionSemester": null,
+    "subscriptionExpiresAt": null,
+    "role": "student",
+    "department": null,
+    "coursesEnrolled": [],
+    "quizzesAttempted": [],
+    "lastLogin": null,
+    "devices": [],
+    "refreshTokens": [],
+    "createdAt": "2026-05-26T17:04:09.779Z",
+    "updatedAt": "2026-05-26T17:10:32.093Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a1e13574efa6da4cde8a0de",
+    "name": "Test User",
+    "email": "testuser@example.com",
+    "password": "$2b$10$oPphi0X8dQYD5VnAOyypR.VgGSgbDx0144uLjLuzJbBVAF/E08uCW",
+    "googleId": null,
+    "authProvider": "email",
+    "emailVerified": false,
+    "emailVerificationToken": "e8218ecca747fa323cf71e5b8979811473ae20080304d651e7f67379fb776cd8",
+    "emailVerificationExpires": "2026-06-02T23:18:47.950Z",
+    "resetPasswordToken": null,
+    "resetPasswordExpires": null,
+    "plan": "free",
+    "subscriptionType": "free",
+    "subscriptionSemester": null,
+    "subscriptionExpiresAt": null,
+    "role": "student",
+    "department": null,
+    "coursesEnrolled": [],
+    "quizzesAttempted": [],
+    "lastLogin": null,
+    "devices": [],
+    "refreshTokens": [],
+    "createdAt": "2026-06-01T23:18:47.957Z",
+    "updatedAt": "2026-06-01T23:18:47.957Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a1e13cd46da7dec5a156a41",
+    "name": "Demo User",
+    "email": "demo@test.com",
+    "password": "$2b$10$phgdpGP8rJTKaUdA0muqcuoGO8jDPnW7gHGmd7QvY4cQDCPhLvAqu",
+    "googleId": null,
+    "authProvider": "email",
+    "emailVerified": true,
+    "emailVerificationToken": null,
+    "emailVerificationExpires": null,
+    "resetPasswordToken": null,
+    "resetPasswordExpires": null,
+    "plan": "free",
+    "subscriptionType": "free",
+    "subscriptionSemester": null,
+    "subscriptionExpiresAt": null,
+    "role": "student",
+    "department": null,
+    "coursesEnrolled": [],
+    "quizzesAttempted": [],
+    "lastLogin": "2026-06-01T23:21:03.887Z",
+    "devices": [],
+    "refreshTokens": [],
+    "createdAt": "2026-06-01T23:20:45.041Z",
+    "updatedAt": "2026-06-01T23:26:50.969Z",
+    "__v": 2
+  },
+  {
+    "_id": "6a1e16c146da7dec5a156a45",
+    "name": "John Doe",
+    "email": "johnyu@gmail.com",
+    "password": "$2b$10$8Nt1tGmTw6ptajyGBRutU.zwUtTDCiQdWP8058I.hrCpzmqtd8hlq",
+    "googleId": null,
+    "authProvider": "email",
+    "emailVerified": true,
+    "emailVerificationToken": null,
+    "emailVerificationExpires": null,
+    "resetPasswordToken": null,
+    "resetPasswordExpires": null,
+    "plan": "free",
+    "subscriptionType": "free",
+    "subscriptionSemester": null,
+    "subscriptionExpiresAt": null,
+    "role": "student",
+    "department": null,
+    "coursesEnrolled": [],
+    "quizzesAttempted": [],
+    "lastLogin": "2026-06-01T23:34:26.410Z",
+    "devices": [],
+    "refreshTokens": [],
+    "createdAt": "2026-06-01T23:33:21.203Z",
+    "updatedAt": "2026-06-03T20:46:42.917Z",
+    "__v": 2
+  },
+  {
+    "_id": "6a20930dd139a885aac4a26e",
+    "name": "test user",
+    "email": "testuser@gmail.com",
+    "password": "$2b$10$XHeRJH/rGtS0kntkeQX5F.xubufiF4jLvCgsa7xMyQGKuik.c2ecG",
+    "googleId": null,
+    "authProvider": "email",
+    "emailVerified": true,
+    "emailVerificationToken": null,
+    "emailVerificationExpires": null,
+    "resetPasswordToken": null,
+    "resetPasswordExpires": null,
+    "plan": "free",
+    "subscriptionType": "free",
+    "subscriptionSemester": null,
+    "subscriptionExpiresAt": null,
+    "role": "admin",
+    "department": null,
+    "coursesEnrolled": [],
+    "quizzesAttempted": [],
+    "lastLogin": "2026-07-03T08:37:44.052Z",
+    "devices": [],
+    "refreshTokens": [
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMjA5MzBkZDEzOWE4ODVhYWM0YTI2ZSIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzgyMjI3OTg0LCJleHAiOjE3ODQ4MTk5ODR9._cNoMkKmlkVj1vMHQKwwP9yHjnu7NUdZIsy3z7BDIKA",
+        "_id": "6a3aa410e38a16b6ac5f420c",
+        "createdAt": "2026-06-23T15:19:44.767Z"
+      },
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMjA5MzBkZDEzOWE4ODVhYWM0YTI2ZSIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzgzMDYwMzg2LCJleHAiOjE3ODU2NTIzODZ9.eLp2aHFr0WCjmmWvb3PeeHF1pStj8EAupRSXz73TCck",
+        "_id": "6a4757a2429ea9df03da641b",
+        "createdAt": "2026-07-03T06:33:06.468Z"
+      },
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMjA5MzBkZDEzOWE4ODVhYWM0YTI2ZSIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzgzMDY2MTI1LCJleHAiOjE3ODU2NTgxMjV9.fbSYT9EzE0m0-N5iR6V3MGiz7UFT90vk-siAqZ7qfmQ",
+        "_id": "6a476e0dcd8bc43f7f6b9cc4",
+        "createdAt": "2026-07-03T08:08:45.051Z"
+      },
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMjA5MzBkZDEzOWE4ODVhYWM0YTI2ZSIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzgzMDY3NDEyLCJleHAiOjE3ODU2NTk0MTJ9.4_pN98iQzr29k9WK1dlwmHeRe4OjL6zHYqb7sQ-rL24",
+        "_id": "6a477314a36db011f334dcdd",
+        "createdAt": "2026-07-03T08:30:12.773Z"
+      },
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMjA5MzBkZDEzOWE4ODVhYWM0YTI2ZSIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzgzMDY3ODYzLCJleHAiOjE3ODU2NTk4NjN9.ZP1_zPb60GPekis9ntR2RvOqUZ24sEyGMbkVMshyUSc",
+        "_id": "6a4774d7bcd5fee0e51f89f2",
+        "createdAt": "2026-07-03T08:37:44.052Z"
+      }
+    ],
+    "createdAt": "2026-06-03T20:48:13.190Z",
+    "updatedAt": "2026-07-03T08:37:44.057Z",
+    "__v": 52,
+    "aiUsage": {
+      "lastResetDate": "2026-06-08T23:57:01.668Z",
+      "messagesThisMonth": 0,
+      "notesProcessedThisMonth": 0,
+      "questionsExplainedThisMonth": 0
+    },
+    "preferences": {
+      "notificationSettings": {
+        "dailyReminders": true,
+        "newResourcesNotification": true,
+        "performanceAlerts": true
+      },
+      "preferredLearningStyle": "mixed",
+      "studyHoursPerDay": 2,
+      "targetGPA": 3
+    },
+    "subscriptionFeatures": {
+      "aiChatMessages": 50,
+      "analyticsAccess": false,
+      "learningPathsPerCourse": 1,
+      "notesPerMonth": 5
+    }
+  },
+  {
+    "_id": "6a20a544da6e27aba48e3d80",
+    "name": "Jose Mary",
+    "email": "josemary@gmail.com",
+    "password": "$2b$10$gpXCIx9TQThasAsz8W9tqOtud6tG7TvxQo4gOaVbsbvLsKISFBPUS",
+    "googleId": null,
+    "authProvider": "email",
+    "emailVerified": true,
+    "emailVerificationToken": null,
+    "emailVerificationExpires": null,
+    "resetPasswordToken": null,
+    "resetPasswordExpires": null,
+    "plan": "free",
+    "subscriptionType": "free",
+    "subscriptionSemester": null,
+    "subscriptionExpiresAt": null,
+    "role": "student",
+    "department": "6a1e188e8a1e1540705aeaf6",
+    "yearOfStudy": "ND2",
+    "coursesEnrolled": [],
+    "quizzesAttempted": [],
+    "lastLogin": "2026-06-04T21:38:22.313Z",
+    "devices": [],
+    "refreshTokens": [
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMjBhNTQ0ZGE2ZTI3YWJhNDhlM2Q4MCIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzgwNTI5Mjc3LCJleHAiOjE3ODMxMjEyNzd9.H9uvQR_pyJihfQh_tyq5DkaqkjqhHnToFLwir1j5Zkc",
+        "_id": "6a20b87d9c7f8ab303cb47f9",
+        "createdAt": "2026-06-03T23:27:57.424Z"
+      },
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMjBhNTQ0ZGE2ZTI3YWJhNDhlM2Q4MCIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzgwNTc3MTQ1LCJleHAiOjE3ODMxNjkxNDV9.RGxdfh08vs4tpfwlxkhHSW5kyhFvEJeFVs20VZ7GsIA",
+        "_id": "6a217379c88c53f376db20e6",
+        "createdAt": "2026-06-04T12:45:45.704Z"
+      }
+    ],
+    "createdAt": "2026-06-03T22:05:56.921Z",
+    "updatedAt": "2026-06-04T21:38:45.601Z",
+    "__v": 8
+  },
+  {
+    "_id": "6a25fc8183313b308ac4bde8",
+    "name": "Oluwayemisi",
+    "email": "johnpraise102@gmail.com",
+    "password": "$2b$10$bwRPBZwv9SCPd5lu45nYAuSwn3IeBYKv6oBBHa1Ra6xkV41RHRPhe",
+    "googleId": null,
+    "authProvider": "email",
+    "emailVerified": false,
+    "emailVerificationToken": "ebe5e4f4084ecb73fd88000c4533bbc5c417067bfbf13036e252de99aa3f79c4",
+    "emailVerificationExpires": "2026-06-08T23:19:29.517Z",
+    "resetPasswordToken": null,
+    "resetPasswordExpires": null,
+    "plan": "free",
+    "subscriptionType": "free",
+    "subscriptionSemester": null,
+    "subscriptionExpiresAt": null,
+    "role": "student",
+    "department": "6a25f4a4554b3311d098636a",
+    "yearOfStudy": "ND1",
+    "coursesEnrolled": [],
+    "quizzesAttempted": [],
+    "lastLogin": null,
+    "devices": [],
+    "refreshTokens": [],
+    "createdAt": "2026-06-07T23:19:29.517Z",
+    "updatedAt": "2026-06-07T23:19:29.517Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a25fd9683313b308ac4bde9",
+    "name": "Oluwayemisi",
+    "email": "amazingyemisi2000@gmail.com",
+    "password": "$2b$10$IJVgjHtaDn/PUGVrRXn.tO2hB8Dd5aDTpXb2vi3QRFzoR8GZwfTga",
+    "googleId": null,
+    "authProvider": "email",
+    "emailVerified": false,
+    "emailVerificationToken": "0f9fb58aa8359c09b8329d56ed83ea69cb78ffc145a932168fe4db83c867ed6f",
+    "emailVerificationExpires": "2026-06-08T23:24:06.273Z",
+    "resetPasswordToken": null,
+    "resetPasswordExpires": null,
+    "plan": "free",
+    "subscriptionType": "free",
+    "subscriptionSemester": null,
+    "subscriptionExpiresAt": null,
+    "role": "student",
+    "department": "6a25f4a4554b3311d098636a",
+    "yearOfStudy": "ND1",
+    "coursesEnrolled": [],
+    "quizzesAttempted": [],
+    "lastLogin": null,
+    "devices": [],
+    "refreshTokens": [],
+    "createdAt": "2026-06-07T23:24:06.273Z",
+    "updatedAt": "2026-06-07T23:24:06.273Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a2686a3f91d07678344bc64",
+    "name": "Ayo",
+    "email": "oduolamubarak1@gmail.com",
+    "password": "$2b$10$T4WPVXSFkjBJp9xejkf7OupTYUzbGlN1kI74aoDD81bBjy0KdZe5m",
+    "googleId": null,
+    "authProvider": "email",
+    "emailVerified": true,
+    "emailVerificationToken": null,
+    "emailVerificationExpires": null,
+    "resetPasswordToken": null,
+    "resetPasswordExpires": null,
+    "plan": "free",
+    "subscriptionType": "free",
+    "subscriptionSemester": null,
+    "subscriptionExpiresAt": null,
+    "role": "admin",
+    "department": "6a25f4a4554b3311d098636a",
+    "yearOfStudy": "HND2",
+    "coursesEnrolled": [],
+    "quizzesAttempted": [],
+    "lastLogin": "2026-06-08T11:57:33.314Z",
+    "devices": [],
+    "refreshTokens": [
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMjY4NmEzZjkxZDA3Njc4MzQ0YmM2NCIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzgwOTA5ODEzLCJleHAiOjE3ODM1MDE4MTN9.BATUGRYm_MHlwDS8HjVn_idDUXlG7qiPrZ-B8OeGL-M",
+        "_id": "6a2686f5f91d07678344bc65",
+        "createdAt": "2026-06-08T09:10:13.010Z"
+      },
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMjY4NmEzZjkxZDA3Njc4MzQ0YmM2NCIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzgwOTEwMDkzLCJleHAiOjE3ODM1MDIwOTN9.TQo-4p3Z0f_HXdnDvMtWgC7jJGwO5_eC7LhxAMQIsg4",
+        "_id": "6a26880df91d07678344bc6f",
+        "createdAt": "2026-06-08T09:14:53.602Z"
+      },
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMjY4NmEzZjkxZDA3Njc4MzQ0YmM2NCIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzgwOTE5ODUzLCJleHAiOjE3ODM1MTE4NTN9.OISS25Ib9Dq9sbRSSxqrkrzpUgbe13v9uX0K2szN874",
+        "_id": "6a26ae2df5268de676234a17",
+        "createdAt": "2026-06-08T11:57:33.314Z"
+      }
+    ],
+    "createdAt": "2026-06-08T09:08:51.253Z",
+    "updatedAt": "2026-06-08T11:57:33.318Z",
+    "__v": 3
+  },
+  {
+    "_id": "6a26d3e948e2fbf065192e0a",
+    "name": "Babatunde Lateef Olalekan",
+    "email": "lateefbabs2018@gmail.com",
+    "password": "$2b$10$qlhhlXucspCozQos7baayekZqPCkLP73aibE0Mq55qjvzxXDGQpiK",
+    "googleId": null,
+    "authProvider": "email",
+    "emailVerified": true,
+    "emailVerificationToken": null,
+    "emailVerificationExpires": null,
+    "resetPasswordToken": null,
+    "resetPasswordExpires": null,
+    "plan": "free",
+    "subscriptionType": "free",
+    "subscriptionSemester": null,
+    "subscriptionExpiresAt": null,
+    "role": "student",
+    "department": "6a25f4a4554b3311d098636a",
+    "yearOfStudy": "HND2",
+    "coursesEnrolled": [],
+    "quizzesAttempted": [],
+    "lastLogin": "2026-06-08T14:40:29.366Z",
+    "devices": [],
+    "refreshTokens": [
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMjZkM2U5NDhlMmZiZjA2NTE5MmUwYSIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzgwOTI5NjI5LCJleHAiOjE3ODM1MjE2Mjl9.v9hM-OXj5tkgz-Y5gnyF8oX_-b3V9IoXr7R9JOtZeRw",
+        "_id": "6a26d45d48e2fbf065192e0b",
+        "createdAt": "2026-06-08T14:40:29.366Z"
+      }
+    ],
+    "createdAt": "2026-06-08T14:38:33.910Z",
+    "updatedAt": "2026-06-08T14:40:29.367Z",
+    "__v": 1
+  },
+  {
+    "_id": "6a26d48848e2fbf065192e11",
+    "name": "Samuel Olayinka",
+    "email": "samuelolayinka76@gmail.com",
+    "password": "$2b$10$/QQFCC143fDZcIA3z9yyieGphq12jAwncgzrgatRdmI/WmVQL3Ma2",
+    "googleId": null,
+    "authProvider": "email",
+    "emailVerified": false,
+    "emailVerificationToken": "ece478177e6dc95a7f99747447e18fe554941c0d69f4db2caaf5fd0a6aab31b9",
+    "emailVerificationExpires": "2026-06-09T14:42:35.352Z",
+    "resetPasswordToken": null,
+    "resetPasswordExpires": null,
+    "plan": "free",
+    "subscriptionType": "free",
+    "subscriptionSemester": null,
+    "subscriptionExpiresAt": null,
+    "role": "student",
+    "department": "6a25f4a4554b3311d098636a",
+    "yearOfStudy": "HND2",
+    "coursesEnrolled": [],
+    "quizzesAttempted": [],
+    "lastLogin": null,
+    "devices": [],
+    "refreshTokens": [],
+    "createdAt": "2026-06-08T14:41:12.314Z",
+    "updatedAt": "2026-06-08T14:42:35.352Z",
+    "__v": 0
+  },
+  {
+    "_id": "6a2d8e908962aac1a1ef06fb",
+    "name": "Sen techy",
+    "email": "emmanuelsitemaife+1@gmail.com",
+    "password": "$2b$10$wtWsuy0hmntYdndUA.hbI.Q0yf7689z6.M3NVZgfnXUidRAh2/0w2",
+    "googleId": null,
+    "authProvider": "email",
+    "emailVerified": true,
+    "emailVerificationToken": null,
+    "emailVerificationExpires": null,
+    "resetPasswordToken": null,
+    "resetPasswordExpires": null,
+    "plan": "free",
+    "subscriptionType": "free",
+    "subscriptionSemester": null,
+    "subscriptionExpiresAt": null,
+    "role": "admin",
+    "department": "6a25f4a4554b3311d098636a",
+    "yearOfStudy": "HND2",
+    "coursesEnrolled": [],
+    "quizzesAttempted": [],
+    "lastLogin": "2026-06-13T17:29:29.191Z",
+    "devices": [],
+    "aiUsage": {
+      "messagesThisMonth": 0,
+      "notesProcessedThisMonth": 0,
+      "questionsExplainedThisMonth": 0,
+      "lastResetDate": "2026-06-13T17:08:32.343Z"
+    },
+    "preferences": {
+      "notificationSettings": {
+        "dailyReminders": true,
+        "performanceAlerts": true,
+        "newResourcesNotification": true
+      },
+      "preferredLearningStyle": "mixed",
+      "studyHoursPerDay": 2,
+      "targetGPA": 3
+    },
+    "subscriptionFeatures": {
+      "aiChatMessages": 50,
+      "notesPerMonth": 5,
+      "learningPathsPerCourse": 1,
+      "analyticsAccess": false
+    },
+    "refreshTokens": [
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMmQ4ZTkwODk2MmFhYzFhMWVmMDZmYiIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzgxMzcwNjAxLCJleHAiOjE3ODM5NjI2MDF9.qw8InIWWXychXYIgeyGpDYmqarME5LnOAtJLiIWAAnU",
+        "_id": "6a2d8ee98962aac1a1ef06fc",
+        "createdAt": "2026-06-13T17:10:01.906Z"
+      },
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMmQ4ZTkwODk2MmFhYzFhMWVmMDZmYiIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzgxMzcxNzY5LCJleHAiOjE3ODM5NjM3Njl9.BKLsRQ0Opb4FzflvFxz7VdAddvA37nOcj39_8VSzPnY",
+        "_id": "6a2d93798962aac1a1ef0705",
+        "createdAt": "2026-06-13T17:29:29.191Z"
+      }
+    ],
+    "createdAt": "2026-06-13T17:08:32.346Z",
+    "updatedAt": "2026-06-13T18:26:13.259Z",
+    "__v": 2
+  },
+  {
+    "_id": "6a4622dc35cc3a07180a1fb3",
+    "name": "Bada",
+    "email": "seggee70@gmail.com",
+    "password": "$2b$10$Gk1GWV3PqQkjndfcC9a57OlYUrCuYgk.nSljsT34iWvzEGLj46dVK",
+    "googleId": null,
+    "authProvider": "email",
+    "emailVerified": true,
+    "emailVerificationToken": null,
+    "emailVerificationExpires": null,
+    "resetPasswordToken": null,
+    "resetPasswordExpires": null,
+    "plan": "free",
+    "subscriptionType": "free",
+    "subscriptionSemester": null,
+    "subscriptionExpiresAt": null,
+    "role": "student",
+    "department": "6a25f4a4554b3311d098636a",
+    "yearOfStudy": "HND2",
+    "coursesEnrolled": [],
+    "quizzesAttempted": [],
+    "lastLogin": "2026-07-02T08:36:45.823Z",
+    "devices": [],
+    "aiUsage": {
+      "messagesThisMonth": 0,
+      "notesProcessedThisMonth": 0,
+      "questionsExplainedThisMonth": 0,
+      "lastResetDate": "2026-07-02T08:35:40.631Z"
+    },
+    "preferences": {
+      "notificationSettings": {
+        "dailyReminders": true,
+        "performanceAlerts": true,
+        "newResourcesNotification": true
+      },
+      "preferredLearningStyle": "mixed",
+      "studyHoursPerDay": 2,
+      "targetGPA": 3
+    },
+    "subscriptionFeatures": {
+      "aiChatMessages": 50,
+      "notesPerMonth": 5,
+      "learningPathsPerCourse": 1,
+      "analyticsAccess": false
+    },
+    "refreshTokens": [
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhNDYyMmRjMzVjYzNhMDcxODBhMWZiMyIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzgyOTgxNDA1LCJleHAiOjE3ODU1NzM0MDV9.bVHzNP2FZeWf-uVbERcniTuqZgK5KZroBx2s4jmMCzw",
+        "_id": "6a46231d35cc3a07180a1fb4",
+        "createdAt": "2026-07-02T08:36:45.822Z"
+      }
+    ],
+    "createdAt": "2026-07-02T08:35:40.634Z",
+    "updatedAt": "2026-07-02T08:36:45.823Z",
+    "__v": 1
+  }
+]
