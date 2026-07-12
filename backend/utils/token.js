@@ -36,6 +36,41 @@ const generateRefreshToken = (userId) => {
 };
 
 /**
+ * Generate a short-lived file view token (for secure PDF viewing in browser)
+ * @param {string} userId - User ID
+ * @param {string} fileId - File ID to view
+ * @returns {string} JWT token
+ */
+const generateFileViewToken = (userId, fileId) => {
+  const payload = {
+    id: userId,
+    fileId: fileId,
+    type: "file-view"
+  };
+
+  return jwt.sign(payload, process.env.JWT_SECRET, {
+    expiresIn: "30m" // 30 minute view token
+  });
+};
+
+/**
+ * Verify file view token
+ * @param {string} token - JWT token to verify
+ * @returns {object|null} Decoded token or null if invalid
+ */
+const verifyFileViewToken = (token) => {
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (decoded.type !== "file-view") {
+      return null;
+    }
+    return decoded;
+  } catch (err) {
+    return null;
+  }
+};
+
+/**
  * Verify access token
  * @param {string} token - JWT token to verify
  * @returns {object|null} Decoded token or null if invalid
