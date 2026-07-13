@@ -96,6 +96,10 @@ const fileRoutes = require("./routes/file");
 console.log("MOUNTING /api/files");
 app.use("/api/files", fileRoutes.router);
 
+const marketplaceRoutes = require("./routes/marketplace");
+console.log("MOUNTING /api/marketplace");
+app.use("/api/marketplace", marketplaceRoutes);
+
 const aiRoutes = require("./routes/ai");
 console.log("MOUNTING /api/ai");
 app.use("/api/ai", aiRoutes);

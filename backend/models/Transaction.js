@@ -31,19 +31,41 @@ const transactionSchema = new mongoose.Schema({
 
   plan: {
     type: String,
-    enum: ["basic", "premium"],
+    enum: ["basic", "premium", "material"],
     default: "premium"
+  },
+
+  paymentType: {
+    type: String,
+    enum: ["semester", "material"],
+    default: "semester"
+  },
+
+  material: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "File",
+    default: null
+  },
+
+  materialPrice: {
+    type: Number,
+    default: 0
+  },
+
+  discount: {
+    type: Number,
+    default: 0
   },
 
   semester: {
     type: String,
     enum: ["2024-1", "2024-2", "2025-1", "2025-2", "2026-1", "2026-2"],
-    required: true
+    default: null
   },
 
   expiresAt: {
     type: Date,
-    required: true
+    default: null
   },
 
   paidAt: Date,

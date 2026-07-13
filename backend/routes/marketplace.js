@@ -1,0 +1,78 @@
+const express = require("express");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
+const protect = require("../config/middleware/authMiddleware");
+const lecturerOnly = require("../config/middleware/lecturerOnly");
+const adminOnly = require("../config/middleware/adminOnly");
+const marketplaceController = require("../controllers/marketplaceController");
+
+const router = express.Router();
+
+const uploadDir = path.join(__dirname, "../uploads");
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadDir),
+  filename: (req, file, cb) => {
+    const timestamp = Date.now();
+    const sanitizedFilename = file.originalname.replace(/[^a-zA-Z0-9_.-]/g, "-");
+    cb(null, `${timestamp}-${sanitizedFilename}`);
+  }
+});
+
+const upload = multer({ storage });
+
+// Lecturer uploads a marketplace material
+router.post(
+  "/materials",
+  protect,
+  lecturerOnly,
+  upload.single("file"),
+  marketplaceController.createMaterial
+);
+
+// Public marketplace listing
+router.get("/materials", marketplaceController.listMaterials);
+router.get("/materials/:id", marketplaceController.getMaterial);
+
+// Lecturer material management
+router.get(
+  "/lecturer/materials",
+  protect,
+  lecturerOnly,
+  marketplaceController.getLecturerMaterials
+);
+
+// Student library
+router.get("/library", protect, marketplaceController.getLibrary);
+
+// Material purchase flow
+router.post(
+  "/materials/:id/purchase/initialize",
+  protect,
+  marketplaceController.initializePurchase
+);
+router.get(
+  "/materials/:id/purchase/verify/:reference",
+  protect,
+  marketplaceController.verifyPurchase
+);
+
+// Admin moderation
+router.get(
+  "/materials/pending",
+  protect,
+  adminOnly,
+  marketplaceController.getPendingMaterials
+);
+router.put(
+  "/materials/:id/approval",
+  protect,
+  adminOnly,
+  marketplaceController.approveMaterial
+);
+
+module.exports = router;
