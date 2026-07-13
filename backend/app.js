@@ -33,8 +33,7 @@ app.use(cors({
     })) {
       callback(null, true)
     } else {
-      console.warn(`🚨 CORS blocked origin: ${origin}`)
-      callback(null, true) // Allow anyway but log it - change to false to strictly block
+      callback(null, true)
     }
   },
   credentials: true,
@@ -52,10 +51,6 @@ app.use(
 
 app.use(passport.initialize());
 app.use(passport.session());
-app.use((req,res,next)=>{
-  console.log('REQ', req.method, req.url);
-  next();
-});
 app.use(express.json());
 
 // Middleware to serve PDFs inline instead of forcing download
@@ -80,44 +75,33 @@ app.use((err, req, res, next) => {
   }
   next(err);
 });
-console.log("MOUNTING /api/courses");
 app.use("/api/courses", courseRoutes);
 app.use("/api/notes", noteRoutes);
 // Ensure question routes are mounted after body-parsing middleware
 app.use("/api/questions", questionRoutes);
 
 // Mount search routes
-console.log("🔍 MOUNTING /api/search");
 app.use("/api/search", searchRoutes);
 
-
-
 const fileRoutes = require("./routes/file");
-console.log("MOUNTING /api/files");
 app.use("/api/files", fileRoutes.router);
 
 const marketplaceRoutes = require("./routes/marketplace");
-console.log("MOUNTING /api/marketplace");
 app.use("/api/marketplace", marketplaceRoutes);
 
 const aiRoutes = require("./routes/ai");
-console.log("MOUNTING /api/ai");
 app.use("/api/ai", aiRoutes);
 
 const analyticsRoutes = require("./routes/analytics");
-console.log("MOUNTING /api/analytics");
 app.use("/api/analytics", analyticsRoutes);
 
 const lecturerRoutes = require("./routes/lecturer");
-console.log("MOUNTING /api/lecturer");
 app.use("/api/lecturer", lecturerRoutes);
 
 const libraryRoutes = require("./routes/library");
-console.log("MOUNTING /api/library");
 app.use("/api/library", libraryRoutes);
 
 const purchaseRoutes = require("./routes/purchase");
-console.log("MOUNTING /api/purchase");
 app.use("/api/purchase", purchaseRoutes);
 
 app.get("/api/protected", protect, (req, res) => {
@@ -142,11 +126,9 @@ app.use("/api/departments", departmentRoutes);
 // Connect MongoDB
 mongoose.connect(process.env.MONGO_URI)
   .then(() => {
-    console.log("✅ MongoDB Connected Successfully")
-    // Auto-seed departments if empty
     autoSeedDepartments()
   })
-  .catch((err) => console.log("❌ MongoDB Error:", err));
+  .catch((err) => console.error("MongoDB connection error:", err));
 
 /**
  * Auto-seed departments if database is empty
@@ -159,11 +141,8 @@ async function autoSeedDepartments() {
     const departmentCount = await Department.countDocuments();
     
     if (departmentCount > 0) {
-      console.log(`📚 Database already has ${departmentCount} departments`);
       return;
     }
-    
-    console.log('🌱 Seeding departments...');
     
     // Create or get default school
     let school = await School.findOne({ code: 'DEFAULT' });
@@ -173,7 +152,6 @@ async function autoSeedDepartments() {
         code: 'DEFAULT',
         description: 'Default school for departments'
       });
-      console.log('✅ Created default school');
     }
 
     // Sample departments
@@ -188,17 +166,12 @@ async function autoSeedDepartments() {
       { name: 'Mass Communication', code: 'MAS', description: 'Mass Communication' }
     ];
 
-    const createdDepartments = await Department.insertMany(
+    await Department.insertMany(
       departments.map(dept => ({
         ...dept,
         school: school._id
       }))
     );
-
-    console.log(`✅ Seeded ${createdDepartments.length} departments:`);
-    createdDepartments.forEach(dept => {
-      console.log(`   - ${dept.name} (${dept.code})`);
-    });
   } catch (error) {
     console.warn('⚠️ Auto-seed error (non-blocking):', error.message);
   }
@@ -222,8 +195,6 @@ app.get("/health", (req, res) => {
 });
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+app.listen(PORT);
 
 module.exports = app;

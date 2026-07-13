@@ -6,8 +6,6 @@ const adminOnly = require("../config/middleware/adminOnly");
 const Question = require("../models/Question");
 const Course = require("../models/course");
 
-console.log("🔥 QUESTION ROUTES LOADED");
-
 // CREATE QUESTION
 router.post("/", protect, adminOnly, async (req, res) => {
   try {

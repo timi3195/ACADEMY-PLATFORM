@@ -18,6 +18,8 @@ export default function Navbar() {
           <>
             <span className="user-pill">Hi, {user.name || user.email}</span>
             <Link to="/courses">Courses</Link>
+            <Link to="/marketplace">Marketplace</Link>
+            <Link to="/library">Library</Link>
             <Link to="/notes">Notes</Link>
             <Link to="/past-questions">Past Questions</Link>
             <Link to="/ai">AI</Link>

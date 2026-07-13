@@ -14,8 +14,6 @@ const LearningPath = require("../models/LearningPath");
 const Question = require("../models/Question");
 const Course = require("../models/course");
 
-console.log("📊 ANALYTICS ROUTES LOADED");
-
 /**
  * GET /api/analytics/performance/:courseId
  * Get comprehensive performance metrics for a course

@@ -4,8 +4,6 @@ const Course = require("../models/course");
 const protect = require("../config/middleware/authMiddleware");
 const adminOnly = require("../config/middleware/adminOnly");
 
-console.log("COURSE ROUTES LOADED");
-
 // CREATE COURSE (admin only)
 router.post("/", protect, adminOnly, async (req, res) => {
   try {

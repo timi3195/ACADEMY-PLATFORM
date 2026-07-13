@@ -7,12 +7,8 @@ const QuizSession = require("../models/QuizSession");
 const protect = require("../config/middleware/authMiddleware");
 const requirePremium = require("../config/middleware/planMiddleware");
 
-console.log("🔥 QUIZ SESSION ROUTES LOADED");
-
-
 // START QUIZ (Premium feature)
 router.post("/start", protect, requirePremium, async (req, res) => {
-  console.log('QUIZ START HIT');
   try {
 
     const { userId, courseId } = req.body;
@@ -61,7 +57,6 @@ router.post("/start", protect, requirePremium, async (req, res) => {
 
 // QUIZ HEALTH CHECK
 router.get("/health", (req, res) => {
-  console.log('QUIZ HEALTH HIT');
   res.json({
     success: true,
     service: "quiz",
