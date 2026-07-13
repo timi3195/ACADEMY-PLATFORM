@@ -4,8 +4,6 @@ const Note = require("../models/note");
 const protect = require("../config/middleware/authMiddleware");
 const requirePremium = require("../config/middleware/planMiddleware");
 
-console.log("NOTE ROUTES LOADED");
-
 // CREATE NOTE (admin later)
 router.post("/", async (req, res) => {
   try {

@@ -280,3 +280,38 @@ textarea:focus{
   gap:20px;
   grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
 }
+
+.marketplace-grid{
+  display:grid;
+  gap:16px;
+  grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
+}
+
+.marketplace-toolbar,
+.library-toolbar{
+  display:flex;
+  gap:12px;
+  align-items:center;
+  flex-wrap:wrap;
+}
+
+.library-card{
+  background:#fff;
+  border:1px solid #e2e8f0;
+  border-radius:12px;
+  padding:16px;
+}
+
+@keyframes spin{
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 768px){
+  .container{ padding:16px; }
+  .navbar{ padding:0 16px; flex-wrap:wrap; min-height:auto; gap:10px; }
+  .navbar .nav-right{ width:100%; justify-content:flex-start; }
+  .wp-section, .card, .wp-card{ padding:16px; }
+  .page h2, .page h1{ font-size:1.5rem; }
+  .marketplace-toolbar, .library-toolbar{ flex-direction:column; align-items:stretch; }
+}
+

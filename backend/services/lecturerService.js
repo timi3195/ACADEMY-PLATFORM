@@ -47,7 +47,7 @@ const getLecturerDashboard = async (lecturerId) => {
   const totalEarnings = transactions.reduce((sum, tx) => sum + (tx.amount || 0), 0);
   const pendingEarnings = transactions.filter((tx) => tx.status === "pending").reduce((sum, tx) => sum + (tx.amount || 0), 0);
   const withdrawnEarnings = await Withdrawal.aggregate([
-    { $match: { lecturer: mongoose.Types.ObjectId(lecturerId), status: { $in: ["approved", "paid"] } } },
+    { $match: { lecturer: new mongoose.Types.ObjectId(lecturerId), status: { $in: ["approved", "paid"] } } },
     { $group: { _id: null, total: { $sum: "$amount" } } }
   ]);
 
@@ -277,11 +277,11 @@ const getLecturerEarnings = async (lecturerId) => {
 
   const availableBalance = sales.reduce((sum, tx) => sum + (tx.amount || 0), 0);
   const pendingBalance = await Withdrawal.aggregate([
-    { $match: { lecturer: mongoose.Types.ObjectId(lecturerId), status: "pending" } },
+    { $match: { lecturer: new mongoose.Types.ObjectId(lecturerId), status: "pending" } },
     { $group: { _id: null, total: { $sum: "$amount" } } }
   ]);
   const withdrawnBalance = await Withdrawal.aggregate([
-    { $match: { lecturer: mongoose.Types.ObjectId(lecturerId), status: { $in: ["approved", "paid"] } } },
+    { $match: { lecturer: new mongoose.Types.ObjectId(lecturerId), status: { $in: ["approved", "paid"] } } },
     { $group: { _id: null, total: { $sum: "$amount" } } }
   ]);
 

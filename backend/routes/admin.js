@@ -9,8 +9,6 @@ const Department = require("../models/Department");
 const School = require("../models/School");
 const Question = require("../models/Question");
 
-console.log("🛡️ ADMIN ROUTES LOADED");
-
 /**
  * MANAGE SCHOOLS (Admin only)
  */

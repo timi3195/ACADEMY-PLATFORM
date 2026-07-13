@@ -3,8 +3,6 @@ const router = express.Router();
 const axios = require("axios");
 const protect = require("../config/middleware/authMiddleware");
 
-console.log("PAYMENT ROUTES LOADED");
-
 const User = require("../models/User");
 const Transaction = require("../models/Transaction");
 

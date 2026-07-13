@@ -50,8 +50,6 @@ const upload = multer({
   }
 });
 
-console.log("🚀 ACADEMIC SUCCESS SUITE - AI ROUTES LOADED");
-
 // ============================================================================
 // 1. AI STUDY ASSISTANT - CHAT ENDPOINTS
 // ============================================================================
@@ -64,9 +62,8 @@ router.post("/chat", protect, requirePremium, async (req, res) => {
   try {
     const { courseId, message, conversationId } = req.body;
 
-    // Debug: Check if user is authenticated
+    // Check if user is authenticated
     if (!req.user || !req.user.id) {
-      console.error("❌ Authentication failed - req.user:", req.user);
       return res.status(401).json({ success: false, message: "Not authenticated" });
     }
 
@@ -102,7 +99,6 @@ router.post("/chat", protect, requirePremium, async (req, res) => {
       });
     } else if (!conversation.user) {
       // Ensure user field is set (defensive check)
-      console.warn("⚠️ Conversation missing user field, setting it now");
       conversation.user = req.user.id;
     }
 
@@ -155,15 +151,6 @@ router.post("/chat", protect, requirePremium, async (req, res) => {
     if (!conversation.title || conversation.title === "New Chat") {
       conversation.title = message.substring(0, 50) + "...";
     }
-
-    // Debug before save
-    console.log("📝 Saving conversation:", {
-      _id: conversation._id,
-      user: conversation.user,
-      userId: req.user.id,
-      course: conversation.course,
-      messagesCount: conversation.messages.length
-    });
 
     // Save conversation
     await conversation.save();

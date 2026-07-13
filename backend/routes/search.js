@@ -6,8 +6,6 @@ const Course = require("../models/course");
 const Question = require("../models/Question");
 const Note = require("../models/note");
 
-console.log("🔍 SEARCH ROUTES LOADED");
-
 /**
  * GLOBAL SEARCH
  * Search across Courses, Questions, Notes

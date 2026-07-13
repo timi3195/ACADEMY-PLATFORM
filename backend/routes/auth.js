@@ -9,8 +9,6 @@ const crypto = require("crypto");
 
 const router = express.Router();
 
-console.log("AUTH ROUTE LOADED");
-
 // ==================== UTILITY FUNCTIONS ====================
 
 /**
@@ -128,8 +126,6 @@ router.post("/register", async (req, res) => {
         .then((result) => {
           if (!result.success) {
             console.error("Verification email dispatch failed:", result.error);
-          } else {
-            console.log("Verification email dispatched:", result.messageId);
           }
         })
         .catch((error) => {
@@ -383,11 +379,7 @@ router.post("/forgot-password", async (req, res) => {
       .then((result) => {
         if (!result.success) {
           console.error("Password reset email dispatch failed:", result.error);
-        } else {
-          console.log("Password reset email dispatched:", result.messageId);
-        }
-      })
-      .catch((error) => {
+
         console.error("Password reset email dispatch error:", error);
       });
 

@@ -10,8 +10,6 @@ const protect = require("../config/middleware/authMiddleware");
 const adminOnly = require("../config/middleware/adminOnly");
 const materialAccessService = require("../services/materialAccessService");
 
-console.log("🔥 FILE ROUTES LOADED");
-
 const uploadDir = path.join(__dirname, "../uploads");
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
@@ -45,8 +43,6 @@ router.post("/upload", protect, adminOnly, upload.single("file"), async (req, re
       });
     }
 
-    console.log(`📤 Uploading file "${req.body.title}" to course "${course.title}" (Dept: ${course.department})`);
-
     // Persist metadata (store server-side filename separately)
     const created = await File.create({
       title: req.body.title,
@@ -61,8 +57,6 @@ router.post("/upload", protect, adminOnly, upload.single("file"), async (req, re
     // Expose a safe view URL that streams through the backend by file id
     created.fileUrl = `/api/files/view/${created._id}`;
     await created.save();
-
-    console.log(`✅ File uploaded successfully (id=${created._id}). Will be visible to students in ${course.title}`);
 
     res.json({
       success: true,
