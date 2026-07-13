@@ -36,9 +36,29 @@ router.post(
 
 // Public marketplace listing
 router.get("/materials", marketplaceController.listMaterials);
+router.get("/materials/featured", marketplaceController.getFeaturedMaterials);
+router.get("/materials/new", marketplaceController.getNewMaterials);
 router.get("/materials/:id", marketplaceController.getMaterial);
 
+// Course / Department filters
+router.get("/course/:courseId/materials", marketplaceController.getCourseMaterials);
+router.get("/department/:departmentId/materials", marketplaceController.getDepartmentMaterials);
+
 // Lecturer material management
+router.put(
+  "/materials/:id",
+  protect,
+  lecturerOnly,
+  upload.single("file"),
+  marketplaceController.updateMaterial
+);
+router.delete(
+  "/materials/:id",
+  protect,
+  lecturerOnly,
+  marketplaceController.deleteMaterial
+);
+
 router.get(
   "/lecturer/materials",
   protect,

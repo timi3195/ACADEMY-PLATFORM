@@ -26,7 +26,7 @@ Status: Complete
 
 ## Marketplace
 
-Status: Not Started
+Status: In Progress - Backend Marketplace Module Implemented
 
 ## My Library
 

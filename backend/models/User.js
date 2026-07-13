@@ -87,6 +87,18 @@ const userSchema = new mongoose.Schema({
     default: "student"
   },
 
+  // Lecturer marketplace suspension flag
+  marketplaceSuspended: {
+    type: Boolean,
+    default: false
+  },
+
+  bankDetails: {
+    bankName: { type: String, default: "" },
+    accountNumber: { type: String, default: "" },
+    accountName: { type: String, default: "" }
+  },
+
   // Link to department (for lecturers/admins and students)
   department: {
     type: mongoose.Schema.Types.ObjectId,

@@ -21,6 +21,87 @@ exports.createMaterial = async (req, res) => {
   }
 };
 
+exports.updateMaterial = async (req, res) => {
+  try {
+    const materialId = req.params.id;
+    const validationErrors = marketplaceValidator.validateMaterialUpdate(req.body, req.file);
+    if (validationErrors.length) {
+      return res.status(400).json({ success: false, errors: validationErrors });
+    }
+
+    const material = await marketplaceService.updateMaterial({
+      user: req.user,
+      materialId,
+      body: req.body,
+      file: req.file
+    });
+
+    if (!material) {
+      return res.status(404).json({ success: false, message: "Material not found" });
+    }
+
+    res.json({ success: true, material });
+  } catch (error) {
+    console.error("Marketplace update material error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.deleteMaterial = async (req, res) => {
+  try {
+    const materialId = req.params.id;
+    const deleted = await marketplaceService.deleteMaterial(materialId, req.user);
+    if (!deleted) {
+      return res.status(404).json({ success: false, message: "Material not found or not authorized" });
+    }
+
+    res.json({ success: true, message: "Material deleted successfully" });
+  } catch (error) {
+    console.error("Marketplace delete material error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.getFeaturedMaterials = async (req, res) => {
+  try {
+    const materials = await marketplaceService.getFeaturedMaterials(req.query);
+    res.json({ success: true, materials });
+  } catch (error) {
+    console.error("Marketplace featured materials error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.getNewMaterials = async (req, res) => {
+  try {
+    const materials = await marketplaceService.getNewMaterials(req.query);
+    res.json({ success: true, materials });
+  } catch (error) {
+    console.error("Marketplace new materials error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.getCourseMaterials = async (req, res) => {
+  try {
+    const materials = await marketplaceService.getCourseMaterials(req.params.courseId, req.query);
+    res.json({ success: true, materials });
+  } catch (error) {
+    console.error("Marketplace course materials error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.getDepartmentMaterials = async (req, res) => {
+  try {
+    const materials = await marketplaceService.getDepartmentMaterials(req.params.departmentId, req.query);
+    res.json({ success: true, materials });
+  } catch (error) {
+    console.error("Marketplace department materials error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 exports.listMaterials = async (req, res) => {
   try {
     const materials = await marketplaceService.listMaterials(req.query);

@@ -108,6 +108,18 @@ const analyticsRoutes = require("./routes/analytics");
 console.log("MOUNTING /api/analytics");
 app.use("/api/analytics", analyticsRoutes);
 
+const lecturerRoutes = require("./routes/lecturer");
+console.log("MOUNTING /api/lecturer");
+app.use("/api/lecturer", lecturerRoutes);
+
+const libraryRoutes = require("./routes/library");
+console.log("MOUNTING /api/library");
+app.use("/api/library", libraryRoutes);
+
+const purchaseRoutes = require("./routes/purchase");
+console.log("MOUNTING /api/purchase");
+app.use("/api/purchase", purchaseRoutes);
+
 app.get("/api/protected", protect, (req, res) => {
   res.json({
     message: "You accessed protected data",
@@ -124,7 +136,6 @@ const departmentRoutes = require("./routes/departments");
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/payments", paymentRoutes);
-app.use("/api/payment", paymentRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/departments", departmentRoutes);
 

@@ -72,6 +72,43 @@ const fileSchema = new mongoose.Schema({
     default: "public"
   },
 
+  level: {
+    type: String,
+    enum: ["ND1", "ND2", "HND1", "HND2", "Other"],
+    default: "Other"
+  },
+
+  previewPages: {
+    type: Number,
+    default: 0
+  },
+
+  status: {
+    type: String,
+    enum: ["pending", "approved", "rejected", "hidden"],
+    default: "pending"
+  },
+
+  hidden: {
+    type: Boolean,
+    default: false
+  },
+
+  featured: {
+    type: Boolean,
+    default: false
+  },
+
+  isDeleted: {
+    type: Boolean,
+    default: false
+  },
+
+  deletedAt: {
+    type: Date,
+    default: null
+  },
+
   price: {
     type: Number,
     default: 0
@@ -102,6 +139,11 @@ const fileSchema = new mongoose.Schema({
     default: 0
   },
 
+  views: {
+    type: Number,
+    default: 0
+  },
+
   purchases: {
     type: Number,
     default: 0
@@ -115,6 +157,16 @@ const fileSchema = new mongoose.Schema({
   ratingCount: {
     type: Number,
     default: 0
+  },
+
+  sales: {
+    type: Number,
+    default: 0
+  },
+
+  tags: {
+    type: [String],
+    default: []
   },
 
   // Existing premium course file marker
@@ -133,8 +185,13 @@ fileSchema.index({ isPremium: 1 });
 fileSchema.index({ isFree: 1 });
 fileSchema.index({ isPaid: 1 });
 fileSchema.index({ approved: 1 });
+fileSchema.index({ status: 1 });
+fileSchema.index({ hidden: 1 });
+fileSchema.index({ featured: 1 });
+fileSchema.index({ isDeleted: 1 });
 fileSchema.index({ materialType: 1 });
 fileSchema.index({ category: 1 });
+fileSchema.index({ tags: 1 });
 fileSchema.index({ title: "text", description: "text" });
 
 module.exports = mongoose.models.File || mongoose.model("File", fileSchema);

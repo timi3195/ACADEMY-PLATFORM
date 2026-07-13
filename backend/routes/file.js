@@ -3,9 +3,12 @@ const router = express.Router();
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const mongoose = require("mongoose");
 const File = require("../models/File");
+const User = require("../models/User");
 const protect = require("../config/middleware/authMiddleware");
 const adminOnly = require("../config/middleware/adminOnly");
+const materialAccessService = require("../services/materialAccessService");
 
 console.log("🔥 FILE ROUTES LOADED");
 
@@ -91,59 +94,53 @@ const getMimeType = (filename) => {
   }
 }
 
+const loadMaterial = async (identifier) => {
+  if (mongoose.Types.ObjectId.isValid(identifier)) {
+    const material = await File.findById(identifier).populate('course');
+    if (material) return material;
+  }
+
+  const fileByUrl = await File.findOne({ fileUrl: `/api/files/download/${identifier}` }).populate('course');
+  if (fileByUrl) return fileByUrl;
+
+  const allFiles = await File.find().populate('course');
+  return allFiles.find((f) => f.fileUrl?.endsWith(identifier) || f.fileUrl?.endsWith(`-${identifier}`));
+};
+
+const resolveUser = async (req) => {
+  if (!req.user || !req.user.id) return null;
+  return await User.findById(req.user.id).populate('department');
+};
+
 // New view route - streams file inline after permission checks
-// Allows: Free users can view free materials, premium users can view all materials
 router.get('/view/:id', protect, async (req, res) => {
   try {
-    const id = req.params.id;
-    const file = await File.findById(id).populate('course');
+    const identifier = req.params.id;
+    const file = await loadMaterial(identifier);
     if (!file) return res.status(404).json({ success: false, message: 'File not found' });
 
-    const User = require('../models/User');
-    const user = req.user && req.user.id ? await User.findById(req.user.id).populate('department') : null;
+    const user = await resolveUser(req);
+    const access = await materialAccessService.canViewMaterial({
+      user,
+      material: file,
+      restrictByCourse: true
+    });
 
-    console.log(`📖 View file ${id}: isPremium=${file.isPremium}, userId=${user?._id}`);
-
-    // Admin can view any file
-    if (user && user.role === 'admin') {
-      console.log(`✅ Admin viewing file ${id}`);
-    } else {
-      // Non-admin: check profile, department, and premium status
-      if (!user || !user.department || !user.yearOfStudy) {
-        return res.status(403).json({ success: false, message: 'Please complete your profile to access files' });
-      }
-
-      const course = file.course;
-      if (user.department._id.toString() !== course.department._id.toString() || user.yearOfStudy !== course.level) {
-        return res.status(403).json({ success: false, message: 'You do not have access to this course' });
-      }
-
-      // If file is premium, user must have active premium subscription
-      if (file.isPremium) {
-        const isPremium = user && ((user.plan && user.plan === 'premium') || (user.subscriptionType && user.subscriptionType === 'premium'));
-        const now = new Date();
-        const notExpired = !user.subscriptionExpiresAt ? false : (new Date(user.subscriptionExpiresAt) > now);
-        
-        if (!isPremium || !notExpired) {
-          console.log(`❌ Premium file access denied: isPremium=${isPremium}, notExpired=${notExpired}`);
-          return res.status(403).json({ success: false, message: 'This material requires an active premium subscription to access' });
-        }
-      }
-      console.log(`✅ User viewing file ${id}`);
+    if (!access.allowed) {
+      return res.status(403).json({ success: false, message: access.reason });
     }
 
-    // Stream the file from storage
+    await materialAccessService.recordView({ material: file });
+
     const storageName = file.storageFilename;
     const filePath = path.join(uploadDir, storageName);
     if (!fs.existsSync(filePath)) return res.status(404).json({ success: false, message: 'File missing on server' });
 
     const mimeType = getMimeType(storageName || file.originalName || file.title);
     res.setHeader('Content-Type', mimeType);
-    // Inline display for PDFs and common web types
     if (mimeType === 'application/pdf' || mimeType.startsWith('image/') || mimeType.startsWith('video/')) {
       res.setHeader('Content-Disposition', `inline; filename="${file.originalName || file.title}"`);
     } else {
-      // For other types allow inline viewing where supported
       res.setHeader('Content-Disposition', `inline; filename="${file.originalName || file.title}"`);
     }
     res.setHeader('Cache-Control', 'public, max-age=3600');
@@ -159,150 +156,41 @@ router.get('/view/:id', protect, async (req, res) => {
   }
 });
 
-// Download route by file id - only premium users or admin can download
+// Unified download route - validates user has access and records a download
 router.get('/download/:id', protect, async (req, res) => {
   try {
-    const id = req.params.id;
-    const file = await File.findById(id).populate('course');
+    const identifier = req.params.id;
+    const file = await loadMaterial(identifier);
     if (!file) return res.status(404).json({ success: false, message: 'File not found' });
 
-    const User = require('../models/User');
-    const user = req.user && req.user.id ? await User.findById(req.user.id).populate('department') : null;
+    const user = await resolveUser(req);
+    const access = await materialAccessService.canDownloadMaterial({
+      user,
+      material: file,
+      restrictByCourse: true
+    });
 
-    console.log(`📥 Download request for file ${id}, user ${user?._id}`);
-
-    // Admin may always download
-    if (user && user.role === 'admin') {
-      console.log(`✅ Admin download approved for file ${id}`);
-    } else {
-      // Non-admin: require profile
-      if (!user || !user.department || !user.yearOfStudy) {
-        return res.status(403).json({ success: false, message: 'Please complete your profile to download files' });
-      }
-
-      // Non-admin: require course access
-      const course = file.course;
-      if (user.department._id.toString() !== course.department._id.toString() || user.yearOfStudy !== course.level) {
-        return res.status(403).json({ success: false, message: 'You do not have access to this course' });
-      }
-
-      // Non-admin: MUST be premium to download (any file)
-      const isPremium = user && ((user.plan && user.plan === 'premium') || (user.subscriptionType && user.subscriptionType === 'premium'));
-      const now = new Date();
-      const notExpired = !user.subscriptionExpiresAt ? false : (new Date(user.subscriptionExpiresAt) > now);
-      
-      if (!isPremium || !notExpired) {
-        console.log(`❌ Download denied for file ${id}: isPremium=${isPremium}, notExpired=${notExpired}`);
-        return res.status(403).json({ success: false, message: 'Only premium members can download materials. Upgrade your plan to download.' });
-      }
-      console.log(`✅ Premium user download approved for file ${id}`);
+    if (!access.allowed) {
+      return res.status(403).json({ success: false, message: access.reason });
     }
+
+    await materialAccessService.recordDownload({ material: file });
 
     const storageName = file.storageFilename;
     const filePath = path.join(uploadDir, storageName);
     if (!fs.existsSync(filePath)) return res.status(404).json({ success: false, message: 'File missing on server' });
 
+    const isPDF = (storageName || file.originalName || file.title).toLowerCase().endsWith('.pdf');
+    if (isPDF) {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${file.originalName || file.title}"`);
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      return res.sendFile(filePath);
+    }
+
     return res.download(filePath, file.originalName || file.title);
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// Protected download route - validates user has access
-router.get('/download/:filename', protect, async (req, res) => {
-  try {
-    const filename = req.params.filename;
-    const filePath = path.join(uploadDir, filename);
-    
-    // Check if file exists on server first
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({
-        success: false,
-        message: 'File not found on server'
-      });
-    }
-
-    // Find the file in database
-    // Try exact match first, then try fallback for files with double timestamps
-    let file = await File.findOne({ fileUrl: `/api/files/download/${filename}` }).populate('course');
-    
-    // Fallback: if not found, try looking for files with double timestamp format
-    if (!file) {
-      // Try to find any file that ends with this filename (handles double timestamp case)
-      const allFiles = await File.find().populate('course');
-      file = allFiles.find(f => f.fileUrl?.endsWith(filename) || f.fileUrl?.endsWith(`-${filename}`));
-    }
-    
-    if (!file) {
-      return res.status(404).json({
-        success: false,
-        message: 'File not found'
-      });
-    }
-
-    const User = require('../models/User');
-    const user = req.user && req.user.id ? await User.findById(req.user.id).populate('department') : null;
-    const isPDF = filename.toLowerCase().endsWith('.pdf');
-
-    // Admin can access any file
-    if (user && user.role === 'admin') {
-      // For PDFs, serve inline; for other files, force download
-      if (isPDF) {
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', 'inline; filename="' + file.title + '"');
-        res.setHeader('Cache-Control', 'public, max-age=3600');
-        return res.sendFile(filePath);
-      } else {
-        return res.download(filePath, file.title);
-      }
-    }
-
-    // Check if user has course access
-    if (!user || !user.department || !user.yearOfStudy) {
-      return res.status(403).json({
-        success: false,
-        message: 'Please complete your profile to access files'
-      });
-    }
-
-    const course = file.course;
-    if (user.department._id.toString() !== course.department._id.toString() || user.yearOfStudy !== course.level) {
-      return res.status(403).json({
-        success: false,
-        message: 'You do not have access to this course'
-      });
-    }
-
-    // Check if file is premium
-    if (file.isPremium) {
-      const isPremium = user && ((user.plan && user.plan === 'premium') || (user.subscriptionType && user.subscriptionType === 'premium'));
-      const now = new Date();
-      const notExpired = !user.subscriptionExpiresAt ? false : (new Date(user.subscriptionExpiresAt) > now);
-      
-      if (!isPremium || !notExpired) {
-        return res.status(403).json({
-          success: false,
-          message: 'This file requires an active premium subscription to access'
-        });
-      }
-    }
-
-    // For PDFs, serve inline for viewing; for other files, force download
-    if (isPDF) {
-      // Serve PDF inline for browser viewing
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', 'inline; filename="' + file.title + '"');
-      res.setHeader('Cache-Control', 'public, max-age=3600');
-      res.sendFile(filePath);
-    } else {
-      // Force download for non-PDF files
-      res.download(filePath, file.title);
-    }
-  } catch (err) {
-    res.status(500).json({
-      success: false,
-      message: err.message
-    });
   }
 });
 
@@ -328,25 +216,37 @@ const getFilesHandler = async (req, res) => {
     // Students only see files from their department and year
     if (user && user.department && user.yearOfStudy) {
       const Course = require('../models/course');
-      
-      // Get all courses matching the student's department and year
-      const courseIds = await Course.find({
+      const courses = await Course.find({
         department: user.department._id,
         level: user.yearOfStudy
       }).select('_id');
-      
-      const files = await File.find({ course: { $in: courseIds.map(c => c._id) } }).populate("course");
-      const mapped = files.map(f => ({
-        _id: f._id,
-        title: f.title,
-        fileUrl: `/api/files/view/${f._id}`,
-        isPremium: f.isPremium,
-        createdAt: f.createdAt
-      }));
+
+      const allFiles = await File.find({ course: { $in: courses.map((c) => c._id) } }).populate('course');
+      const accessibleFiles = await Promise.all(
+        allFiles.map(async (f) => {
+          const access = await materialAccessService.canViewMaterial({
+            user,
+            material: f,
+            restrictByCourse: true
+          });
+          return access.allowed ? f : null;
+        })
+      );
+
+      const mapped = accessibleFiles
+        .filter(Boolean)
+        .map((f) => ({
+          _id: f._id,
+          title: f.title,
+          fileUrl: `/api/files/view/${f._id}`,
+          isPremium: f.isPremium,
+          createdAt: f.createdAt
+        }));
+
       return res.json({ success: true, files: mapped, filterApplied: true });
     }
 
-    // If no profile info, return empty
+    // If no profile info or no matching course, return empty
     res.json({
       success: true,
       files: [],
@@ -389,28 +289,26 @@ router.get('/course/:courseId', protect, async (req, res) => {
     }
 
     const files = await File.find({ course: courseId }).populate('course');
-    const now = new Date();
 
-    const processed = files.map(f => {
-      let accessible = true;
-      if (f.isPremium) {
-        if (user && user.role === 'admin') {
-          accessible = true;
-        } else {
-          const isPremium = user && ((user.plan && user.plan === 'premium') || (user.subscriptionType && user.subscriptionType === 'premium'));
-          const notExpired = !user || !user.subscriptionExpiresAt ? true : (new Date(user.subscriptionExpiresAt) > now);
-          accessible = !!(isPremium && notExpired);
-        }
-      }
-      return {
-        _id: f._id,
-        title: f.title,
-        fileUrl: `/api/files/view/${f._id}`,
-        isPremium: f.isPremium,
-        accessible,
-        createdAt: f.createdAt
-      };
-    });
+    const processed = await Promise.all(
+      files.map(async (f) => {
+        const access = await materialAccessService.canViewMaterial({
+          user,
+          material: f,
+          restrictByCourse: true
+        });
+
+        return {
+          _id: f._id,
+          title: f.title,
+          fileUrl: `/api/files/view/${f._id}`,
+          isPremium: f.isPremium,
+          accessible: access.allowed,
+          accessReason: access.reason,
+          createdAt: f.createdAt
+        };
+      })
+    );
 
     res.json({ success: true, files: processed });
   } catch (err) {
@@ -420,10 +318,9 @@ router.get('/course/:courseId', protect, async (req, res) => {
 
 // Protected route - get files (requires authentication for premium content)
 router.get("/", protect, getFilesHandler);
-router.get("", protect, getFilesHandler);
 
 // Admin route - get all files without filtering
-router.get("/admin/all", protect, async (req, res) => {
+router.get("/admin/all", protect, adminOnly, async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
       return res.status(403).json({
