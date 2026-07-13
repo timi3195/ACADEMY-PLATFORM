@@ -128,7 +128,7 @@ const getLibrary = async (userId) => {
   }));
 };
 
-const getPendingMaterials = async () => {
+const listPendingMaterials = async () => {
   return await File.find({ approved: false })
     .populate("course department lecturer", "title code name email")
     .sort({ createdAt: -1 });

@@ -6,6 +6,16 @@ const fileSchema = new mongoose.Schema({
     required: true
   },
 
+  description: {
+    type: String,
+    default: ""
+  },
+
+  coverImageUrl: {
+    type: String,
+    default: ""
+  },
+
   fileUrl: {
     type: String,
     required: true
@@ -26,6 +36,88 @@ const fileSchema = new mongoose.Schema({
     ref: "Course"
   },
 
+  department: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Department",
+    default: null
+  },
+
+  semester: {
+    type: String,
+    enum: ["First", "Second"],
+    default: "First"
+  },
+
+  lecturer: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    default: null
+  },
+
+  category: {
+    type: String,
+    enum: ["Book", "Lecture Notes", "Lab Manual", "Assignment", "Past Question", "Video", "PDF", "DOCX", "PPT", "ZIP", "Other"],
+    default: "Other"
+  },
+
+  materialType: {
+    type: String,
+    enum: ["PDF", "DOCX", "PPT", "ZIP", "Video", "Book", "Lab Manual", "Assignment", "Past Question", "Other"],
+    default: "Other"
+  },
+
+  visibility: {
+    type: String,
+    enum: ["public", "unlisted", "private"],
+    default: "public"
+  },
+
+  price: {
+    type: Number,
+    default: 0
+  },
+
+  isFree: {
+    type: Boolean,
+    default: false
+  },
+
+  isPaid: {
+    type: Boolean,
+    default: false
+  },
+
+  premiumDiscount: {
+    type: Number,
+    default: 0
+  },
+
+  approved: {
+    type: Boolean,
+    default: false
+  },
+
+  downloads: {
+    type: Number,
+    default: 0
+  },
+
+  purchases: {
+    type: Number,
+    default: 0
+  },
+
+  ratingAverage: {
+    type: Number,
+    default: 0
+  },
+
+  ratingCount: {
+    type: Number,
+    default: 0
+  },
+
+  // Existing premium course file marker
   isPremium: {
     type: Boolean,
     default: false
@@ -33,5 +125,16 @@ const fileSchema = new mongoose.Schema({
 }, {
   timestamps: true  // Automatically adds createdAt and updatedAt
 });
+
+fileSchema.index({ course: 1 });
+fileSchema.index({ department: 1 });
+fileSchema.index({ lecturer: 1 });
+fileSchema.index({ isPremium: 1 });
+fileSchema.index({ isFree: 1 });
+fileSchema.index({ isPaid: 1 });
+fileSchema.index({ approved: 1 });
+fileSchema.index({ materialType: 1 });
+fileSchema.index({ category: 1 });
+fileSchema.index({ title: "text", description: "text" });
 
 module.exports = mongoose.models.File || mongoose.model("File", fileSchema);
