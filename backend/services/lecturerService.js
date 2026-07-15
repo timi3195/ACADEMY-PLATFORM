@@ -1,5 +1,14 @@
 const mongoose = require("mongoose");
 const File = require("../models/File");
+
+const normalizeTags = (tags) => {
+  if (!tags) return [];
+  if (Array.isArray(tags)) return tags.map((tag) => String(tag).trim().toLowerCase()).filter(Boolean);
+  return String(tags)
+    .split(",")
+    .map((tag) => tag.trim().toLowerCase())
+    .filter(Boolean);
+};
 const Transaction = require("../models/Transaction");
 const Withdrawal = require("../models/Withdrawal");
 const materialAccessService = require("../services/materialAccessService");
@@ -102,11 +111,16 @@ const getLecturerMaterials = async (lecturerId, query = {}) => {
   };
 };
 
-const createLecturerMaterial = async ({ user, body, file }) => {
+const createLecturerMaterial = async ({ user, body, file, coverImage }) => {
+  const coverImageUrl = coverImage ? `/uploads/${coverImage.filename}` : body.coverImageUrl || "";
+  const pageCount = Number(body.pageCount || body.previewPages || 0);
+
   return await File.create({
     title: body.title,
     description: body.description || "",
-    coverImageUrl: body.coverImageUrl || "",
+    coverImageUrl,
+    coverImageFilename: coverImage?.filename || "",
+    coverImageOriginalName: coverImage?.originalname || "",
     fileUrl: "",
     storageFilename: file.filename,
     originalName: file.originalname,
@@ -119,13 +133,18 @@ const createLecturerMaterial = async ({ user, body, file }) => {
     visibility: body.visibility || "public",
     level: body.level || "Other",
     previewPages: Number(body.previewPages || 0),
+    pageCount,
+    productStatus: body.productStatus || "draft",
+    language: body.language || "en",
+    edition: body.edition || "",
+    publisher: body.publisher || "",
     price: Number(body.price || 0),
     isFree: body.isFree === "true" || body.isFree === true,
     isPaid: body.isPaid === "true" || body.isPaid === true,
     premiumDiscount: Number(body.premiumDiscount || 0),
     tags: normalizeTags(body.tags),
     approved: false,
-    status: "pending",
+    status: body.status || "pending",
     hidden: false,
     featured: false,
     isDeleted: false,
@@ -142,7 +161,7 @@ const createLecturerMaterial = async ({ user, body, file }) => {
   });
 };
 
-const updateLecturerMaterial = async ({ user, materialId, body, file }) => {
+const updateLecturerMaterial = async ({ user, materialId, body, file, coverImage }) => {
   const material = await File.findById(materialId);
   if (!material) return null;
 
@@ -163,14 +182,30 @@ const updateLecturerMaterial = async ({ user, materialId, body, file }) => {
     title: body.title ?? material.title,
     description: body.description ?? material.description,
     coverImageUrl: body.coverImageUrl ?? material.coverImageUrl,
+    coverImageFilename: body.coverImageUrl ? material.coverImageFilename : material.coverImageFilename,
+    coverImageOriginalName: body.coverImageUrl ? material.coverImageOriginalName : material.coverImageOriginalName,
+    category: body.category ?? material.category,
+    materialType: body.materialType ?? material.materialType,
+    semester: body.semester ?? material.semester,
     price: body.price !== undefined ? Number(body.price) : material.price,
     tags: body.tags !== undefined ? normalizeTags(body.tags) : material.tags,
     visibility: body.visibility ?? material.visibility,
     previewPages: body.previewPages !== undefined ? Number(body.previewPages) : material.previewPages,
+    pageCount: body.pageCount !== undefined ? Number(body.pageCount) : material.pageCount,
     level: body.level ?? material.level,
+    productStatus: body.productStatus ?? material.productStatus,
+    language: body.language ?? material.language,
+    edition: body.edition ?? material.edition,
+    publisher: body.publisher ?? material.publisher,
     status: body.status ?? material.status,
     hidden: body.hidden !== undefined ? !!body.hidden : material.hidden
   };
+
+  if (coverImage) {
+    updates.coverImageUrl = `/uploads/${coverImage.filename}`;
+    updates.coverImageFilename = coverImage.filename;
+    updates.coverImageOriginalName = coverImage.originalname;
+  }
 
   if (file) {
     updates.storageFilename = file.filename;

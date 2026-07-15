@@ -43,6 +43,25 @@ exports.validateCreateMaterial = (body, file) => {
     }
   }
 
+  if (body.pageCount !== undefined) {
+    const pages = Number(body.pageCount);
+    if (Number.isNaN(pages) || pages < 0) {
+      errors.push({ field: "pageCount", message: "Page count must be a positive number" });
+    }
+  }
+
+  if (body.semester && !["First", "Second"].includes(body.semester)) {
+    errors.push({ field: "semester", message: "Semester must be First or Second" });
+  }
+
+  if (body.materialType && !["PDF", "DOCX", "PPT", "ZIP", "Video", "Book", "Lab Manual", "Assignment", "Past Question", "Other"].includes(body.materialType)) {
+    errors.push({ field: "materialType", message: "Material type is invalid" });
+  }
+
+  if (body.productStatus && !["draft", "published", "archived"].includes(body.productStatus)) {
+    errors.push({ field: "productStatus", message: "Product status must be draft, published, or archived" });
+  }
+
   return errors;
 };
 
@@ -73,6 +92,25 @@ exports.validateUpdateMaterial = (body, file) => {
     if (Number.isNaN(pages) || pages < 0) {
       errors.push({ field: "previewPages", message: "Preview pages must be a positive number" });
     }
+  }
+
+  if (body.pageCount !== undefined) {
+    const pages = Number(body.pageCount);
+    if (Number.isNaN(pages) || pages < 0) {
+      errors.push({ field: "pageCount", message: "Page count must be a positive number" });
+    }
+  }
+
+  if (body.semester && !["First", "Second"].includes(body.semester)) {
+    errors.push({ field: "semester", message: "Semester must be First or Second" });
+  }
+
+  if (body.materialType && !["PDF", "DOCX", "PPT", "ZIP", "Video", "Book", "Lab Manual", "Assignment", "Past Question", "Other"].includes(body.materialType)) {
+    errors.push({ field: "materialType", message: "Material type is invalid" });
+  }
+
+  if (body.productStatus && !["draft", "published", "archived"].includes(body.productStatus)) {
+    errors.push({ field: "productStatus", message: "Product status must be draft, published, or archived" });
   }
 
   if (file && !file.originalname) {

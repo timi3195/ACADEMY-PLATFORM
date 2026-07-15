@@ -1,5 +1,14 @@
 import apiClient from './apiClient';
 
+const appendFormValue = (formData, key, value) => {
+  if (value === undefined || value === null) return;
+  if (Array.isArray(value)) {
+    formData.append(key, value.join(','));
+    return;
+  }
+  formData.append(key, value);
+};
+
 export const lecturerService = {
   async getDashboard() {
     const { data } = await apiClient.get('/api/lecturer/dashboard');
@@ -11,15 +20,16 @@ export const lecturerService = {
     return data;
   },
 
-  async createMaterial(payload, file) {
+  async createMaterial(payload, file, coverImage) {
     const formData = new FormData();
     Object.entries(payload).forEach(([key, value]) => {
-      if (value !== undefined && value !== null) {
-        formData.append(key, value);
-      }
+      appendFormValue(formData, key, value);
     });
     if (file) {
       formData.append('file', file);
+    }
+    if (coverImage) {
+      formData.append('coverImage', coverImage);
     }
 
     const { data } = await apiClient.post('/api/lecturer/materials', formData, {
@@ -28,15 +38,16 @@ export const lecturerService = {
     return data;
   },
 
-  async updateMaterial(id, payload, file) {
+  async updateMaterial(id, payload, file, coverImage) {
     const formData = new FormData();
     Object.entries(payload).forEach(([key, value]) => {
-      if (value !== undefined && value !== null) {
-        formData.append(key, value);
-      }
+      appendFormValue(formData, key, value);
     });
     if (file) {
       formData.append('file', file);
+    }
+    if (coverImage) {
+      formData.append('coverImage', coverImage);
     }
 
     const { data } = await apiClient.put(`/api/lecturer/materials/${id}`, formData, {

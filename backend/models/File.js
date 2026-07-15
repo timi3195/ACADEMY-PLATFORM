@@ -16,6 +16,16 @@ const fileSchema = new mongoose.Schema({
     default: ""
   },
 
+  coverImageFilename: {
+    type: String,
+    default: ""
+  },
+
+  coverImageOriginalName: {
+    type: String,
+    default: ""
+  },
+
   fileUrl: {
     type: String,
     required: true
@@ -81,6 +91,32 @@ const fileSchema = new mongoose.Schema({
   previewPages: {
     type: Number,
     default: 0
+  },
+
+  pageCount: {
+    type: Number,
+    default: 0
+  },
+
+  productStatus: {
+    type: String,
+    enum: ["draft", "published", "archived"],
+    default: "draft"
+  },
+
+  language: {
+    type: String,
+    default: "en"
+  },
+
+  edition: {
+    type: String,
+    default: ""
+  },
+
+  publisher: {
+    type: String,
+    default: ""
   },
 
   status: {

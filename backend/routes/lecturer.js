@@ -23,6 +23,10 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({ storage });
+const uploadFields = upload.fields([
+  { name: "file", maxCount: 1 },
+  { name: "coverImage", maxCount: 1 }
+]);
 
 // Lecturer dashboard summary
 router.get("/dashboard", protect, lecturerOnly, lecturerController.getDashboard);
@@ -35,7 +39,7 @@ router.post(
   "/materials",
   protect,
   lecturerOnly,
-  upload.single("file"),
+  uploadFields,
   lecturerController.createMaterial
 );
 
@@ -44,7 +48,7 @@ router.put(
   "/materials/:id",
   protect,
   lecturerOnly,
-  upload.single("file"),
+  uploadFields,
   lecturerController.updateMaterial
 );
 

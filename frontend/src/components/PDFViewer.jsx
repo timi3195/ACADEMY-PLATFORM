@@ -3,7 +3,7 @@ import { Document, Page, pdfjs } from 'react-pdf';
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
-export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload }) {
+export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload, maxPages }) {
   const [numPages, setNumPages] = useState(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [scale, setScale] = useState(1);
@@ -37,7 +37,10 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload 
   }, [pageNumber, storageKey]);
 
   const onDocumentLoadSuccess = ({ numPages }) => {
-    setNumPages(numPages);
+    const effectiveMaxPages = Number(maxPages || 0);
+    const safeMaxPages = effectiveMaxPages > 0 ? Math.min(numPages, effectiveMaxPages) : numPages;
+    setNumPages(safeMaxPages);
+    setPageNumber((current) => Math.min(current || 1, safeMaxPages || 1));
     setLoading(false);
   };
 
@@ -46,8 +49,15 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload 
     setLoading(false);
   };
 
-  const goToPreviousPage = () => setPageNumber((prev) => Math.max(1, prev - 1));
-  const goToNextPage = () => setPageNumber((prev) => Math.min(numPages || prev, prev + 1));
+  const effectiveMaxPages = Number(maxPages || 0);
+  const clampPage = (value) => {
+    if (effectiveMaxPages > 0) {
+      return Math.min(effectiveMaxPages, Math.max(1, value));
+    }
+    return Math.max(1, value);
+  };
+  const goToPreviousPage = () => setPageNumber((prev) => clampPage(prev - 1));
+  const goToNextPage = () => setPageNumber((prev) => clampPage(prev + 1));
   const zoomIn = () => setScale((prev) => Math.min(2.5, prev + 0.2));
   const zoomOut = () => setScale((prev) => Math.max(0.5, prev - 0.2));
   const resetZoom = () => setScale(1);
@@ -92,6 +102,12 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload 
           </Document>
         )}
       </div>
+
+      {effectiveMaxPages > 0 && pageNumber >= effectiveMaxPages && numPages > effectiveMaxPages && (
+        <div style={{ borderRadius: '10px', padding: '12px 14px', background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>
+          This preview has ended. Purchase to unlock the full material.
+        </div>
+      )}
 
       {loading && <div style={{ textAlign: 'center', color: '#64748b' }}>Preparing PDF reader…</div>}
     </div>

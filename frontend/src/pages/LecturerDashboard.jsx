@@ -53,15 +53,15 @@ export default function LecturerDashboard() {
     setFeedback('');
   };
 
-  const handleSubmit = async (payload, file) => {
+  const handleSubmit = async (payload, file, coverImage) => {
     try {
       setSubmitting(true);
       setError('');
       if (modalMode === 'edit' && selectedMaterial?._id) {
-        await lecturerService.updateMaterial(selectedMaterial._id, payload, file);
+        await lecturerService.updateMaterial(selectedMaterial._id, payload, file, coverImage);
         setFeedback('Material updated successfully.');
       } else {
-        await lecturerService.createMaterial(payload, file);
+        await lecturerService.createMaterial(payload, file, coverImage);
         setFeedback('Material uploaded successfully.');
       }
       setModalOpen(false);

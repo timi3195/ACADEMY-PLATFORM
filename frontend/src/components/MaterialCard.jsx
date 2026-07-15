@@ -1,44 +1,172 @@
-import React from 'react';
+import React, { memo, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import PremiumBadge from './PremiumBadge';
 import PriceTag from './PriceTag';
+import { useAuth } from '../utils/auth';
 
-export default function MaterialCard({ material, onPurchase, onPreview }) {
+const formatCount = (value) => Number(value || 0).toLocaleString();
+
+const buildBadges = (material) => {
+  const badges = [];
+  const isFree = material?.isFree || Number(material?.price || 0) === 0;
+  const rating = Number(material?.ratingAverage || 0);
+  const sales = Number(material?.sales || material?.purchases || 0);
+  const views = Number(material?.views || 0);
+  const createdAt = material?.createdAt ? new Date(material.createdAt) : null;
+  const isNew = createdAt && Date.now() - createdAt.getTime() < 1000 * 60 * 60 * 24 * 14;
+
+  if (isFree) badges.push('FREE');
+  if (isNew) badges.push('NEW');
+  if (views > 100 || sales > 10) badges.push('TRENDING');
+  if (sales > 20) badges.push('BEST SELLER');
+  if (rating >= 4.5) badges.push('TOP RATED');
+  if (material?.isPremium || material?.isPaid || Number(material?.price || 0) > 0) badges.push('PREMIUM');
+  if (material?.featured || material?.approved === true) badges.push('FEATURED');
+
+  return badges.slice(0, 4);
+};
+
+function MaterialCard({ material, onPurchase, onPreview }) {
+  const { user } = useAuth();
+  const [imageLoading, setImageLoading] = useState(Boolean(material?.coverImageUrl));
+  const [imageError, setImageError] = useState(false);
+
   const title = material?.title || 'Untitled material';
   const description = material?.description || 'Academic resource';
+  const badges = useMemo(() => buildBadges(material), [material]);
+  const isFree = material?.isFree || Number(material?.price || 0) === 0;
+  const isPurchased = Boolean(material?.isPurchased || material?.hasAccess || material?.accessGranted || material?.isOwned || material?.purchased || material?.canAccess);
+  const isOwner = Boolean(user && (material?.lecturer?._id === user._id || material?.lecturer?.id === user._id || material?.lecturer === user._id));
+  const isAdminPreview = Boolean(user && (user.role === 'admin' || user.isAdmin) && material?.status && material.status !== 'approved');
+  const isUnavailable = Boolean(material?.hidden || material?.visibility === 'private' || material?.status === 'rejected' || (material?.status === 'draft' && !isOwner));
+  const detailHref = material?._id ? `/marketplace/${material._id}` : undefined;
+  const rating = Number(material?.ratingAverage || 0);
+  const reviewCount = Number(material?.ratingCount || 0);
+  const salesCount = Number(material?.sales || material?.purchases || 0);
+  const viewsCount = Number(material?.views || 0);
+  const pages = Number(material?.pageCount || material?.previewPages || 0);
+  const courseCode = material?.course?.code || material?.course?.title || 'General';
+  const departmentName = material?.department?.name || 'General';
+  const lecturerName = material?.lecturer?.name || 'Verified lecturer';
+  const imageSrc = material?.coverImageUrl || '';
+
+  useEffect(() => {
+    setImageLoading(Boolean(imageSrc));
+    setImageError(false);
+  }, [imageSrc]);
 
   return (
-    <article style={{ background: '#fff', borderRadius: '12px', padding: '16px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1px solid #e2e8f0' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start' }}>
-        <div style={{ minWidth: 0 }}>
-          <h3 style={{ margin: '0 0 6px', wordBreak: 'break-word' }}>{title}</h3>
-          <p style={{ margin: 0, color: '#64748b' }}>{description}</p>
+    <article className="product-card">
+      <div className="product-card__media">
+        {imageSrc && !imageError ? (
+          <img
+            src={imageSrc}
+            alt={title}
+            loading="lazy"
+            decoding="async"
+            onLoad={() => setImageLoading(false)}
+            onError={() => {
+              setImageLoading(false);
+              setImageError(true);
+            }}
+          />
+        ) : (
+          <div className="product-card__placeholder">
+            <span>{title.charAt(0).toUpperCase()}</span>
+            <small>{material?.materialType || 'Resource'}</small>
+          </div>
+        )}
+        {imageLoading && !imageError && <div className="product-card__skeleton" />}
+        <div className="product-card__media-badges">
+          {badges.map((badge) => (
+            <span key={badge} className="product-card__badge">{badge}</span>
+          ))}
         </div>
-        <PremiumBadge active={material?.isPremium || material?.isPaid} />
       </div>
 
-      <div style={{ marginTop: '12px', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-        {material?.course?.title && <span style={{ color: '#2563eb', fontSize: '13px' }}>{material.course.title}</span>}
-        {material?.department?.name && <span style={{ color: '#64748b', fontSize: '13px' }}>{material.department.name}</span>}
-        {material?.lecturer?.name && <span style={{ color: '#64748b', fontSize: '13px' }}>by {material.lecturer.name}</span>}
-      </div>
+      <div className="product-card__content">
+        <div className="product-card__top-row">
+          <span className="product-card__type">{material?.materialType || 'Resource'}</span>
+          <PremiumBadge active={material?.isPremium || material?.isPaid || !isFree} />
+        </div>
 
-      <div style={{ marginTop: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-        <PriceTag price={material?.price} isFree={material?.isFree} discountedPrice={material?.discountedPrice} />
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          {onPreview && (
-            <button type="button" onClick={() => onPreview(material)}>
-              Preview
-            </button>
-          )}
-          {onPurchase && (
-            <button type="button" onClick={() => onPurchase(material)}>
-              Buy
-            </button>
-          )}
-          {material?._id && (
-            <Link to={`/marketplace/${material._id}`} style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 600 }}>
-              View
+        <div>
+          <h3>{title}</h3>
+          <p>{description}</p>
+        </div>
+
+        <div className="product-card__meta-row">
+          <span>{lecturerName}</span>
+          <span>{departmentName}</span>
+          <span>{courseCode}</span>
+        </div>
+
+        <div className="product-card__meta-row product-card__meta-row--compact">
+          {material?.level && <span>Level • {material.level}</span>}
+          {material?.semester && <span>Sem • {material.semester}</span>}
+          {material?.language && <span>Lang • {material.language}</span>}
+        </div>
+
+        <div className="product-card__rating-row">
+          <div className="product-card__stars" aria-label={`Rated ${rating.toFixed(1)} out of 5`}>
+            {Array.from({ length: 5 }, (_, index) => (
+              <span key={index}>{index < Math.round(rating) ? '★' : '☆'}</span>
+            ))}
+          </div>
+          <span>{reviewCount ? `${reviewCount} reviews` : 'No reviews yet'}</span>
+        </div>
+
+        <div className="product-card__stats-row">
+          <span>👁 {formatCount(viewsCount)}</span>
+          <span>🛒 {formatCount(salesCount)}</span>
+          <span>📄 {pages || '—'}</span>
+        </div>
+
+        <div className="product-card__price-row">
+          <PriceTag price={material?.price} isFree={isFree} discountedPrice={material?.discountedPrice} />
+          {isFree && <span className="product-card__free-pill">FREE</span>}
+        </div>
+
+        <div className="product-card__state-row">
+          {material?.status === 'pending' && <span className="product-card__status">Pending approval</span>}
+          {material?.status === 'draft' && <span className="product-card__status">Draft</span>}
+          {material?.status === 'rejected' && <span className="product-card__status">Rejected</span>}
+          {isUnavailable && !isOwner && !isPurchased && <span className="product-card__status">Unavailable</span>}
+          {isOwner && <span className="product-card__status">Your material</span>}
+          {isAdminPreview && <span className="product-card__status">Admin preview</span>}
+        </div>
+
+        <div className="product-card__footer">
+          <div className="product-card__actions">
+            {onPreview && (
+              <button type="button" className="product-card__button product-card__button--ghost" onClick={() => onPreview(material)}>
+                Preview
+              </button>
+            )}
+            {onPurchase && !isPurchased && !isOwner && !isUnavailable && (
+              <button type="button" className="product-card__button" onClick={() => onPurchase(material)}>
+                {isFree ? 'Get now' : 'Buy now'}
+              </button>
+            )}
+            {isPurchased && detailHref && (
+              <Link className="product-card__button" to={detailHref}>
+                Read now
+              </Link>
+            )}
+            {isOwner && detailHref && (
+              <Link className="product-card__button" to={detailHref}>
+                Continue reading
+              </Link>
+            )}
+            {!isPurchased && !isOwner && detailHref && !onPurchase && (
+              <Link className="product-card__button" to={detailHref}>
+                View details
+              </Link>
+            )}
+          </div>
+          {detailHref && (
+            <Link className="product-card__link" to={detailHref}>
+              Open
             </Link>
           )}
         </div>
@@ -46,3 +174,5 @@ export default function MaterialCard({ material, onPurchase, onPreview }) {
     </article>
   );
 }
+
+export default memo(MaterialCard);

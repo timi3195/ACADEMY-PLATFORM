@@ -21,9 +21,18 @@ exports.getMaterials = async (req, res) => {
   }
 };
 
+const getUploadedFiles = (req) => {
+  const files = req.files || {};
+  return {
+    file: files.file?.[0] || req.file || null,
+    coverImage: files.coverImage?.[0] || null
+  };
+};
+
 exports.createMaterial = async (req, res) => {
   try {
-    const errors = lecturerValidator.validateCreateMaterial(req.body, req.file);
+    const { file, coverImage } = getUploadedFiles(req);
+    const errors = lecturerValidator.validateCreateMaterial(req.body, file);
     if (errors.length) {
       return res.status(400).json({ success: false, errors });
     }
@@ -31,7 +40,8 @@ exports.createMaterial = async (req, res) => {
     const material = await lecturerService.createLecturerMaterial({
       user: req.user,
       body: req.body,
-      file: req.file
+      file,
+      coverImage
     });
 
     res.status(201).json({ success: true, material });
@@ -44,7 +54,8 @@ exports.createMaterial = async (req, res) => {
 exports.updateMaterial = async (req, res) => {
   try {
     const materialId = req.params.id;
-    const errors = lecturerValidator.validateUpdateMaterial(req.body, req.file);
+    const { file, coverImage } = getUploadedFiles(req);
+    const errors = lecturerValidator.validateUpdateMaterial(req.body, file);
     if (errors.length) {
       return res.status(400).json({ success: false, errors });
     }
@@ -53,7 +64,8 @@ exports.updateMaterial = async (req, res) => {
       user: req.user,
       materialId,
       body: req.body,
-      file: req.file
+      file,
+      coverImage
     });
 
     if (!material) {
