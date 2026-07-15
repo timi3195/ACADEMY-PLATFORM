@@ -42,20 +42,19 @@ const fileSchema = new mongoose.Schema({
   },
 
   course: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Course"
+    type: String,
+    default: ""
   },
 
   department: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Department",
+    type: String,
     default: null
   },
 
   semester: {
     type: String,
-    enum: ["First", "Second"],
-    default: "First"
+    enum: ["First", "Second", "First Semester", "Second Semester", "Rain Semester", "Harmattan Semester"],
+    default: "First Semester"
   },
 
   lecturer: {
@@ -66,13 +65,13 @@ const fileSchema = new mongoose.Schema({
 
   category: {
     type: String,
-    enum: ["Book", "Lecture Notes", "Lab Manual", "Assignment", "Past Question", "Video", "PDF", "DOCX", "PPT", "ZIP", "Other"],
+    enum: ["Book", "Lecture Notes", "Lab Manual", "Assignment", "Past Question", "Video", "PDF", "DOCX", "PPT", "ZIP", "Other", "Lecture Note", "Textbook", "Practical", "Research Paper", "Project Guide", "Presentation Slides"],
     default: "Other"
   },
 
   materialType: {
     type: String,
-    enum: ["PDF", "DOCX", "PPT", "ZIP", "Video", "Book", "Lab Manual", "Assignment", "Past Question", "Other"],
+    enum: ["PDF", "DOCX", "PPT", "ZIP", "Video", "Book", "Lab Manual", "Assignment", "Past Question", "Other", "Lecture Note", "Textbook", "Practical", "Research Paper", "Project Guide", "Presentation Slides"],
     default: "Other"
   },
 
@@ -84,8 +83,8 @@ const fileSchema = new mongoose.Schema({
 
   level: {
     type: String,
-    enum: ["ND1", "ND2", "HND1", "HND2", "Other"],
-    default: "Other"
+    enum: ["100 Level", "200 Level", "300 Level", "400 Level", "500 Level", "PGD", "Masters", "PhD", "ND1", "ND2", "HND1", "HND2", "Other"],
+    default: "100 Level"
   },
 
   previewPages: {
@@ -163,6 +162,26 @@ const fileSchema = new mongoose.Schema({
   premiumDiscount: {
     type: Number,
     default: 0
+  },
+
+  faculty: {
+    type: String,
+    default: ""
+  },
+
+  courseCode: {
+    type: String,
+    default: ""
+  },
+
+  allowDownload: {
+    type: Boolean,
+    default: true
+  },
+
+  allowPreview: {
+    type: Boolean,
+    default: true
   },
 
   approved: {

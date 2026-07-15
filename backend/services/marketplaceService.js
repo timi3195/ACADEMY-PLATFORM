@@ -103,9 +103,6 @@ const listMaterials = async (query) => {
   const skip = (page - 1) * limit;
 
   const materials = await File.find(filters)
-    .populate({ path: "course", select: "title code" })
-    .populate({ path: "department", select: "name code" })
-    .populate({ path: "lecturer", select: "name email" })
     .sort({ createdAt: -1 })
     .skip(skip)
     .limit(limit)
@@ -125,16 +122,12 @@ const getMaterialById = async (id) => {
     hidden: false,
     visibility: { $in: ["public", "unlisted"] }
   })
-    .populate({ path: "course", select: "title code" })
-    .populate({ path: "department", select: "name code" })
-    .populate({ path: "lecturer", select: "name email" })
     .select("-storageFilename -deletedAt")
     .lean();
 };
 
 const getLecturerMaterials = async (lecturerId) => {
   return await File.find({ lecturer: lecturerId })
-    .populate("course department", "title code name")
     .sort({ createdAt: -1 });
 };
 
@@ -208,9 +201,6 @@ const deleteMaterial = async (materialId, user) => {
 const getFeaturedMaterials = async (query) => {
   const limit = Math.min(Number(query.limit) || 12, 50);
   const materials = await File.find({ approved: true, visibility: "public" })
-    .populate({ path: "course", select: "title code" })
-    .populate({ path: "department", select: "name code" })
-    .populate({ path: "lecturer", select: "name email" })
     .sort({ purchases: -1, ratingAverage: -1, createdAt: -1 })
     .limit(limit)
     .lean();

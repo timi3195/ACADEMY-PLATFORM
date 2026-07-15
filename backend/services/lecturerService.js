@@ -52,6 +52,9 @@ const getLecturerDashboard = async (lecturerId) => {
   }).lean();
 
   const totalMaterials = materials.length;
+  const publishedMaterials = materials.filter((material) => material.productStatus === "published" || material.status === "approved" || material.approved).length;
+  const draftMaterials = materials.filter((material) => material.productStatus === "draft").length;
+  const pendingApproval = materials.filter((material) => material.status === "pending" || material.status === "rejected").length;
   const totalSales = transactions.length;
   const totalEarnings = transactions.reduce((sum, tx) => sum + (tx.amount || 0), 0);
   const pendingEarnings = transactions.filter((tx) => tx.status === "pending").reduce((sum, tx) => sum + (tx.amount || 0), 0);
@@ -72,14 +75,20 @@ const getLecturerDashboard = async (lecturerId) => {
     .limit(5)
     .lean();
 
+  const averageRating = materials.length ? materials.reduce((sum, material) => sum + Number(material.ratingAverage || 0), 0) / materials.length : 0;
+
   return {
     totalMaterials,
+    publishedMaterials,
+    draftMaterials,
+    pendingApproval,
     totalSales,
     totalEarnings,
     pendingEarnings,
     withdrawnEarnings: withdrawnEarnings[0] ? withdrawnEarnings[0].total : 0,
     totalDownloads,
     totalViews,
+    averageRating,
     mostPurchasedMaterial: mostPurchased || null,
     newestMaterials
   };
@@ -92,7 +101,6 @@ const getLecturerMaterials = async (lecturerId, query = {}) => {
   const skip = (page - 1) * limit;
 
   const materials = await File.find(filters)
-    .populate("course department", "title code name")
     .sort({ createdAt: -1 })
     .skip(skip)
     .limit(limit)
@@ -114,6 +122,8 @@ const getLecturerMaterials = async (lecturerId, query = {}) => {
 const createLecturerMaterial = async ({ user, body, file, coverImage }) => {
   const coverImageUrl = coverImage ? `/uploads/${coverImage.filename}` : body.coverImageUrl || "";
   const pageCount = Number(body.pageCount || body.previewPages || 0);
+  const normalizedCourse = body.course ? String(body.course) : null;
+  const normalizedDepartment = body.department ? String(body.department) : null;
 
   return await File.create({
     title: body.title,
@@ -121,28 +131,32 @@ const createLecturerMaterial = async ({ user, body, file, coverImage }) => {
     coverImageUrl,
     coverImageFilename: coverImage?.filename || "",
     coverImageOriginalName: coverImage?.originalname || "",
-    fileUrl: "",
+    fileUrl: `/api/marketplace/materials/${body.title || "material"}`,
     storageFilename: file.filename,
     originalName: file.originalname,
-    course: body.course,
-    department: body.department || null,
-    semester: body.semester || "First",
+    course: normalizedCourse,
+    department: normalizedDepartment,
+    semester: body.semester || "First Semester",
     lecturer: user.id,
-    category: body.category || "Other",
-    materialType: body.materialType || "Other",
+    category: body.category || body.materialType || "Other",
+    materialType: body.materialType || "Lecture Note",
     visibility: body.visibility || "public",
-    level: body.level || "Other",
+    level: body.level || "100 Level",
     previewPages: Number(body.previewPages || 0),
     pageCount,
     productStatus: body.productStatus || "draft",
-    language: body.language || "en",
+    language: body.language || "English",
     edition: body.edition || "",
     publisher: body.publisher || "",
     price: Number(body.price || 0),
-    isFree: body.isFree === "true" || body.isFree === true,
-    isPaid: body.isPaid === "true" || body.isPaid === true,
-    premiumDiscount: Number(body.premiumDiscount || 0),
+    isFree: body.isFree === "true" || body.isFree === true || body.pricingMode === "free" || Number(body.price || 0) === 0,
+    isPaid: body.isPaid === "true" || body.isPaid === true || (body.pricingMode !== "free" && Number(body.price || 0) > 0),
+    premiumDiscount: Number(body.premiumDiscount || body.discount || 0),
     tags: normalizeTags(body.tags),
+    faculty: body.faculty || "",
+    courseCode: body.courseCode || "",
+    allowDownload: body.allowDownload !== "false" && body.allowDownload !== false,
+    allowPreview: body.allowPreview !== "false" && body.allowPreview !== false,
     approved: false,
     status: body.status || "pending",
     hidden: false,
@@ -198,7 +212,14 @@ const updateLecturerMaterial = async ({ user, materialId, body, file, coverImage
     edition: body.edition ?? material.edition,
     publisher: body.publisher ?? material.publisher,
     status: body.status ?? material.status,
-    hidden: body.hidden !== undefined ? !!body.hidden : material.hidden
+    hidden: body.hidden !== undefined ? !!body.hidden : material.hidden,
+    faculty: body.faculty !== undefined ? body.faculty : material.faculty,
+    courseCode: body.courseCode !== undefined ? body.courseCode : material.courseCode,
+    allowDownload: body.allowDownload !== undefined ? (body.allowDownload !== "false" && body.allowDownload !== false) : material.allowDownload,
+    allowPreview: body.allowPreview !== undefined ? (body.allowPreview !== "false" && body.allowPreview !== false) : material.allowPreview,
+    isFree: body.isFree !== undefined ? (body.isFree === "true" || body.isFree === true || body.pricingMode === "free" || Number(body.price || 0) === 0) : material.isFree,
+    isPaid: body.isPaid !== undefined ? (body.isPaid === "true" || body.isPaid === true || (body.pricingMode !== "free" && Number(body.price || 0) > 0)) : material.isPaid,
+    premiumDiscount: body.premiumDiscount !== undefined ? Number(body.premiumDiscount || body.discount || 0) : material.premiumDiscount
   };
 
   if (coverImage) {
