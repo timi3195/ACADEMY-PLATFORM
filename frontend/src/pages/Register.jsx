@@ -146,20 +146,20 @@ const Register = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-600 via-blue-500 to-indigo-600 flex items-center justify-center py-12 px-4">
+    <div className="min-h-screen bg-gradient-to-br from-blue-600 via-blue-500 to-indigo-600 flex items-center justify-center py-6 px-3 sm:py-12 sm:px-4">
       <div className="w-full max-w-lg">
         {/* Logo/Header Section */}
-        <div className="text-center mb-12">
+        <div className="text-center mb-8 sm:mb-12">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-white rounded-full shadow-lg mb-4">
             <span className="text-3xl font-bold text-blue-600">✏️</span>
           </div>
-          <h1 className="text-5xl font-bold text-white mb-3">Join Academy</h1>
-          <p className="text-blue-100 text-lg">Start your learning journey today</p>
+          <h1 className="text-4xl sm:text-5xl font-bold text-white mb-3">Join Academy</h1>
+          <p className="text-blue-100 text-base sm:text-lg">Start your learning journey today</p>
         </div>
 
         {/* Main Registration Card */}
         <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
-          <div className="p-10">
+          <div className="p-6 sm:p-10">
             {/* Success Message */}
             {success && (
               <div className="mb-6 p-4 bg-green-50 border-l-4 border-green-500 rounded-lg">
@@ -372,9 +372,9 @@ const Register = () => {
           </div>
 
           {/* Features Section - Integrated in Card */}
-          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 px-10 py-8 border-t-2 border-gray-100">
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 px-6 py-8 sm:px-10 border-t-2 border-gray-100">
             <p className="text-center text-gray-600 font-semibold text-sm mb-5">What you'll get:</p>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div className="text-center">
                 <div className="text-3xl mb-2">📚</div>
                 <p className="text-xs text-gray-600 font-medium">Quality<br/>Content</p>

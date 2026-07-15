@@ -159,11 +159,32 @@ router.post("/register", async (req, res) => {
  * POST /api/auth/login
  * Login with email and password
  */
-router.post("/login", async (req, res) => {
+const loginAttempts = new Map();
+
+const rateLimitLogin = (req, res, next) => {
+  const key = (req.ip || 'unknown') + ':' + (req.body?.email || '').toLowerCase();
+  const now = Date.now();
+  const windowMs = 15 * 60 * 1000;
+  const maxAttempts = 10;
+
+  const attempts = loginAttempts.get(key) || [];
+  const recent = attempts.filter((timestamp) => now - timestamp < windowMs);
+
+  if (recent.length >= maxAttempts) {
+    return res.status(429).json({ success: false, message: 'Too many login attempts. Please try again later.' });
+  }
+
+  recent.push(now);
+  loginAttempts.set(key, recent);
+  next();
+};
+
+router.post("/login", rateLimitLogin, async (req, res) => {
   try {
     const { email, password, rememberMe } = req.body;
 
-    if (!email || !password) {
+    const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+    if (!normalizedEmail || !password) {
       return res.status(400).json({
         success: false,
         message: "Please provide email and password"
@@ -171,7 +192,7 @@ router.post("/login", async (req, res) => {
     }
 
     // Find user by email
-    const user = await User.findOne({ email: email.toLowerCase() });
+    const user = await User.findOne({ email: normalizedEmail });
 
     if (!user || !user.password) {
       return res.status(401).json({

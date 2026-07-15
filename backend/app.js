@@ -51,7 +51,7 @@ app.use(
 
 app.use(passport.initialize());
 app.use(passport.session());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // Middleware to serve PDFs inline instead of forcing download
 app.use((req, res, next) => {
@@ -66,7 +66,7 @@ app.use((req, res, next) => {
 // Serve uploads for backward compatibility with existing files
 // New files use protected endpoint: /api/files/download/:filename
 app.use("/uploads", express.static("uploads"));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // handle malformed JSON body errors gracefully
 app.use((err, req, res, next) => {

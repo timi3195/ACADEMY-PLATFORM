@@ -26,16 +26,38 @@ const storage = multer.diskStorage({
   }
 });
 
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  limits: { fileSize: 25 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowedExtensions = ['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.txt', '.png', '.jpg', '.jpeg', '.gif'];
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    if (allowedExtensions.includes(ext)) {
+      cb(null, true);
+      return;
+    }
+    cb(new Error('Unsupported file type'));
+  }
+});
 
 // Upload file - admin only
 router.post("/upload", protect, adminOnly, upload.single("file"), async (req, res) => {
   try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'Please select a file to upload.' });
+    }
+
     const isPremium = req.body.isPremium === 'true' || req.body.isPremium === 'on' || req.body.isPremium === true;
+    const title = typeof req.body.title === 'string' ? req.body.title.trim() : '';
+    const courseId = typeof req.body.course === 'string' ? req.body.course.trim() : '';
+
+    if (!title || !courseId) {
+      return res.status(400).json({ success: false, message: 'Title and course are required.' });
+    }
 
     // Validate course exists
     const Course = require("../models/course");
-    const course = await Course.findById(req.body.course);
+    const course = await Course.findById(courseId);
     if (!course) {
       return res.status(404).json({
         success: false,
@@ -45,8 +67,8 @@ router.post("/upload", protect, adminOnly, upload.single("file"), async (req, re
 
     // Persist metadata (store server-side filename separately)
     const created = await File.create({
-      title: req.body.title,
-      course: req.body.course,
+      title,
+      course: courseId,
       isPremium,
       fileUrl: '',
       storageFilename: req.file.filename,

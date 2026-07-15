@@ -80,9 +80,9 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload,
   }
 
   return (
-    <div style={{ display: 'grid', gap: '12px' }}>
+    <div style={{ display: 'grid', gap: '12px', width: '100%', minWidth: 0 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap', background: '#fff', borderRadius: '12px', padding: '12px', border: '1px solid #e2e8f0' }}>
-        <div>{fileName && <strong>{fileName}</strong>}</div>
+        <div style={{ minWidth: 0 }}>{fileName && <strong style={{ display: 'block', overflowWrap: 'anywhere' }}>{fileName}</strong>}</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           <button type="button" onClick={goToPreviousPage} disabled={pageNumber <= 1}>← Prev</button>
           <span>{pageNumber} / {numPages || '…'}</span>
@@ -95,7 +95,7 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload,
         </div>
       </div>
 
-      <div style={{ background: '#fff', borderRadius: '12px', padding: '12px', border: '1px solid #e2e8f0', overflow: 'auto', maxHeight: '70vh' }}>
+      <div style={{ background: '#fff', borderRadius: '12px', padding: '12px', border: '1px solid #e2e8f0', overflow: 'auto', maxHeight: '70vh', width: '100%', minWidth: 0 }}>
         {fileWithAuth && (
           <Document file={fileWithAuth} onLoadSuccess={onDocumentLoadSuccess} onError={onDocumentLoadError} loading={<div style={{ padding: '20px', color: '#64748b' }}>Loading PDF…</div>}>
             <Page pageNumber={pageNumber} scale={scale} renderTextLayer renderAnnotationLayer />

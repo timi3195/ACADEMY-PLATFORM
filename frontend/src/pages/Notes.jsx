@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { apiGet, apiPost } from '../utils/api'
+import EmptyState from '../components/EmptyState'
+import ErrorState from '../components/ErrorState'
 
 export default function Notes() {
   const [notes, setNotes] = useState([])
@@ -7,52 +9,68 @@ export default function Notes() {
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [courseId, setCourseId] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
 
-  useEffect(()=>{
-    fetchNotes()
-    fetchCourses()
+  useEffect(() => {
+    loadData()
   }, [])
 
-  async function fetchCourses(){
-    try{
-      const res = await apiGet('/api/courses')
-      setCourses(res.courses || [])
-    }catch(err){
+  async function loadData() {
+    setLoading(true)
+    setError('')
+    try {
+      const [notesRes, coursesRes] = await Promise.all([
+        apiGet('/api/notes'),
+        apiGet('/api/courses')
+      ])
+      setNotes(notesRes.notes || [])
+      setCourses(coursesRes.courses || [])
+    } catch (err) {
       console.error(err)
-      alert('Failed to load courses')
+      setError(err.message || 'Unable to load your notes right now.')
+    } finally {
+      setLoading(false)
     }
   }
 
-  async function fetchNotes(){
-    try{
-      const res = await apiGet('/api/notes')
-      setNotes(res.notes || [])
-    }catch(err){
-      console.error(err)
-      alert('Failed to load notes')
+  async function add() {
+    if (!title.trim() || !content.trim() || !courseId) {
+      setError('Please provide a title, content, and course before saving your note.')
+      return
     }
-  }
 
-  async function add(){
-    if(!title || !content || !courseId) return alert('Provide title, content and course')
-    try{
-      const res = await apiPost('/api/notes', { title, content, course: courseId, isPremium: false })
-      if(res && res.note){
+    setError('')
+    setSuccess('')
+    setSubmitting(true)
+    try {
+      const res = await apiPost('/api/notes', { title: title.trim(), content: content.trim(), course: courseId, isPremium: false })
+      if (res && res.note) {
         setNotes(prev => [res.note, ...prev])
-        setTitle(''); setContent(''); setCourseId('')
+        setTitle('')
+        setContent('')
+        setCourseId('')
+        setSuccess('Note saved successfully.')
       }
-    }catch(err){
+    } catch (err) {
       console.error(err)
-      alert('Failed to create note: ' + (err.message||''))
+      setError(err.message || 'Unable to save your note.')
+    } finally {
+      setSubmitting(false)
     }
   }
 
   return (
     <div className="page">
       <h2>Notes</h2>
+      <p className="text-sm text-gray-600 mb-4">Capture quick study reminders and keep them tied to a course.</p>
       <div className="card">
-        <input placeholder="Title" value={title} onChange={e=>setTitle(e.target.value)} />
-        <textarea value={content} onChange={e=>setContent(e.target.value)} placeholder="Content" />
+        {error && <ErrorState message={error} />}
+        {success && <div className="success-banner" style={{ marginBottom: '12px' }}>{success}</div>}
+        <input placeholder="Title" value={title} onChange={e => setTitle(e.target.value)} />
+        <textarea value={content} onChange={e => setContent(e.target.value)} placeholder="Content" />
         <select value={courseId} onChange={e => setCourseId(e.target.value)}>
           <option value="">Select a course</option>
           {courses.map(course => (
@@ -61,17 +79,24 @@ export default function Notes() {
             </option>
           ))}
         </select>
-        <button onClick={add}>Add Note</button>
+        <button onClick={add} disabled={submitting}>{submitting ? 'Saving...' : 'Add Note'}</button>
       </div>
-      <div>
-        {notes.map(n => (
-          <div className="note" key={n._id || n.id}>
-            <strong>{n.title}</strong>
-            <div>{n.content}</div>
-            {n.course && <div className="meta">Course: {n.course.title || n.course}</div>}
-          </div>
-        ))}
-      </div>
+
+      {loading ? (
+        <p className="text-sm text-gray-600">Loading notes…</p>
+      ) : notes.length === 0 ? (
+        <EmptyState title="No notes yet" description="Create your first note and it will appear here for easy review later." icon="📝" />
+      ) : (
+        <div>
+          {notes.map(n => (
+            <div className="note" key={n._id || n.id}>
+              <strong>{n.title}</strong>
+              <div>{n.content}</div>
+              {n.course && <div className="meta">Course: {n.course.title || n.course}</div>}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

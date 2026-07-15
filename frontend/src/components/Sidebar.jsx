@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 
 const links = [
@@ -14,12 +14,30 @@ const links = [
 ];
 
 export default function Sidebar() {
+  const [mobileOpen, setMobileOpen] = useState(false);
+
   return (
-    <aside style={{ background: '#fff', borderRadius: '12px', padding: '16px', minWidth: '220px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-      <h3 style={{ marginTop: 0 }}>Explore</h3>
-      <nav style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+    <aside className={`sidebar ${mobileOpen ? 'is-open' : ''}`}>
+      <div className="sidebar-header">
+        <h3>Explore</h3>
+        <button
+          type="button"
+          className="sidebar-toggle"
+          aria-label="Toggle sidebar"
+          aria-expanded={mobileOpen}
+          onClick={() => setMobileOpen((open) => !open)}
+        >
+          ☰
+        </button>
+      </div>
+      <nav className="sidebar-nav">
         {links.map((item) => (
-          <NavLink key={item.to} to={item.to} style={({ isActive }) => ({ padding: '8px 10px', borderRadius: '8px', color: isActive ? '#2563eb' : '#334155', textDecoration: 'none', fontWeight: isActive ? 700 : 500 })}>
+          <NavLink
+            key={item.to}
+            to={item.to}
+            onClick={() => setMobileOpen(false)}
+            style={({ isActive }) => ({ padding: '8px 10px', borderRadius: '8px', color: isActive ? '#2563eb' : '#334155', textDecoration: 'none', fontWeight: isActive ? 700 : 500 })}
+          >
             {item.label}
           </NavLink>
         ))}
