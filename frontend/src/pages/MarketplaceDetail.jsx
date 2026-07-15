@@ -11,6 +11,7 @@ import PDFViewer from '../components/PDFViewer';
 import { formatCurrency } from '../utils/formatters';
 import { useAuth } from '../utils/auth';
 import { useMarketplace } from '../context/MarketplaceContext';
+import { addRecentlyViewed, isWishlisted, toggleWishlistEntry } from '../utils/libraryState';
 
 const buildList = (value) => {
   if (!value) return [];
@@ -35,6 +36,7 @@ export default function MarketplaceDetail() {
   const [accessLoading, setAccessLoading] = useState(false);
   const [wishlist, setWishlist] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [successState, setSuccessState] = useState(null);
 
   const loadMaterial = async () => {
     try {
@@ -76,6 +78,20 @@ export default function MarketplaceDetail() {
   }, [id, user]);
 
   useEffect(() => {
+    if (!material) return;
+    addRecentlyViewed(material);
+  }, [material]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const reference = params.get('reference');
+    const success = params.get('success') === '1' || params.get('status') === 'success';
+    if (success && material) {
+      setSuccessState({ title: material.title, reference: reference || 'Pending verification', date: new Date().toLocaleDateString() });
+    }
+  }, [material]);
+
+  useEffect(() => {
     if (materials.length === 0) {
       loadMaterials({ limit: 24 }).catch(() => undefined);
     }
@@ -109,6 +125,13 @@ export default function MarketplaceDetail() {
     }
   };
 
+  const handleWishlistToggle = () => {
+    if (!material) return;
+    const nextWishlist = toggleWishlistEntry(material);
+    setWishlist(nextWishlist.includes(material._id));
+    setPurchaseMessage(wishlist ? 'Removed from wishlist' : 'Saved to wishlist');
+  };
+
   const handleCopyLink = async () => {
     if (!window.location.href) return;
     try {
@@ -125,6 +148,7 @@ export default function MarketplaceDetail() {
   };
 
   const price = Number(material?.price || 0);
+  const wishlistState = isWishlisted(material);
   const isFree = material?.isFree || price === 0;
   const isOwner = Boolean(user && (material?.lecturer?._id === user._id || material?.lecturer?.id === user._id || material?.lecturer === user._id));
   const hasAccess = Boolean(material?.isPurchased || material?.hasAccess || material?.accessGranted || material?.canAccess || access?.access || isFree || isOwner);
@@ -138,10 +162,26 @@ export default function MarketplaceDetail() {
   const departmentName = material?.department?.name || 'General';
   const lecturerName = material?.lecturer?.name || 'Verified lecturer';
   const publicationDate = material?.createdAt ? new Date(material.createdAt).toLocaleDateString() : 'Available now';
+  const coverFallback = useMemo(() => {
+    const title = material?.title || 'Untitled';
+    const initials = title.split(/\s+/).filter(Boolean).slice(0, 2).map((segment) => segment[0]?.toUpperCase() || '').join('');
+    return {
+      label: initials || 'BK',
+      title,
+      department: material?.department?.name || material?.department || 'Department',
+      course: material?.course?.code || material?.course?.title || material?.course || 'Course'
+    };
+  }, [material?.course, material?.department, material?.title]);
   const tags = useMemo(() => buildList(material?.tags), [material?.tags]);
   const topicsCovered = useMemo(() => buildList(material?.topicsCovered), [material?.topicsCovered]);
   const prerequisites = useMemo(() => buildList(material?.prerequisites), [material?.prerequisites]);
   const learningObjectives = useMemo(() => buildList(material?.learningObjectives), [material?.learningObjectives]);
+
+  useEffect(() => {
+    if (material) {
+      setWishlist(wishlistState);
+    }
+  }, [material, wishlistState]);
 
   const relatedMaterials = useMemo(() => {
     const source = Array.isArray(materials) ? materials : [];
@@ -190,7 +230,15 @@ export default function MarketplaceDetail() {
           {material.coverImageUrl ? (
             <img src={material.coverImageUrl} alt={material.title || 'Material cover'} loading="lazy" />
           ) : (
-            <div className="product-hero__placeholder">{(material.title || 'M').charAt(0).toUpperCase()}</div>
+            <div className="product-hero__placeholder" style={{ background: 'linear-gradient(135deg, #2563eb, #7c3aed)', color: '#fff' }}>
+              <div style={{ display: 'grid', gap: '8px', justifyItems: 'center', textAlign: 'center' }}>
+                <span style={{ fontSize: '3rem', fontWeight: 800 }}>{coverFallback.label}</span>
+                <small style={{ fontSize: '0.95rem', textTransform: 'uppercase', letterSpacing: '0.12em' }}>{material.materialType || 'Resource'}</small>
+                <strong style={{ fontSize: '1rem' }}>{coverFallback.title}</strong>
+                <span style={{ fontSize: '0.9rem', color: 'rgba(255,255,255,0.86)' }}>{coverFallback.department}</span>
+                <span style={{ fontSize: '0.9rem', color: 'rgba(255,255,255,0.86)' }}>{coverFallback.course}</span>
+              </div>
+            </div>
           )}
           <div className="product-hero__badges">
             <span className="product-hero__badge">{material.materialType || 'Resource'}</span>
@@ -240,7 +288,7 @@ export default function MarketplaceDetail() {
             )}
             {previewPages > 0 && <button type="button" className="button-ghost" onClick={() => document.getElementById('preview-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Preview</button>}
             <button type="button" className="button-ghost" onClick={handleCopyLink}>{copied ? 'Link copied' : 'Share'}</button>
-            <button type="button" className="button-ghost" onClick={() => setWishlist((prev) => !prev)}>{wishlist ? '★ Saved' : '☆ Wishlist'}</button>
+            <button type="button" className="button-ghost" onClick={handleWishlistToggle}>{wishlist ? '★ Saved' : '☆ Wishlist'}</button>
             {isOwner && (
               <>
                 <button type="button" className="button-ghost" onClick={() => navigate('/lecturer-dashboard')}>Edit material</button>
@@ -249,11 +297,26 @@ export default function MarketplaceDetail() {
             )}
           </div>
 
-          {purchaseMessage && <NotificationBanner type="info" message={purchaseMessage} onClose={() => setPurchaseMessage('')} />}
+          {purchaseMessage && <NotificationBanner type="info" message={purchaseMessage} onClose={() => setPurchaseMessage('')} autoDismissMs={2400} />}
           {accessLoading && <p className="product-hero__helper">Checking access…</p>}
           {!isFree && !isOwner && !hasAccess && access && <p className="product-hero__helper">{access.reason}</p>}
         </div>
       </div>
+
+      {successState && (
+        <div className="wp-section" style={{ marginBottom: '20px', border: '1px solid #a7f3d0', background: '#ecfdf3' }}>
+          <h3 style={{ marginTop: 0 }}>Purchase successful</h3>
+          <p style={{ marginBottom: '8px' }}>{successState.title}</p>
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            <span className="nav-pill">Receipt: {successState.reference}</span>
+            <span className="nav-pill">Date: {successState.date}</span>
+          </div>
+          <div className="product-hero__actions" style={{ marginTop: '14px' }}>
+            <button type="button" onClick={() => navigate('/library')}>Go to library</button>
+            <button type="button" className="button-ghost" onClick={() => navigate('/marketplace')}>Continue browsing</button>
+          </div>
+        </div>
+      )}
 
       <div className="product-layout">
         <div className="product-layout__main">
@@ -371,7 +434,7 @@ export default function MarketplaceDetail() {
               )}
               {previewPages > 0 && <button type="button" className="button-ghost" onClick={() => document.getElementById('preview-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Preview</button>}
               <button type="button" className="button-ghost" onClick={handleCopyLink}>{copied ? 'Link copied' : 'Share'}</button>
-              <button type="button" className="button-ghost" onClick={() => setWishlist((prev) => !prev)}>{wishlist ? 'Saved' : 'Wishlist'}</button>
+              <button type="button" className="button-ghost" onClick={handleWishlistToggle}>{wishlist ? 'Saved' : 'Wishlist'}</button>
             </div>
             <div className="product-purchase-panel__meta">{tags.slice(0, 5).map((tag) => <span key={tag} className="product-hero__badge">{tag}</span>)}</div>
             {material.fileUrl && <a href={material.fileUrl} className="product-purchase-panel__link" target="_blank" rel="noreferrer">Open file</a>}

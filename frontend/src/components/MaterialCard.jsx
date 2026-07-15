@@ -4,6 +4,33 @@ import PremiumBadge from './PremiumBadge';
 import PriceTag from './PriceTag';
 import { useAuth } from '../utils/auth';
 
+const wrapHighlight = (text, term) => {
+  if (!text || !term) return text;
+  const parts = `${text}`.split(new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'ig'));
+  return parts.map((part, index) => (part.toLowerCase() === term.toLowerCase() ? <mark key={`${part}-${index}`} style={{ background: '#fef3c7', color: '#92400e', padding: '0 2px', borderRadius: '3px' }}>{part}</mark> : <React.Fragment key={`${part}-${index}`}>{part}</React.Fragment>));
+};
+
+const buildCoverFallback = (material) => {
+  const title = material?.title || 'Untitled';
+  const department = material?.department?.name || material?.department || 'Department';
+  const course = material?.course?.code || material?.course?.title || material?.course || 'Course';
+  const initials = title
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((segment) => segment[0]?.toUpperCase() || '')
+    .join('');
+
+  return {
+    label: initials || 'BK',
+    title,
+    department,
+    course,
+    accentA: '#2563eb',
+    accentB: '#7c3aed'
+  };
+};
+
 const formatCount = (value) => Number(value || 0).toLocaleString();
 
 const buildBadges = (material) => {
@@ -26,13 +53,14 @@ const buildBadges = (material) => {
   return badges.slice(0, 4);
 };
 
-function MaterialCard({ material, onPurchase, onPreview }) {
+function MaterialCard({ material, onPurchase, onPreview, searchTerm = '', progressPercent, showWishlist = false, isWishlisted = false, onWishlistToggle }) {
   const { user } = useAuth();
   const [imageLoading, setImageLoading] = useState(Boolean(material?.coverImageUrl));
   const [imageError, setImageError] = useState(false);
 
   const title = material?.title || 'Untitled material';
   const description = material?.description || 'Academic resource';
+  const fallbackCover = useMemo(() => buildCoverFallback(material), [material]);
   const badges = useMemo(() => buildBadges(material), [material]);
   const isFree = material?.isFree || Number(material?.price || 0) === 0;
   const isPurchased = Boolean(material?.isPurchased || material?.hasAccess || material?.accessGranted || material?.isOwned || material?.purchased || material?.canAccess);
@@ -71,9 +99,14 @@ function MaterialCard({ material, onPurchase, onPreview }) {
             }}
           />
         ) : (
-          <div className="product-card__placeholder">
-            <span>{title.charAt(0).toUpperCase()}</span>
+          <div className="product-card__placeholder" style={{ background: `linear-gradient(135deg, ${fallbackCover.accentA}, ${fallbackCover.accentB})`, color: '#fff' }}>
+            <span>{fallbackCover.label}</span>
             <small>{material?.materialType || 'Resource'}</small>
+            <div className="product-card__placeholder-meta">
+              <strong>{fallbackCover.title}</strong>
+              <span>{fallbackCover.department}</span>
+              <span>{fallbackCover.course}</span>
+            </div>
           </div>
         )}
         {imageLoading && !imageError && <div className="product-card__skeleton" />}
@@ -91,12 +124,12 @@ function MaterialCard({ material, onPurchase, onPreview }) {
         </div>
 
         <div>
-          <h3>{title}</h3>
-          <p>{description}</p>
+          <h3>{wrapHighlight(title, searchTerm)}</h3>
+          <p>{wrapHighlight(description, searchTerm)}</p>
         </div>
 
-        <div className="product-card__meta-row">
-          <span>{lecturerName}</span>
+        <div className="product-card__meta-row product-card__meta-row--compact">
+          <span>{material?.lecturer?.name || 'Verified lecturer'}</span>
           <span>{departmentName}</span>
           <span>{courseCode}</span>
         </div>
@@ -122,6 +155,15 @@ function MaterialCard({ material, onPurchase, onPreview }) {
           <span>📄 {pages || '—'}</span>
         </div>
 
+        {progressPercent !== undefined && (
+          <div className="product-card__progress-row" aria-label={`Progress ${progressPercent}%`}>
+            <div className="product-card__progress-track">
+              <div className="product-card__progress-fill" style={{ width: `${Math.max(4, Math.min(100, Number(progressPercent) || 0))}%` }} />
+            </div>
+            <span>{Math.round(progressPercent)}% complete</span>
+          </div>
+        )}
+
         <div className="product-card__price-row">
           <PriceTag price={material?.price} isFree={isFree} discountedPrice={material?.discountedPrice} />
           {isFree && <span className="product-card__free-pill">FREE</span>}
@@ -138,6 +180,11 @@ function MaterialCard({ material, onPurchase, onPreview }) {
 
         <div className="product-card__footer">
           <div className="product-card__actions">
+            {showWishlist && onWishlistToggle && (
+              <button type="button" className="product-card__button product-card__button--ghost" onClick={() => onWishlistToggle(material)}>
+                {isWishlisted ? '★ Saved' : '☆ Save'}
+              </button>
+            )}
             {onPreview && (
               <button type="button" className="product-card__button product-card__button--ghost" onClick={() => onPreview(material)}>
                 Preview

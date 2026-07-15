@@ -12,6 +12,7 @@ import SearchBar from '../components/SearchBar';
 import MaterialCard from '../components/MaterialCard';
 import Pagination from '../components/Pagination';
 import Modal from '../components/Modal';
+import NotificationBanner from '../components/NotificationBanner';
 import { formatCurrency } from '../utils/formatters';
 import useDebounce from '../hooks/useDebounce';
 
@@ -191,6 +192,8 @@ export default function Marketplace() {
         <p style={{ margin: 0, color: '#64748b' }}>Browse, preview, and purchase study materials from verified lecturers.</p>
       </div>
 
+      {purchaseMessage && <NotificationBanner type="info" message={purchaseMessage} onClose={() => setPurchaseMessage('')} autoDismissMs={2400} />}
+
       <div className="wp-section marketplace-toolbar">
         <div style={{ flex: 1 }}>
           <SearchBar value={search} onChange={handleSearch} placeholder="Search by title, course, department, lecturer, tags or material type" />
@@ -262,6 +265,7 @@ export default function Marketplace() {
             <MaterialCard
               key={material._id}
               material={material}
+              searchTerm={search}
               onPreview={() => handlePreview(material)}
               onPurchase={() => handlePurchase(material)}
             />

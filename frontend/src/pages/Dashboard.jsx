@@ -1,11 +1,17 @@
-import React, { useState, useEffect } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../utils/auth'
 import { apiGet } from '../utils/api'
+import { useLibrary } from '../context/LibraryContext'
+import { useMarketplace } from '../context/MarketplaceContext'
+import MaterialCard from '../components/MaterialCard'
+import { getProgressEntry, getProgressPercent, loadWishlistEntries } from '../utils/libraryState'
 
 export default function Dashboard() {
   const { user, isAuthenticated } = useAuth()
   const navigate = useNavigate()
+  const { items: libraryItems, loadLibrary } = useLibrary()
+  const { materials, loadMaterials } = useMarketplace()
   const [courses, setCourses] = useState([])
   const [loading, setLoading] = useState(true)
   const [expandedDepts, setExpandedDepts] = useState({})
@@ -17,7 +23,9 @@ export default function Dashboard() {
       return
     }
     fetchCourses()
-  }, [isAuthenticated, navigate])
+    loadLibrary({ limit: 8 }).catch(() => undefined)
+    loadMaterials({ limit: 8 }).catch(() => undefined)
+  }, [isAuthenticated, loadLibrary, loadMaterials, navigate])
 
   const fetchCourses = async () => {
     try {
@@ -89,6 +97,16 @@ export default function Dashboard() {
 
   const organizedCourses = organizeCourses()
   const deptArray = Object.entries(organizedCourses).sort((a, b) => a[0].localeCompare(b[0]))
+  const continueReading = useMemo(() => {
+    const source = Array.isArray(libraryItems) ? libraryItems : []
+    return source
+      .map((item) => ({ ...item, progress: getProgressEntry(item.material?._id) }))
+      .filter((item) => item.progress)
+      .sort((a, b) => new Date(b.progress.lastOpened || 0) - new Date(a.progress.lastOpened || 0))
+      .slice(0, 5)
+  }, [libraryItems])
+  const recommendations = useMemo(() => (Array.isArray(materials) ? materials : []).slice(0, 4), [materials])
+  const wishlistCount = useMemo(() => loadWishlistEntries().length, [])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
@@ -137,7 +155,83 @@ export default function Dashboard() {
           <div className="text-center py-12">
             <p className="text-gray-500 text-lg">Loading your courses...</p>
           </div>
-        ) : deptArray.length === 0 ? (
+        ) : (
+          <>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+              <div className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-lg font-semibold text-slate-900">Continue Reading</h2>
+                  <span className="text-sm text-slate-500">{continueReading.length} items</span>
+                </div>
+                {continueReading.length > 0 ? (
+                  <div className="space-y-3">
+                    {continueReading.map((item) => {
+                      const progress = getProgressEntry(item.material?._id)
+                      const percent = getProgressPercent(progress?.lastPage || 0, progress?.totalPages || item.material?.pageCount || 1)
+                      return (
+                        <div key={item.transactionId || item.material?._id} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-3">
+                          <div>
+                            <p className="font-semibold text-slate-800">{item.material?.title}</p>
+                            <p className="text-sm text-slate-500">{percent}% complete</p>
+                          </div>
+                          <Link to="/library" className="text-sm text-blue-600 font-semibold">Resume</Link>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500">Buy materials to start a reading streak.</p>
+                )}
+              </div>
+
+              <div className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-lg font-semibold text-slate-900">Quick Links</h2>
+                  <span className="text-sm text-slate-500">{wishlistCount} saved</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <Link to="/marketplace" className="rounded-xl border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Marketplace</Link>
+                  <Link to="/library" className="rounded-xl border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Library</Link>
+                  <Link to="/past-questions" className="rounded-xl border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Past Questions</Link>
+                  <Link to="/ai-chat" className="rounded-xl border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">AI Assistant</Link>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-lg font-semibold text-slate-900">Recent Purchases</h2>
+                  <span className="text-sm text-slate-500">{libraryItems?.length || 0} total</span>
+                </div>
+                {libraryItems?.length > 0 ? (
+                  <div className="space-y-3">
+                    {libraryItems.slice(0, 3).map((item) => (
+                      <div key={item.transactionId || item.material?._id} className="rounded-lg border border-slate-200 px-3 py-3">
+                        <p className="font-semibold text-slate-800">{item.material?.title}</p>
+                        <p className="text-sm text-slate-500">{item.purchasedAt ? new Date(item.purchasedAt).toLocaleDateString() : 'Purchased recently'}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500">No purchases yet. Explore the marketplace to fill your library.</p>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200 mb-8">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-slate-900">Recommended for you</h2>
+                <Link to="/marketplace" className="text-sm text-blue-600 font-semibold">Browse marketplace</Link>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                {recommendations.map((material) => (
+                  <MaterialCard key={material._id} material={material} />
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
+        {deptArray.length === 0 ? (
           <div className="bg-white rounded-xl shadow-lg p-12 text-center">
             <p className="text-gray-500 text-lg mb-4">No courses available yet.</p>
             <Link to="/courses" className="text-blue-600 hover:text-blue-700 font-semibold">

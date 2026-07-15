@@ -1,11 +1,22 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../utils/auth'
+import { useLibrary } from '../context/LibraryContext'
+import { loadWishlistEntries } from '../utils/libraryState'
 
 export default function Navbar() {
   const { user, logout } = useAuth()
+  const { items: libraryItems } = useLibrary()
   const navigate = useNavigate()
+  const [wishlistCount, setWishlistCount] = useState(0)
   const handleLogout = () => { logout(); navigate('/login') }
+
+  useEffect(() => {
+    const syncWishlist = () => setWishlistCount(loadWishlistEntries().length)
+    syncWishlist()
+    window.addEventListener('storage', syncWishlist)
+    return () => window.removeEventListener('storage', syncWishlist)
+  }, [])
 
   return (
     <nav className="navbar">
@@ -17,12 +28,13 @@ export default function Navbar() {
         {user ? (
           <>
             <span className="user-pill">Hi, {user.name || user.email}</span>
+            <span className="nav-pill">{user.role === 'admin' ? 'Admin' : 'Student'}</span>
             <Link to="/courses">Courses</Link>
             <Link to="/marketplace">Marketplace</Link>
-            <Link to="/library">Library</Link>
+            <Link to="/library">Library ({libraryItems?.length || 0})</Link>
+            <Link to="/library">♡ {wishlistCount}</Link>
             <Link to="/notes">Notes</Link>
             <Link to="/past-questions">Past Questions</Link>
-            <Link to="/ai">AI</Link>
             <Link to="/ai-chat">🤖 AI Assistant</Link>
             <Link to="/analytics">📊 Analytics</Link>
             {user.role === 'admin' && <Link to="/admin">Admin</Link>}
