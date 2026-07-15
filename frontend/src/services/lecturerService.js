@@ -32,10 +32,20 @@ export const lecturerService = {
       formData.append('coverImage', coverImage);
     }
 
-    const { data } = await apiClient.post('/api/lecturer/materials', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    });
-    return data;
+    try {
+      const { data } = await apiClient.post('/api/lecturer/materials', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      return data;
+    } catch (error) {
+      const errors = Array.isArray(error?.errors) ? error.errors : [];
+      if (errors.length) {
+        const enhancedError = new Error(errors.map((item) => item.message).join(' • '));
+        enhancedError.errors = errors;
+        throw enhancedError;
+      }
+      throw error;
+    }
   },
 
   async updateMaterial(id, payload, file, coverImage) {
@@ -50,10 +60,20 @@ export const lecturerService = {
       formData.append('coverImage', coverImage);
     }
 
-    const { data } = await apiClient.put(`/api/lecturer/materials/${id}`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    });
-    return data;
+    try {
+      const { data } = await apiClient.put(`/api/lecturer/materials/${id}`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      return data;
+    } catch (error) {
+      const errors = Array.isArray(error?.errors) ? error.errors : [];
+      if (errors.length) {
+        const enhancedError = new Error(errors.map((item) => item.message).join(' • '));
+        enhancedError.errors = errors;
+        throw enhancedError;
+      }
+      throw error;
+    }
   },
 
   async deleteMaterial(id) {

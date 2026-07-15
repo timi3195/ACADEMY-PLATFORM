@@ -31,7 +31,7 @@ export default function Marketplace() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { materials, loading, error, loadMaterials, pagination } = useMarketplace();
-  const { loadLibrary } = useLibrary();
+  const { items: libraryItems = [], loadLibrary } = useLibrary();
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState(searchParams.get('q') || '');
   const [page, setPage] = useState(Number(searchParams.get('page') || 1));
@@ -285,9 +285,13 @@ export default function Marketplace() {
             </div>
             {purchaseMessage && <p style={{ marginTop: '12px', color: '#2563eb' }}>{purchaseMessage}</p>}
             <div style={{ marginTop: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              <button type="button" onClick={() => handlePurchase(selectedMaterial)} disabled={purchaseLoading}>
-                {purchaseLoading ? 'Preparing...' : 'Purchase'}
-              </button>
+              {Boolean(selectedMaterial && (selectedMaterial.isPurchased || selectedMaterial.hasAccess || selectedMaterial.accessGranted || selectedMaterial.canAccess || Array.isArray(libraryItems) && libraryItems.some((item) => { const id = item?.material?._id || item?.materialId || item?._id; return Boolean(id && (id === selectedMaterial._id || id === selectedMaterial.id)); }))) ? (
+                <button type="button" onClick={() => navigate(`/marketplace/${selectedMaterial._id}`)}>Open library</button>
+              ) : (
+                <button type="button" onClick={() => handlePurchase(selectedMaterial)} disabled={purchaseLoading}>
+                  {purchaseLoading ? 'Preparing...' : 'Purchase'}
+                </button>
+              )}
               <button type="button" onClick={() => setSelectedMaterial(null)}>
                 Close
               </button>

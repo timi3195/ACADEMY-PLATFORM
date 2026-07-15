@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import lecturerService from '../services/lecturerService';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorState from '../components/ErrorState';
@@ -18,7 +18,7 @@ export default function LecturerDashboard() {
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState('');
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       const [materialsResponse, dashboardResponse] = await Promise.all([
@@ -33,47 +33,57 @@ export default function LecturerDashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadData();
   }, []);
 
-  const openCreateModal = () => {
+  const modalInitialValues = useMemo(() => {
+    if (modalMode === 'edit' && selectedMaterial) {
+      return selectedMaterial;
+    }
+    return {};
+  }, [modalMode, selectedMaterial]);
+
+  const openCreateModal = useCallback(() => {
     setModalMode('create');
     setSelectedMaterial(null);
     setModalOpen(true);
     setFeedback('');
-  };
+  }, []);
 
-  const openEditModal = (material) => {
+  const openEditModal = useCallback((material) => {
     setModalMode('edit');
     setSelectedMaterial(material);
     setModalOpen(true);
     setFeedback('');
-  };
+  }, []);
 
-  const handleSubmit = async (payload, file, coverImage) => {
+  const handleSubmit = useCallback(async (payload, file, coverImage) => {
     try {
       setSubmitting(true);
       setError('');
+      setFeedback('');
       if (modalMode === 'edit' && selectedMaterial?._id) {
         await lecturerService.updateMaterial(selectedMaterial._id, payload, file, coverImage);
         setFeedback('Material updated successfully.');
       } else {
         await lecturerService.createMaterial(payload, file, coverImage);
-        setFeedback('Material uploaded successfully.');
+        setFeedback('Material published successfully. It will appear after review.');
       }
       setModalOpen(false);
       await loadData();
     } catch (err) {
-      setError(err.message || 'Unable to save material.');
+      const details = err?.errors?.length ? err.errors.map((entry) => entry.message).join(' • ') : err.message || 'Unable to save material.';
+      setError(details);
+      throw err;
     } finally {
       setSubmitting(false);
     }
-  };
+  }, [loadData, modalMode, selectedMaterial]);
 
-  const handleDelete = async (material) => {
+  const handleDelete = useCallback(async (material) => {
     if (!window.confirm(`Delete ${material.title}?`)) return;
 
     try {
@@ -83,16 +93,17 @@ export default function LecturerDashboard() {
     } catch (err) {
       setError(err.message || 'Unable to delete material.');
     }
-  };
+  }, [loadData]);
 
   return (
     <div className="page">
-      <div className="wp-section" style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+      <div className="wp-section" style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap', background: 'linear-gradient(135deg, #f8fbff, #ffffff)', border: '1px solid #dbeafe' }}>
         <div>
-          <h2 style={{ marginBottom: '8px' }}>Lecturer Dashboard</h2>
-          <p style={{ margin: 0, color: '#64748b' }}>Manage your shared learning materials and track sales.</p>
+          <div style={{ color: '#0f3d91', fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em' }}>Academic Publishing Portal</div>
+          <h2 style={{ marginBottom: '8px' }}>Course Material Studio</h2>
+          <p style={{ margin: 0, color: '#64748b' }}>Publish lecture notes, guides, past questions, and other academic resources for your students.</p>
         </div>
-        <button type="button" onClick={openCreateModal}>Upload material</button>
+        <button type="button" onClick={openCreateModal}>Create New Material</button>
       </div>
 
       {feedback && <NotificationBanner type="success" message={feedback} onClose={() => setFeedback('')} />}
@@ -100,8 +111,24 @@ export default function LecturerDashboard() {
       {dashboard && (
         <div className="wp-section" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginBottom: '20px' }}>
           <div style={{ background: '#fff', borderRadius: '12px', padding: '14px', border: '1px solid #e2e8f0' }}>
-            <div style={{ color: '#64748b', fontSize: '13px' }}>Materials</div>
-            <div style={{ fontSize: '24px', fontWeight: 700 }}>{dashboard.totalMaterials || 0}</div>
+            <div style={{ color: '#64748b', fontSize: '13px' }}>Published Materials</div>
+            <div style={{ fontSize: '24px', fontWeight: 700 }}>{dashboard.publishedMaterials || 0}</div>
+          </div>
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '14px', border: '1px solid #e2e8f0' }}>
+            <div style={{ color: '#64748b', fontSize: '13px' }}>Drafts</div>
+            <div style={{ fontSize: '24px', fontWeight: 700 }}>{dashboard.draftMaterials || 0}</div>
+          </div>
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '14px', border: '1px solid #e2e8f0' }}>
+            <div style={{ color: '#64748b', fontSize: '13px' }}>Pending Approval</div>
+            <div style={{ fontSize: '24px', fontWeight: 700 }}>{dashboard.pendingApproval || 0}</div>
+          </div>
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '14px', border: '1px solid #e2e8f0' }}>
+            <div style={{ color: '#64748b', fontSize: '13px' }}>Downloads</div>
+            <div style={{ fontSize: '24px', fontWeight: 700 }}>{dashboard.totalDownloads || 0}</div>
+          </div>
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '14px', border: '1px solid #e2e8f0' }}>
+            <div style={{ color: '#64748b', fontSize: '13px' }}>Views</div>
+            <div style={{ fontSize: '24px', fontWeight: 700 }}>{dashboard.totalViews || 0}</div>
           </div>
           <div style={{ background: '#fff', borderRadius: '12px', padding: '14px', border: '1px solid #e2e8f0' }}>
             <div style={{ color: '#64748b', fontSize: '13px' }}>Sales</div>
@@ -112,8 +139,8 @@ export default function LecturerDashboard() {
             <div style={{ fontSize: '24px', fontWeight: 700 }}>₦{Number(dashboard.totalEarnings || 0).toLocaleString()}</div>
           </div>
           <div style={{ background: '#fff', borderRadius: '12px', padding: '14px', border: '1px solid #e2e8f0' }}>
-            <div style={{ color: '#64748b', fontSize: '13px' }}>Downloads</div>
-            <div style={{ fontSize: '24px', fontWeight: 700 }}>{dashboard.totalDownloads || 0}</div>
+            <div style={{ color: '#64748b', fontSize: '13px' }}>Avg. Rating</div>
+            <div style={{ fontSize: '24px', fontWeight: 700 }}>{Number(dashboard.averageRating || 0).toFixed(1)}</div>
           </div>
         </div>
       )}
@@ -121,7 +148,7 @@ export default function LecturerDashboard() {
       {loading && <LoadingSpinner label="Loading lecturer materials" />}
       {error && <ErrorState message={error} />}
       {!loading && !error && (!materials || materials.length === 0) && (
-        <EmptyState title="No materials yet" description="Upload your first study material to start selling and sharing it." />
+        <EmptyState title="No course materials yet" description="Create your first academic resource to support your students and build a trusted library of course content." />
       )}
 
       {!loading && !error && materials?.length > 0 && (
@@ -142,7 +169,7 @@ export default function LecturerDashboard() {
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
         mode={modalMode}
-        initialValues={selectedMaterial || {}}
+        initialValues={modalInitialValues}
         onSubmit={handleSubmit}
         loading={submitting}
         error={error}

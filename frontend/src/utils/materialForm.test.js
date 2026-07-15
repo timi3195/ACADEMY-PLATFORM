@@ -32,7 +32,8 @@ describe('buildMaterialPayload', () => {
       edition: '2nd',
       publisher: 'Campus Press',
       fileSize: '1024000',
-      fileType: 'application/pdf'
+      fileType: 'application/pdf',
+      pricingMode: 'paid'
     });
 
     expect(payload.course).toBe('course-123');
@@ -52,5 +53,21 @@ describe('buildMaterialPayload', () => {
     expect(payload.tags).toBe('math,exam');
     expect(payload.productStatus).toBe('published');
     expect(payload.language).toBe('en');
+  });
+
+  it('forces a zero price and free flags when pricing mode is free', () => {
+    const payload = buildMaterialPayload({
+      title: 'Free Notes',
+      description: 'Desc',
+      course: 'course-123',
+      department: 'dept-456',
+      price: '2500',
+      previewPages: '1',
+      pricingMode: 'free'
+    });
+
+    expect(payload.price).toBe(0);
+    expect(payload.isFree).toBe(true);
+    expect(payload.isPaid).toBe(false);
   });
 });

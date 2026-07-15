@@ -61,8 +61,13 @@ apiClient.interceptors.response.use(
       }
     }
 
-    const message = error.response?.data?.message || error.message || 'Request failed';
-    return Promise.reject(new Error(message));
+    const responseData = error.response?.data;
+    const message = responseData?.message || error.message || 'Request failed';
+    const enhancedError = new Error(message);
+    enhancedError.status = error.response?.status;
+    enhancedError.responseData = responseData;
+    enhancedError.errors = Array.isArray(responseData?.errors) ? responseData.errors : [];
+    return Promise.reject(enhancedError);
   }
 );
 

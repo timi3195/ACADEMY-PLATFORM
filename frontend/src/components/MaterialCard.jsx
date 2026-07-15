@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import PremiumBadge from './PremiumBadge';
 import PriceTag from './PriceTag';
 import { useAuth } from '../utils/auth';
+import { useLibrary } from '../context/LibraryContext';
 
 const wrapHighlight = (text, term) => {
   if (!text || !term) return text;
@@ -55,6 +56,7 @@ const buildBadges = (material) => {
 
 function MaterialCard({ material, onPurchase, onPreview, searchTerm = '', progressPercent, showWishlist = false, isWishlisted = false, onWishlistToggle }) {
   const { user } = useAuth();
+  const { items: libraryItems = [] } = useLibrary();
   const [imageLoading, setImageLoading] = useState(Boolean(material?.coverImageUrl));
   const [imageError, setImageError] = useState(false);
 
@@ -63,7 +65,18 @@ function MaterialCard({ material, onPurchase, onPreview, searchTerm = '', progre
   const fallbackCover = useMemo(() => buildCoverFallback(material), [material]);
   const badges = useMemo(() => buildBadges(material), [material]);
   const isFree = material?.isFree || Number(material?.price || 0) === 0;
-  const isPurchased = Boolean(material?.isPurchased || material?.hasAccess || material?.accessGranted || material?.isOwned || material?.purchased || material?.canAccess);
+  const isPurchased = Boolean(
+    material?.isPurchased ||
+    material?.hasAccess ||
+    material?.accessGranted ||
+    material?.isOwned ||
+    material?.purchased ||
+    material?.canAccess ||
+    Array.isArray(libraryItems) && libraryItems.some((item) => {
+      const id = item?.material?._id || item?.materialId || item?._id;
+      return Boolean(id && (id === material?._id || id === material?.id));
+    })
+  );
   const isOwner = Boolean(user && (material?.lecturer?._id === user._id || material?.lecturer?.id === user._id || material?.lecturer === user._id));
   const isAdminPreview = Boolean(user && (user.role === 'admin' || user.isAdmin) && material?.status && material.status !== 'approved');
   const isUnavailable = Boolean(material?.hidden || material?.visibility === 'private' || material?.status === 'rejected' || (material?.status === 'draft' && !isOwner));

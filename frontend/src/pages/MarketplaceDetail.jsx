@@ -7,11 +7,14 @@ import ErrorState from '../components/ErrorState';
 import EmptyState from '../components/EmptyState';
 import NotificationBanner from '../components/NotificationBanner';
 import MaterialCard from '../components/MaterialCard';
+import CheckoutModal from '../components/CheckoutModal';
+import PurchaseReceipt from '../components/PurchaseReceipt';
 import PDFViewer from '../components/PDFViewer';
 import { formatCurrency } from '../utils/formatters';
 import { useAuth } from '../utils/auth';
 import { useMarketplace } from '../context/MarketplaceContext';
-import { addRecentlyViewed, isWishlisted, toggleWishlistEntry } from '../utils/libraryState';
+import { useLibrary } from '../context/LibraryContext';
+import { addRecentlyViewed, clearPendingPurchase, isWishlisted, loadPendingPurchase, loadLatestPurchase, saveLatestPurchase, savePendingPurchase, toggleWishlistEntry } from '../utils/libraryState';
 
 const buildList = (value) => {
   if (!value) return [];
@@ -27,6 +30,7 @@ export default function MarketplaceDetail() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { materials, loadMaterials } = useMarketplace();
+  const { loadLibrary } = useLibrary();
   const [material, setMaterial] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -37,6 +41,9 @@ export default function MarketplaceDetail() {
   const [wishlist, setWishlist] = useState(false);
   const [copied, setCopied] = useState(false);
   const [successState, setSuccessState] = useState(null);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [receipt, setReceipt] = useState(null);
+  const [pendingPurchase, setPendingPurchase] = useState(null);
 
   const loadMaterial = async () => {
     try {
@@ -83,13 +90,109 @@ export default function MarketplaceDetail() {
   }, [material]);
 
   useEffect(() => {
+    if (!material) return;
+
     const params = new URLSearchParams(window.location.search);
-    const reference = params.get('reference');
-    const success = params.get('success') === '1' || params.get('status') === 'success';
-    if (success && material) {
-      setSuccessState({ title: material.title, reference: reference || 'Pending verification', date: new Date().toLocaleDateString() });
+    const reference = params.get('reference') || params.get('trxref');
+    const status = params.get('status') || params.get('payment_status') || '';
+    const cancelled = status === 'cancel' || status === 'cancelled' || status === 'canceled' || params.get('cancel') === '1';
+    const failed = status === 'failed' || status === 'error' || params.get('success') === '0';
+    const pending = loadPendingPurchase();
+    const latest = loadLatestPurchase();
+
+    if (pending?.materialId && pending.materialId === material._id) {
+      setPendingPurchase(pending);
+      setCheckoutOpen(Boolean(pending?.status === 'pending'));
+      if (!reference && !cancelled && !failed) {
+        setPurchaseMessage(`Payment reference ${pending.reference} is still being processed. Please complete the payment or retry if needed.`);
+      }
     }
-  }, [material]);
+
+    if (latest && latest.materialId === material._id) {
+      setReceipt(latest);
+    }
+
+    if (cancelled && material) {
+      setPurchaseMessage('Payment was cancelled. You can try again anytime.');
+      clearPendingPurchase();
+      setPendingPurchase(null);
+      return;
+    }
+
+    if (failed && material) {
+      setPurchaseMessage('Payment verification failed. Please try again or contact support if the charge already went through.');
+      clearPendingPurchase();
+      setPendingPurchase(null);
+      return;
+    }
+
+    if (!reference || !user) return;
+
+    const alreadyHandled = latest?.reference === reference && latest?.status === 'Completed';
+    if (alreadyHandled) {
+      setSuccessState({ title: material.title, reference, date: new Date().toLocaleDateString() });
+      return;
+    }
+
+    const verifyAfterCallback = async () => {
+      setPurchaseLoading(true);
+      setPurchaseMessage('Verifying your payment. Please wait…');
+      try {
+        const response = await purchaseService.verifyPurchase(material._id, reference);
+        const transaction = response?.transaction || response;
+        const nextReceipt = {
+          materialId: material._id,
+          materialTitle: material.title,
+          lecturerName: material.lecturer?.name || 'Verified lecturer',
+          reference: transaction?.reference || reference,
+          receiptNumber: transaction?.reference || reference,
+          amount: Number(transaction?.amount || material.price || 0),
+          status: transaction?.status || 'Completed',
+          paymentDate: transaction?.paidAt || new Date().toISOString(),
+          paymentMethod: 'Card',
+          studentName: user?.name || user?.email || 'Student'
+        };
+        saveLatestPurchase(nextReceipt);
+        setReceipt(nextReceipt);
+        setSuccessState({ title: material.title, reference: nextReceipt.reference, date: new Date().toLocaleDateString() });
+        clearPendingPurchase();
+        setPendingPurchase(null);
+        setAccess({ access: true, reason: 'Access unlocked after successful verification' });
+        await Promise.allSettled([
+          loadLibrary({ limit: 20 }),
+          loadMaterials({ limit: 24 })
+        ]);
+        setPurchaseMessage('Payment verified. Your material is now available in your library.');
+      } catch (err) {
+        const message = err.message || 'Verification failed.';
+        setPurchaseMessage(message);
+        if (message.toLowerCase().includes('already')) {
+          const nextReceipt = {
+            materialId: material._id,
+            materialTitle: material.title,
+            lecturerName: material.lecturer?.name || 'Verified lecturer',
+            reference,
+            receiptNumber: reference,
+            amount: Number(material.price || 0),
+            status: 'Completed',
+            paymentDate: new Date().toISOString(),
+            paymentMethod: 'Card',
+            studentName: user?.name || user?.email || 'Student'
+          };
+          saveLatestPurchase(nextReceipt);
+          setReceipt(nextReceipt);
+          setSuccessState({ title: material.title, reference, date: new Date().toLocaleDateString() });
+          clearPendingPurchase();
+          setPendingPurchase(null);
+          setAccess({ access: true, reason: 'Access restored from an existing successful payment' });
+        }
+      } finally {
+        setPurchaseLoading(false);
+      }
+    };
+
+    verifyAfterCallback();
+  }, [material, user, loadLibrary, loadMaterials]);
 
   useEffect(() => {
     if (materials.length === 0) {
@@ -103,23 +206,45 @@ export default function MarketplaceDetail() {
       return;
     }
 
+    const alreadyOwned = Boolean(access?.access || material?.isPurchased || material?.hasAccess || material?.accessGranted || material?.canAccess || isFree || isOwner);
+    if (alreadyOwned) {
+      setPurchaseMessage('You already have access to this material. Opening the reader now.');
+      document.getElementById('preview-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+
     if (isFree) {
       setPurchaseMessage('This material is free. You can start reading it now.');
+      document.getElementById('preview-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }
 
     setPurchaseLoading(true);
-    setPurchaseMessage('');
+    setPurchaseMessage('Checkout started. You will be redirected to the secure payment page.');
     try {
       const response = await purchaseService.initializePurchase(material._id);
       const authorizationUrl = response?.data?.authorizationUrl || response?.authorizationUrl;
+      const reference = response?.data?.reference || response?.reference || 'pending';
+      const nextPending = {
+        materialId: material._id,
+        materialTitle: material.title,
+        reference,
+        status: 'pending',
+        amount: price,
+        lecturerName,
+        paymentMethod: 'Card'
+      };
+      savePendingPurchase(nextPending);
+      setPendingPurchase(nextPending);
+      setCheckoutOpen(true);
       if (authorizationUrl) {
         window.location.href = authorizationUrl;
       } else {
         setPurchaseMessage('Purchase request created.');
       }
     } catch (err) {
-      setPurchaseMessage(err.message || 'Unable to start purchase.');
+      const message = err.message || 'Unable to start purchase.';
+      setPurchaseMessage(message);
     } finally {
       setPurchaseLoading(false);
     }
@@ -317,6 +442,28 @@ export default function MarketplaceDetail() {
           </div>
         </div>
       )}
+
+      {receipt && (
+        <div className="wp-section" style={{ marginBottom: '20px' }}>
+          <PurchaseReceipt
+            receipt={receipt}
+            onPrint={() => window.print()}
+            onDownload={() => setPurchaseMessage('Receipt download will be available in a future release.')} 
+          />
+        </div>
+      )}
+
+      <CheckoutModal
+        open={checkoutOpen}
+        material={material}
+        loading={purchaseLoading}
+        message={purchaseMessage || (pendingPurchase ? `Payment reference ${pendingPurchase.reference} is being processed.` : '')}
+        onClose={() => {
+          setCheckoutOpen(false);
+          setPurchaseMessage('You can return to this purchase anytime from the library.');
+        }}
+        onProceed={handlePurchase}
+      />
 
       <div className="product-layout">
         <div className="product-layout__main">

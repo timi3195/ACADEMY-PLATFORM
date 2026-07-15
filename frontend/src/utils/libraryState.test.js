@@ -1,5 +1,27 @@
-import { describe, expect, it } from 'vitest';
-import { createProgressEntry, getProgressPercent, normalizeProgressEntry } from './libraryState';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { createProgressEntry, getProgressPercent, normalizeProgressEntry, clearPendingPurchase, loadLatestPurchase, loadPendingPurchase, saveLatestPurchase, savePendingPurchase } from './libraryState';
+
+const createMemoryStorage = () => {
+  const values = new Map();
+  return {
+    getItem(key) {
+      return values.has(key) ? values.get(key) : null;
+    },
+    setItem(key, value) {
+      values.set(key, String(value));
+    },
+    removeItem(key) {
+      values.delete(key);
+    },
+    clear() {
+      values.clear();
+    }
+  };
+};
+
+beforeEach(() => {
+  globalThis.localStorage = createMemoryStorage();
+});
 
 describe('getProgressPercent', () => {
   it('returns a percentage capped between 0 and 100', () => {
@@ -29,5 +51,22 @@ describe('createProgressEntry', () => {
     expect(entry.lastPage).toBe(1);
     expect(entry.totalPages).toBe(5);
     expect(entry.percentCompleted).toBe(20);
+  });
+});
+
+describe('pending purchase helpers', () => {
+  it('persists and restores the latest pending purchase state', () => {
+    clearPendingPurchase();
+    savePendingPurchase({ materialId: 'material-3', reference: 'ref-1', status: 'pending' });
+
+    const pending = loadPendingPurchase();
+    expect(pending.materialId).toBe('material-3');
+    expect(pending.reference).toBe('ref-1');
+    expect(pending.status).toBe('pending');
+
+    saveLatestPurchase({ materialId: 'material-3', reference: 'ref-1', status: 'success' });
+    const latest = loadLatestPurchase();
+    expect(latest.status).toBe('success');
+    expect(latest.reference).toBe('ref-1');
   });
 });

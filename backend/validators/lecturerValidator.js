@@ -4,6 +4,8 @@ const objectIdValid = (id) => mongoose.Types.ObjectId.isValid(id);
 
 exports.validateCreateMaterial = (body, file) => {
   const errors = [];
+  const isFree = body.isFree === "true" || body.isFree === true || body.pricingMode === "free" || Number(body.price || 0) === 0;
+  const isPaid = !isFree && body.pricingMode !== "free";
 
   if (!body.title || !body.title.trim()) {
     errors.push({ field: "title", message: "Title is required" });
@@ -13,12 +15,13 @@ exports.validateCreateMaterial = (body, file) => {
     errors.push({ field: "description", message: "Description is required" });
   }
 
-  if (!body.course || !objectIdValid(body.course)) {
-    errors.push({ field: "course", message: "Valid course ID is required" });
+  const courseValue = body.course || body.courseTitle || body.courseName;
+  if (!courseValue || !String(courseValue).trim()) {
+    errors.push({ field: "course", message: "A valid course is required" });
   }
 
   if (!file) {
-    errors.push({ field: "file", message: "Material PDF upload is required" });
+    errors.push({ field: "file", message: "Material file is required" });
   }
 
   if (body.price !== undefined) {
@@ -26,14 +29,17 @@ exports.validateCreateMaterial = (body, file) => {
     if (Number.isNaN(price) || price < 0) {
       errors.push({ field: "price", message: "Price must be a non-negative number" });
     }
+    if (isPaid && price <= 0) {
+      errors.push({ field: "price", message: "Paid materials must have a price greater than 0" });
+    }
   }
 
   if (body.visibility && !["public", "unlisted", "private"].includes(body.visibility)) {
     errors.push({ field: "visibility", message: "Visibility must be public, unlisted, or private" });
   }
 
-  if (body.level && !["ND1", "ND2", "HND1", "HND2", "Other"].includes(body.level)) {
-    errors.push({ field: "level", message: "Level must be ND1, ND2, HND1, HND2, or Other" });
+  if (body.level && !["100 Level", "200 Level", "300 Level", "400 Level", "500 Level", "PGD", "Masters", "PhD", "ND1", "ND2", "HND1", "HND2", "Other"].includes(body.level)) {
+    errors.push({ field: "level", message: "Invalid level" });
   }
 
   if (body.previewPages !== undefined) {
@@ -50,11 +56,11 @@ exports.validateCreateMaterial = (body, file) => {
     }
   }
 
-  if (body.semester && !["First", "Second"].includes(body.semester)) {
-    errors.push({ field: "semester", message: "Semester must be First or Second" });
+  if (body.semester && !["First Semester", "Second Semester", "Rain Semester", "Harmattan Semester", "First", "Second"].includes(body.semester)) {
+    errors.push({ field: "semester", message: "Invalid semester" });
   }
 
-  if (body.materialType && !["PDF", "DOCX", "PPT", "ZIP", "Video", "Book", "Lab Manual", "Assignment", "Past Question", "Other"].includes(body.materialType)) {
+  if (body.materialType && !["Lecture Note", "Textbook", "Past Question", "Assignment", "Lab Manual", "Practical", "Research Paper", "Project Guide", "Presentation Slides", "PDF", "DOCX", "PPT", "ZIP", "Video", "Book", "Other"].includes(body.materialType)) {
     errors.push({ field: "materialType", message: "Material type is invalid" });
   }
 
@@ -67,6 +73,8 @@ exports.validateCreateMaterial = (body, file) => {
 
 exports.validateUpdateMaterial = (body, file) => {
   const errors = [];
+  const isFree = body.isFree === "true" || body.isFree === true || body.pricingMode === "free" || Number(body.price || 0) === 0;
+  const isPaid = !isFree && body.pricingMode !== "free";
 
   if (body.title !== undefined && !String(body.title).trim()) {
     errors.push({ field: "title", message: "Title cannot be empty" });
@@ -77,14 +85,17 @@ exports.validateUpdateMaterial = (body, file) => {
     if (Number.isNaN(price) || price < 0) {
       errors.push({ field: "price", message: "Price must be a non-negative number" });
     }
+    if (isPaid && price <= 0) {
+      errors.push({ field: "price", message: "Paid materials must have a price greater than 0" });
+    }
   }
 
   if (body.visibility !== undefined && !["public", "unlisted", "private"].includes(body.visibility)) {
     errors.push({ field: "visibility", message: "Visibility must be public, unlisted, or private" });
   }
 
-  if (body.level !== undefined && !["ND1", "ND2", "HND1", "HND2", "Other"].includes(body.level)) {
-    errors.push({ field: "level", message: "Level must be ND1, ND2, HND1, HND2, or Other" });
+  if (body.level !== undefined && !["100 Level", "200 Level", "300 Level", "400 Level", "500 Level", "PGD", "Masters", "PhD", "ND1", "ND2", "HND1", "HND2", "Other"].includes(body.level)) {
+    errors.push({ field: "level", message: "Invalid level" });
   }
 
   if (body.previewPages !== undefined) {
@@ -101,11 +112,11 @@ exports.validateUpdateMaterial = (body, file) => {
     }
   }
 
-  if (body.semester && !["First", "Second"].includes(body.semester)) {
-    errors.push({ field: "semester", message: "Semester must be First or Second" });
+  if (body.semester && !["First Semester", "Second Semester", "Rain Semester", "Harmattan Semester", "First", "Second"].includes(body.semester)) {
+    errors.push({ field: "semester", message: "Invalid semester" });
   }
 
-  if (body.materialType && !["PDF", "DOCX", "PPT", "ZIP", "Video", "Book", "Lab Manual", "Assignment", "Past Question", "Other"].includes(body.materialType)) {
+  if (body.materialType && !["Lecture Note", "Textbook", "Past Question", "Assignment", "Lab Manual", "Practical", "Research Paper", "Project Guide", "Presentation Slides", "PDF", "DOCX", "PPT", "ZIP", "Video", "Book", "Other"].includes(body.materialType)) {
     errors.push({ field: "materialType", message: "Material type is invalid" });
   }
 

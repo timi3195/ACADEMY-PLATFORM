@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 
-export default function Modal({ isOpen, onClose, title, children, footer }) {
+export default function Modal({ isOpen, onClose, title, children, footer, fullscreen = false, contentClassName = '' }) {
   const dialogRef = useRef(null)
 
   useEffect(() => {
@@ -26,7 +26,7 @@ export default function Modal({ isOpen, onClose, title, children, footer }) {
     <div className="modal-overlay" onClick={onClose} role="presentation">
       <div
         ref={dialogRef}
-        className="modal-content"
+        className={`modal-content${fullscreen ? ' modal-content--fullscreen' : ''}${contentClassName ? ` ${contentClassName}` : ''}`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"

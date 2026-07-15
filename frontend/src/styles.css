@@ -186,6 +186,60 @@ button:hover{
   background:var(--accent-dark);
 }
 
+.modal-overlay{
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.75);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+  z-index: 1100;
+}
+
+.modal-content{
+  width: min(720px, 100%);
+  max-height: min(92vh, 900px);
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.2);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-content--fullscreen{
+  width: min(96vw, 1400px);
+  max-height: 95vh;
+  border-radius: 24px;
+}
+
+.modal-header{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.modal-close{
+  background: transparent;
+  color: #0f172a;
+  font-size: 1.4rem;
+  padding: 0 6px;
+}
+
+.modal-body{
+  padding: 20px;
+  overflow: auto;
+}
+
+.modal-footer{
+  border-top: 1px solid #e2e8f0;
+  padding: 16px 20px;
+  background: #f8fafc;
+}
+
 .user-pill{
   margin-right:12px;
   background:#f1f5f8;

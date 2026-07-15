@@ -1,6 +1,18 @@
 const PROGRESS_STORAGE_KEY = 'academy-library-progress';
 const WISHLIST_STORAGE_KEY = 'academy-wishlist';
 const RECENT_STORAGE_KEY = 'academy-recently-viewed';
+const PENDING_PURCHASE_STORAGE_KEY = 'academy-pending-purchase';
+const LATEST_PURCHASE_STORAGE_KEY = 'academy-latest-purchase';
+
+function getStorage() {
+  if (typeof globalThis !== 'undefined' && globalThis.localStorage) {
+    return globalThis.localStorage;
+  }
+  if (typeof window !== 'undefined' && window.localStorage) {
+    return window.localStorage;
+  }
+  return null;
+}
 
 export function getProgressPercent(lastPage = 0, totalPages = 0) {
   if (!totalPages || !lastPage) return 0;
@@ -26,9 +38,10 @@ export function createProgressEntry(materialId, overrides = {}) {
 }
 
 export function loadProgressEntries() {
-  if (typeof window === 'undefined') return [];
+  const storage = getStorage();
+  if (!storage) return [];
   try {
-    const raw = window.localStorage.getItem(PROGRESS_STORAGE_KEY);
+    const raw = storage.getItem(PROGRESS_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -39,8 +52,9 @@ export function loadProgressEntries() {
 }
 
 export function saveProgressEntries(entries = []) {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(entries));
+  const storage = getStorage();
+  if (!storage) return;
+  storage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(entries));
 }
 
 export function upsertProgressEntry(entry) {
@@ -57,9 +71,10 @@ export function getProgressEntry(materialId) {
 }
 
 export function loadWishlistEntries() {
-  if (typeof window === 'undefined') return [];
+  const storage = getStorage();
+  if (!storage) return [];
   try {
-    const raw = window.localStorage.getItem(WISHLIST_STORAGE_KEY);
+    const raw = storage.getItem(WISHLIST_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -70,8 +85,9 @@ export function loadWishlistEntries() {
 }
 
 export function saveWishlistEntries(entries = []) {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(WISHLIST_STORAGE_KEY, JSON.stringify(entries));
+  const storage = getStorage();
+  if (!storage) return;
+  storage.setItem(WISHLIST_STORAGE_KEY, JSON.stringify(entries));
 }
 
 export function toggleWishlistEntry(material) {
@@ -90,9 +106,10 @@ export function isWishlisted(material) {
 }
 
 export function loadRecentlyViewedEntries() {
-  if (typeof window === 'undefined') return [];
+  const storage = getStorage();
+  if (!storage) return [];
   try {
-    const raw = window.localStorage.getItem(RECENT_STORAGE_KEY);
+    const raw = storage.getItem(RECENT_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -103,8 +120,9 @@ export function loadRecentlyViewedEntries() {
 }
 
 export function saveRecentlyViewedEntries(entries = []) {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(entries));
+  const storage = getStorage();
+  if (!storage) return;
+  storage.setItem(RECENT_STORAGE_KEY, JSON.stringify(entries));
 }
 
 export function addRecentlyViewed(material) {
@@ -115,4 +133,54 @@ export function addRecentlyViewed(material) {
   const nextEntries = entries.slice(0, 12);
   saveRecentlyViewedEntries(nextEntries);
   return nextEntries;
+}
+
+export function savePendingPurchase(purchase) {
+  const storage = getStorage();
+  if (!storage) return null;
+  const payload = purchase ? { ...purchase, savedAt: new Date().toISOString() } : null;
+  storage.setItem(PENDING_PURCHASE_STORAGE_KEY, JSON.stringify(payload));
+  return payload;
+}
+
+export function loadPendingPurchase() {
+  const storage = getStorage();
+  if (!storage) return null;
+  try {
+    const raw = storage.getItem(PENDING_PURCHASE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch (error) {
+    console.error('Unable to load pending purchase', error);
+    return null;
+  }
+}
+
+export function clearPendingPurchase() {
+  const storage = getStorage();
+  if (!storage) return;
+  storage.removeItem(PENDING_PURCHASE_STORAGE_KEY);
+}
+
+export function saveLatestPurchase(purchase) {
+  const storage = getStorage();
+  if (!storage) return null;
+  const payload = purchase ? { ...purchase, savedAt: new Date().toISOString() } : null;
+  storage.setItem(LATEST_PURCHASE_STORAGE_KEY, JSON.stringify(payload));
+  return payload;
+}
+
+export function loadLatestPurchase() {
+  const storage = getStorage();
+  if (!storage) return null;
+  try {
+    const raw = storage.getItem(LATEST_PURCHASE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch (error) {
+    console.error('Unable to load latest purchase', error);
+    return null;
+  }
 }
