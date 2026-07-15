@@ -379,7 +379,9 @@ router.post("/forgot-password", async (req, res) => {
       .then((result) => {
         if (!result.success) {
           console.error("Password reset email dispatch failed:", result.error);
-
+        }
+      })
+      .catch((error) => {
         console.error("Password reset email dispatch error:", error);
       });
 
