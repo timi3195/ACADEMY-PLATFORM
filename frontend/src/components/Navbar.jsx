@@ -19,9 +19,15 @@ export default function Navbar() {
 
   useEffect(() => {
     const syncWishlist = () => setWishlistCount(loadWishlistEntries().length)
+    const syncAuthState = () => setMobileMenuOpen(false)
+
     syncWishlist()
     window.addEventListener('storage', syncWishlist)
-    return () => window.removeEventListener('storage', syncWishlist)
+    window.addEventListener('auth:updated', syncAuthState)
+    return () => {
+      window.removeEventListener('storage', syncWishlist)
+      window.removeEventListener('auth:updated', syncAuthState)
+    }
   }, [])
 
   const closeMenu = () => setMobileMenuOpen(false)

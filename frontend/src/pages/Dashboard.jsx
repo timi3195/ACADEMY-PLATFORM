@@ -27,6 +27,18 @@ export default function Dashboard() {
     loadMaterials({ limit: 8 }).catch(() => undefined)
   }, [isAuthenticated, loadLibrary, loadMaterials, navigate])
 
+  useEffect(() => {
+    if (!isAuthenticated) return
+    const refreshDashboardState = () => {
+      fetchCourses()
+      loadLibrary({ limit: 8 }).catch(() => undefined)
+      loadMaterials({ limit: 8 }).catch(() => undefined)
+    }
+
+    window.addEventListener('auth:updated', refreshDashboardState)
+    return () => window.removeEventListener('auth:updated', refreshDashboardState)
+  }, [isAuthenticated, loadLibrary, loadMaterials])
+
   const fetchCourses = async () => {
     try {
       const data = await apiGet('/api/courses')
