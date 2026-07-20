@@ -45,9 +45,14 @@ export default function Upgrade() {
         setMessage('Payment verified successfully!')
         setMessageType('success')
         setStatusMessage('Refreshing your account...')
-        refreshUser().then(() => {
-          setStatusMessage('Your account has been upgraded to premium!')
-        })
+        try {
+          const refreshedUser = await refreshUser()
+          const isPremiumNow = refreshedUser?.subscriptionType === 'premium' || refreshedUser?.plan === 'premium'
+          setStatusMessage(isPremiumNow ? 'Your account has been upgraded to premium!' : 'Subscription verified. Updating your access now...')
+        } catch (refreshError) {
+          console.error('Failed to refresh user after upgrade:', refreshError)
+          setStatusMessage('Payment verified. Your account is being updated...')
+        }
       } else {
         setMessage('Payment verification failed. ' + (data.message || ''))
         setMessageType('error')

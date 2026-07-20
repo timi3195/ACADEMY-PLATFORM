@@ -200,8 +200,16 @@ const getMaterialById = async (id, user = null) => {
     return material;
   }
 
-  if (material.hidden === false && ["public", "unlisted"].includes(material.visibility)) {
-    return material;
+  if (material.hidden) {
+    return null;
+  }
+
+  if (material.productStatus === "published" || material.status === "approved") {
+    if (user) {
+      return material;
+    }
+
+    return ["public", "unlisted"].includes(material.visibility) ? material : null;
   }
 
   return null;

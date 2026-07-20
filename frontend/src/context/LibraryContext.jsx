@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
 import libraryService from '../services/libraryService';
 
 const LibraryContext = createContext(null);
@@ -9,7 +9,7 @@ export function LibraryProvider({ children }) {
   const [error, setError] = useState('');
   const [pagination, setPagination] = useState({ page: 1, limit: 8, total: 0, totalPages: 1 });
 
-  const loadLibrary = async (params = {}) => {
+  const loadLibrary = useCallback(async (params = {}) => {
     const normalizedParams = {
       q: params.q || '',
       sortBy: params.sortBy || 'newest',
@@ -42,7 +42,16 @@ export function LibraryProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const handleAuthUpdated = () => {
+      loadLibrary({ page: 1, limit: 8 }).catch(() => undefined);
+    };
+
+    window.addEventListener('auth:updated', handleAuthUpdated);
+    return () => window.removeEventListener('auth:updated', handleAuthUpdated);
+  }, [loadLibrary]);
 
   const value = useMemo(() => ({
     items,

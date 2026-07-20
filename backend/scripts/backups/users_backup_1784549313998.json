@@ -1,0 +1,149 @@
+[
+  {
+    "_id": "6a20930dd139a885aac4a26e",
+    "name": "test user",
+    "email": "testuser@gmail.com",
+    "password": "$2b$10$XHeRJH/rGtS0kntkeQX5F.xubufiF4jLvCgsa7xMyQGKuik.c2ecG",
+    "googleId": null,
+    "authProvider": "email",
+    "emailVerified": true,
+    "emailVerificationToken": null,
+    "emailVerificationExpires": null,
+    "resetPasswordToken": null,
+    "resetPasswordExpires": null,
+    "plan": "free",
+    "subscriptionType": "free",
+    "subscriptionSemester": null,
+    "subscriptionExpiresAt": null,
+    "role": "admin",
+    "department": null,
+    "coursesEnrolled": [],
+    "quizzesAttempted": [],
+    "lastLogin": "2026-07-18T09:51:36.283Z",
+    "devices": [],
+    "refreshTokens": [
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMjA5MzBkZDEzOWE4ODVhYWM0YTI2ZSIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzg0Mjk2NDU4LCJleHAiOjE3ODY4ODg0NTh9.5n5E-ehla8OmEIB-DezqghhGdl7BV0vy_mEG0d0B1EE",
+        "_id": "6a5a340a773f7aef49187347",
+        "createdAt": "2026-07-17T13:54:18.780Z"
+      },
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMjA5MzBkZDEzOWE4ODVhYWM0YTI2ZSIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzg0MzAwMjAyLCJleHAiOjE3ODY4OTIyMDJ9.dBBW20B5TPoKL0URJjmntGoOmAxTAQvPOl7J8ivTBb0",
+        "_id": "6a5a42aa773f7aef4918736c",
+        "createdAt": "2026-07-17T14:56:42.257Z"
+      },
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMjA5MzBkZDEzOWE4ODVhYWM0YTI2ZSIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzg0MzY2MTk5LCJleHAiOjE3ODY5NTgxOTl9.x68IhSmHH05Rj04UNaVw31krDd_HWsF3Ruj-pRplcYg",
+        "_id": "6a5b44773b2769ffd19926cf",
+        "createdAt": "2026-07-18T09:16:39.454Z"
+      },
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMjA5MzBkZDEzOWE4ODVhYWM0YTI2ZSIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzg0MzY3MjQ0LCJleHAiOjE3ODY5NTkyNDR9.gnKO8qKfeJ2JwX3cra12Hyxf4cAAYDT_04D0gLo8lOw",
+        "_id": "6a5b488c5c2a1028bca67b98",
+        "createdAt": "2026-07-18T09:34:04.098Z"
+      },
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhMjA5MzBkZDEzOWE4ODVhYWM0YTI2ZSIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzg0MzY4Mjk2LCJleHAiOjE3ODY5NjAyOTZ9.CNT_PFz-PPdWfXY5gmYdH_5H2xsfDdBW0ZIlOCctAlg",
+        "_id": "6a5b4ca85c2a1028bca67bc1",
+        "createdAt": "2026-07-18T09:51:36.283Z"
+      }
+    ],
+    "createdAt": "2026-06-03T20:48:13.190Z",
+    "updatedAt": "2026-07-18T09:51:36.286Z",
+    "__v": 79,
+    "aiUsage": {
+      "lastResetDate": "2026-06-08T23:57:01.668Z",
+      "messagesThisMonth": 0,
+      "notesProcessedThisMonth": 0,
+      "questionsExplainedThisMonth": 0
+    },
+    "preferences": {
+      "notificationSettings": {
+        "dailyReminders": true,
+        "newResourcesNotification": true,
+        "performanceAlerts": true
+      },
+      "preferredLearningStyle": "mixed",
+      "studyHoursPerDay": 2,
+      "targetGPA": 3
+    },
+    "subscriptionFeatures": {
+      "aiChatMessages": 50,
+      "analyticsAccess": false,
+      "learningPathsPerCourse": 1,
+      "notesPerMonth": 5
+    },
+    "bankDetails": {
+      "accountName": "",
+      "accountNumber": "",
+      "bankName": ""
+    },
+    "marketplaceSuspended": false
+  },
+  {
+    "_id": "6a477fe91289f917241161a1",
+    "name": "Adegbite Timilehin Julius",
+    "email": "timilehinadegbite0@gmail.com",
+    "password": "$2b$10$mdIBP9bYIpA/iG3Y0cGKQ.aURh2Mu9F1inQsbKJmSWKcmXyInxqxa",
+    "googleId": null,
+    "authProvider": "email",
+    "emailVerified": true,
+    "emailVerificationToken": null,
+    "emailVerificationExpires": null,
+    "resetPasswordToken": null,
+    "resetPasswordExpires": null,
+    "plan": "free",
+    "subscriptionType": "free",
+    "subscriptionSemester": null,
+    "subscriptionExpiresAt": null,
+    "role": "student",
+    "department": "6a25f4a4554b3311d098636a",
+    "yearOfStudy": "HND2",
+    "coursesEnrolled": [],
+    "quizzesAttempted": [],
+    "lastLogin": "2026-07-04T12:05:29.215Z",
+    "devices": [],
+    "aiUsage": {
+      "messagesThisMonth": 0,
+      "notesProcessedThisMonth": 0,
+      "questionsExplainedThisMonth": 0,
+      "lastResetDate": "2026-07-03T09:24:57.898Z"
+    },
+    "preferences": {
+      "notificationSettings": {
+        "dailyReminders": true,
+        "performanceAlerts": true,
+        "newResourcesNotification": true
+      },
+      "preferredLearningStyle": "mixed",
+      "studyHoursPerDay": 2,
+      "targetGPA": 3
+    },
+    "subscriptionFeatures": {
+      "aiChatMessages": 50,
+      "notesPerMonth": 5,
+      "learningPathsPerCourse": 1,
+      "analyticsAccess": false
+    },
+    "refreshTokens": [
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhNDc3ZmU5MTI4OWY5MTcyNDExNjFhMSIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzgzMDcyMTY5LCJleHAiOjE3ODU2NjQxNjl9.mVs7B9bpNSugMU5p_SRxPelh13jtfhVrmM2GKcts6UI",
+        "_id": "6a4785a9a72a5b19ea13a150",
+        "createdAt": "2026-07-03T09:49:29.305Z"
+      },
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhNDc3ZmU5MTI4OWY5MTcyNDExNjFhMSIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzgzMDcyOTc1LCJleHAiOjE3ODU2NjQ5NzV9.E20MmH0705flHMJRQGtAiKVeVLTwvZidAuBpsZYkJbw",
+        "_id": "6a4788cfa72a5b19ea13a16d",
+        "createdAt": "2026-07-03T10:02:55.899Z"
+      },
+      {
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhNDc3ZmU5MTI4OWY5MTcyNDExNjFhMSIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzgzMTY2NzI5LCJleHAiOjE3ODU3NTg3Mjl9.znoeGOeX1Khr7S5jr1I_1zzzh1BS10dvsRrWZ8nc7C4",
+        "_id": "6a48f7093c424078bdb5a23f",
+        "createdAt": "2026-07-04T12:05:29.214Z"
+      }
+    ],
+    "createdAt": "2026-07-03T09:24:57.899Z",
+    "updatedAt": "2026-07-04T12:05:29.301Z",
+    "__v": 3
+  }
+]

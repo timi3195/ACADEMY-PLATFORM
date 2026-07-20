@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useMemo, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import marketplaceService from '../services/marketplaceService';
 
 const MarketplaceContext = createContext(null);
@@ -10,7 +10,7 @@ export function MarketplaceProvider({ children }) {
   const [pagination, setPagination] = useState({ page: 1, limit: 12, total: 0, totalPages: 1 });
   const lastRequestKeyRef = useRef('');
 
-  const loadMaterials = async (params = {}) => {
+  const loadMaterials = useCallback(async (params = {}) => {
     const normalizedParams = {
       q: params.q || '',
       page: Number(params.page || 1),
@@ -49,7 +49,17 @@ export function MarketplaceProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [materials, pagination]);
+
+  useEffect(() => {
+    const handleAuthUpdated = () => {
+      lastRequestKeyRef.current = '';
+      loadMaterials({ page: 1, limit: 12 }).catch(() => undefined);
+    };
+
+    window.addEventListener('auth:updated', handleAuthUpdated);
+    return () => window.removeEventListener('auth:updated', handleAuthUpdated);
+  }, [loadMaterials]);
 
   const value = useMemo(() => ({
     materials,

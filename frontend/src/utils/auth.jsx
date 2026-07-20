@@ -3,6 +3,11 @@ import { apiGet, apiPost, apiPut, apiDelete, setAccessToken, getAccessToken, API
 
 const AuthContext = createContext()
 
+const emitAuthUpdated = (nextUser) => {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent('auth:updated', { detail: { user: nextUser } }))
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -22,6 +27,7 @@ export function AuthProvider({ children }) {
         const res = await apiGet('/api/auth/me')
         if (res && res.user) {
           setUser(res.user)
+          emitAuthUpdated(res.user)
           return
         }
       }
@@ -54,6 +60,7 @@ export function AuthProvider({ children }) {
     if (res && res.accessToken) {
       setAccessToken(res.accessToken)
       setUser(res.user)
+      emitAuthUpdated(res.user)
       return res.user
     }
     throw new Error(res.message || 'Login failed')
@@ -70,6 +77,7 @@ export function AuthProvider({ children }) {
         const res = await apiGet('/api/auth/me')
         if (res && res.user) {
           setUser(res.user)
+          emitAuthUpdated(res.user)
           return res.user
         }
       } catch (err) {
@@ -130,6 +138,7 @@ export function AuthProvider({ children }) {
     const res = await apiGet('/api/auth/me')
     if (res && res.user) {
       setUser(res.user)
+      emitAuthUpdated(res.user)
       return res.user
     }
     return null
@@ -145,6 +154,7 @@ export function AuthProvider({ children }) {
     })
     if (res && res.user) {
       setUser(res.user)
+      emitAuthUpdated(res.user)
       return res.user
     }
     throw new Error('Upgrade failed')
