@@ -85,9 +85,6 @@ exports.validateMaterialUpdate = (body, file) => {
 };
 
 exports.validateApprovalPayload = (body) => {
-  if (body.approved === undefined) {
-    return "Approval status is required";
-  }
-
+  // Approval workflow removed; no validation needed.
   return null;
 };

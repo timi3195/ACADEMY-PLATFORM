@@ -19,7 +19,9 @@ export function MarketplaceProvider({ children }) {
       course: params.course || '',
       level: params.level || '',
       semester: params.semester || '',
-      materialType: params.materialType || ''
+      materialType: params.materialType || '',
+      price: params.price || '',
+      sortBy: params.sortBy || 'newest'
     };
     const requestKey = JSON.stringify(normalizedParams);
 

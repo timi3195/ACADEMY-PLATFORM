@@ -119,10 +119,6 @@ export default function LecturerDashboard() {
             <div style={{ fontSize: '24px', fontWeight: 700 }}>{dashboard.draftMaterials || 0}</div>
           </div>
           <div style={{ background: '#fff', borderRadius: '12px', padding: '14px', border: '1px solid #e2e8f0' }}>
-            <div style={{ color: '#64748b', fontSize: '13px' }}>Pending Approval</div>
-            <div style={{ fontSize: '24px', fontWeight: 700 }}>{dashboard.pendingApproval || 0}</div>
-          </div>
-          <div style={{ background: '#fff', borderRadius: '12px', padding: '14px', border: '1px solid #e2e8f0' }}>
             <div style={{ color: '#64748b', fontSize: '13px' }}>Downloads</div>
             <div style={{ fontSize: '24px', fontWeight: 700 }}>{dashboard.totalDownloads || 0}</div>
           </div>

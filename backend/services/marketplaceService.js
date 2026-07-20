@@ -15,10 +15,80 @@ const normalizeTags = (tags) => {
     .filter(Boolean);
 };
 
+const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const buildMaterialFilters = (query) => {
+  const clauses = [
+    {
+      hidden: false,
+      productStatus: "published",
+      isDeleted: false,
+      visibility: "public"
+    }
+  ];
+
+  const searchTerm = String(query.q || "").trim();
+  if (searchTerm) {
+    const regex = new RegExp(escapeRegExp(searchTerm), "i");
+    const tags = searchTerm.split(/\s+/).map((item) => item.toLowerCase()).filter(Boolean);
+
+    clauses.push({
+      $or: [
+        { title: regex },
+        { description: regex },
+        { course: regex },
+        { department: regex },
+        { faculty: regex },
+        { materialType: regex },
+        { publisher: regex },
+        { edition: regex },
+        { language: regex },
+        { lecturerName: regex },
+        { tags: { $in: tags } }
+      ]
+    });
+  }
+
+  if (query.department) {
+    clauses.push({ department: query.department });
+  }
+
+  if (query.course) {
+    clauses.push({ course: query.course });
+  }
+
+  if (query.semester) {
+    clauses.push({ semester: query.semester });
+  }
+
+  if (query.level) {
+    clauses.push({ level: query.level });
+  }
+
+  if (query.materialType) {
+    clauses.push({ materialType: query.materialType });
+  }
+
+  if (query.faculty) {
+    clauses.push({ faculty: query.faculty });
+  }
+
+  if (query.price === "free") {
+    clauses.push({ $or: [{ price: 0 }, { isFree: true }] });
+  }
+
+  if (query.price === "paid") {
+    clauses.push({ price: { $gt: 0 } });
+  }
+
+  return clauses.length === 1 ? clauses[0] : { $and: clauses };
+};
+
 const createMaterial = async ({ user, body, file }) => {
   const price = Number(body.price || 0);
   const isFree = body.isFree === "true" || body.isFree === true;
   const isPaid = body.isPaid === "true" || body.isPaid === true;
+  const lecturerName = String(user?.name || user?.email || "").trim();
 
   const created = await File.create({
     title: body.title,
@@ -31,22 +101,24 @@ const createMaterial = async ({ user, body, file }) => {
     department: body.department || null,
     semester: body.semester || "First",
     lecturer: user.id,
+    lecturerName,
     category: body.category || "Other",
     materialType: body.materialType || "Other",
     visibility: body.visibility || "public",
     level: body.level || "Other",
     previewPages: Number(body.previewPages || 0),
     pageCount: Number(body.pageCount || body.previewPages || 0),
-    productStatus: body.productStatus || "draft",
+    productStatus: body.productStatus || "published",
     language: body.language || "en",
     edition: body.edition || "",
     publisher: body.publisher || "",
+    faculty: body.faculty || "",
     price,
     isFree,
     isPaid,
     premiumDiscount: Number(body.premiumDiscount || 0),
-    approved: false,
-    status: body.status || "pending",
+    approved: true,
+    status: "approved",
     hidden: false,
     featured: false,
     uploads: 0,
@@ -64,66 +136,75 @@ const createMaterial = async ({ user, body, file }) => {
   return created;
 };
 
-const buildMaterialFilters = (query) => {
-  const filters = { approved: true, visibility: "public" };
-
-  if (query.q) {
-    filters.$text = { $search: query.q };
-  }
-  if (query.department) {
-    filters.department = query.department;
-  }
-  if (query.course) {
-    filters.course = query.course;
-  }
-  if (query.semester) {
-    filters.semester = query.semester;
-  }
-  if (query.category) {
-    filters.category = query.category;
-  }
-  if (query.materialType) {
-    filters.materialType = query.materialType;
-  }
-  if (query.lecturer) {
-    filters.lecturer = query.lecturer;
-  }
-  if (query.tags) {
-    const tags = Array.isArray(query.tags) ? query.tags : String(query.tags).split(",");
-    filters.tags = { $in: tags.map((tag) => tag.trim().toLowerCase()).filter(Boolean) };
-  }
-
-  return filters;
-};
-
 const listMaterials = async (query) => {
   const filters = buildMaterialFilters(query);
   const limit = Math.min(Number(query.limit) || 20, 50);
   const page = Math.max(Number(query.page) || 1, 1);
   const skip = (page - 1) * limit;
+  const sortBy = String(query.sortBy || "newest").toLowerCase();
 
+  const sortOptions = {
+    newest: { createdAt: -1 },
+    oldest: { createdAt: 1 },
+    rating: { ratingAverage: -1 },
+    "low-price": { price: 1 },
+    "high-price": { price: -1 },
+    views: { views: -1 },
+    sales: { sales: -1 },
+    alpha: { title: 1 }
+  };
+
+  const sort = sortOptions[sortBy] || sortOptions.newest;
+
+  const total = await File.countDocuments(filters);
   const materials = await File.find(filters)
-    .sort({ createdAt: -1 })
+    .populate({ path: "lecturer", select: "name email" })
+    .sort(sort)
     .skip(skip)
     .limit(limit)
     .lean();
 
-  return materials.map((material) => ({
-    ...material,
-    accessUrl: `/api/marketplace/materials/${material._id}`
-  }));
+  return {
+    materials: materials.map((material) => ({
+      ...material,
+      accessUrl: `/api/marketplace/materials/${material._id}`
+    })),
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / limit))
+    }
+  };
 };
 
-const getMaterialById = async (id) => {
-  return await File.findOne({
-    _id: id,
-    approved: true,
-    isDeleted: false,
-    hidden: false,
-    visibility: { $in: ["public", "unlisted"] }
-  })
+const getMaterialById = async (id, user = null) => {
+  if (!mongoose.Types.ObjectId.isValid(String(id))) {
+    return null;
+  }
+
+  const material = await File.findById(id)
+    .populate({ path: "lecturer", select: "name email" })
     .select("-storageFilename -deletedAt")
     .lean();
+
+  if (!material || material.isDeleted) {
+    return null;
+  }
+
+  const userId = user?.id || user?._id;
+  const isOwner = Boolean(material.lecturer && userId && material.lecturer._id?.toString() === userId.toString());
+  const isAdmin = Boolean(user && user.role === "admin");
+
+  if (isOwner || isAdmin) {
+    return material;
+  }
+
+  if (material.hidden === false && ["public", "unlisted"].includes(material.visibility)) {
+    return material;
+  }
+
+  return null;
 };
 
 const getLecturerMaterials = async (lecturerId) => {
@@ -159,7 +240,9 @@ const updateMaterial = async ({ user, materialId, body, file }) => {
     language: body.language ?? material.language,
     edition: body.edition ?? material.edition,
     publisher: body.publisher ?? material.publisher,
+    faculty: body.faculty ?? material.faculty,
     price: body.price !== undefined ? Number(body.price) : material.price,
+    lecturerName: material.lecturerName || '',
     isFree: body.isFree !== undefined ? (body.isFree === "true" || body.isFree === true) : material.isFree,
     isPaid: body.isPaid !== undefined ? (body.isPaid === "true" || body.isPaid === true) : material.isPaid,
     premiumDiscount: body.premiumDiscount !== undefined ? Number(body.premiumDiscount) : material.premiumDiscount,
@@ -200,7 +283,8 @@ const deleteMaterial = async (materialId, user) => {
 
 const getFeaturedMaterials = async (query) => {
   const limit = Math.min(Number(query.limit) || 12, 50);
-  const materials = await File.find({ approved: true, visibility: "public" })
+  const materials = await File.find({ productStatus: "published", visibility: "public", hidden: false, isDeleted: false })
+    .populate({ path: "lecturer", select: "name email" })
     .sort({ purchases: -1, ratingAverage: -1, createdAt: -1 })
     .limit(limit)
     .lean();
@@ -210,9 +294,7 @@ const getFeaturedMaterials = async (query) => {
 
 const getNewMaterials = async (query) => {
   const limit = Math.min(Number(query.limit) || 12, 50);
-  const materials = await File.find({ approved: true, visibility: "public" })
-    .populate({ path: "course", select: "title code" })
-    .populate({ path: "department", select: "name code" })
+  const materials = await File.find({ productStatus: "published", visibility: "public", hidden: false, isDeleted: false })
     .populate({ path: "lecturer", select: "name email" })
     .sort({ createdAt: -1 })
     .limit(limit)
@@ -226,9 +308,7 @@ const getCourseMaterials = async (courseId, query) => {
   const page = Math.max(Number(query.page) || 1, 1);
   const skip = (page - 1) * limit;
 
-  const materials = await File.find({ course: courseId, approved: true, visibility: "public" })
-    .populate({ path: "course", select: "title code" })
-    .populate({ path: "department", select: "name code" })
+  const materials = await File.find({ course: courseId, productStatus: "published", visibility: "public", hidden: false, isDeleted: false })
     .populate({ path: "lecturer", select: "name email" })
     .sort({ createdAt: -1 })
     .skip(skip)
@@ -243,9 +323,7 @@ const getDepartmentMaterials = async (departmentId, query) => {
   const page = Math.max(Number(query.page) || 1, 1);
   const skip = (page - 1) * limit;
 
-  const materials = await File.find({ department: departmentId, approved: true, visibility: "public" })
-    .populate({ path: "course", select: "title code" })
-    .populate({ path: "department", select: "name code" })
+  const materials = await File.find({ department: departmentId, productStatus: "published", visibility: "public", hidden: false, isDeleted: false })
     .populate({ path: "lecturer", select: "name email" })
     .sort({ createdAt: -1 })
     .skip(skip)
@@ -267,8 +345,6 @@ const getLibrary = async (userId, query = {}) => {
     .populate({
       path: "material",
       populate: [
-        { path: "course", select: "title code" },
-        { path: "department", select: "name code" },
         { path: "lecturer", select: "name email" }
       ]
     })
@@ -321,8 +397,6 @@ const getLibraryItem = async (userId, materialId) => {
   }).populate({
     path: "material",
     populate: [
-      { path: "course", select: "title code" },
-      { path: "department", select: "name code" },
       { path: "lecturer", select: "name email" }
     ]
   });
@@ -381,8 +455,6 @@ const getPurchaseHistory = async (userId, query = {}) => {
 
 const getMaterialAccess = async (userId, materialId) => {
   const material = await File.findById(materialId)
-    .populate({ path: "course", select: "title code level department" })
-    .populate({ path: "department", select: "name code" })
     .populate({ path: "lecturer", select: "name email" });
 
   if (!material) {
@@ -404,19 +476,7 @@ const getMaterialAccess = async (userId, materialId) => {
   };
 };
 
-const listPendingMaterials = async () => {
-  return await File.find({ approved: false })
-    .populate("course department lecturer", "title code name email")
-    .sort({ createdAt: -1 });
-};
-
-const setMaterialApproval = async (materialId, approved) => {
-  return await File.findByIdAndUpdate(
-    materialId,
-    { approved: !!approved },
-    { new: true }
-  );
-};
+// Approval workflow removed: materials are published immediately on creation.
 
 const getDiscountedPrice = (material, user) => {
   const price = Number(material.price || 0);
@@ -436,11 +496,7 @@ const initializePurchase = async (materialId, user) => {
     error.statusCode = 404;
     throw error;
   }
-  if (!material.approved) {
-    const error = new Error("Material is not approved for purchase yet");
-    error.statusCode = 403;
-    throw error;
-  }
+  // Approval gating removed; newly created materials can be purchased if for sale.
   if (material.isFree) {
     const error = new Error("This material is free and does not require purchase");
     error.statusCode = 400;
@@ -546,7 +602,5 @@ module.exports = {
   initializePurchase,
   initializeMarketplacePurchase: initializePurchase,
   verifyPurchase,
-  verifyMarketplacePurchase: verifyPurchase,
-  listPendingMaterials,
-  setMaterialApproval
+  verifyMarketplacePurchase: verifyPurchase
 };

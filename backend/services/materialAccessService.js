@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const Transaction = require("../models/Transaction");
+const { normalizeAcademicLevel } = require('../utils/academicLevels');
 
 /**
  * Determine whether a user is an admin.
@@ -63,7 +64,9 @@ const verifyCourseMembership = ({ user, material }) => {
     return { allowed: false, reason: "department_mismatch" };
   }
 
-  if (user.yearOfStudy !== material.course.level) {
+  const userLevel = normalizeAcademicLevel(user.yearOfStudy);
+  const courseLevel = normalizeAcademicLevel(material.course.level);
+  if (userLevel !== courseLevel) {
     return { allowed: false, reason: "year_mismatch" };
   }
 
@@ -92,10 +95,6 @@ const canViewMaterial = async ({ user, material, restrictByCourse = false }) => 
 
   if (material.visibility === "private") {
     return { allowed: false, reason: "private" };
-  }
-
-  if (material.approved === false) {
-    return { allowed: false, reason: "not_approved" };
   }
 
   if (restrictByCourse) {
@@ -147,10 +146,6 @@ const canPurchaseMaterial = async ({ user, material }) => {
 
   if (!material.isPaid) {
     return { allowed: false, reason: "not_for_sale" };
-  }
-
-  if (!material.approved) {
-    return { allowed: false, reason: "not_approved" };
   }
 
   const purchased = await userHasPurchasedMaterial(user, material);

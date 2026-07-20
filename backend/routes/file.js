@@ -232,9 +232,11 @@ const getFilesHandler = async (req, res) => {
     // Students only see files from their department and year
     if (user && user.department && user.yearOfStudy) {
       const Course = require('../models/course');
+      const { normalizeAcademicLevel } = require('../utils/academicLevels');
+      const normalizedYear = normalizeAcademicLevel(user.yearOfStudy);
       const courses = await Course.find({
         department: user.department._id,
-        level: user.yearOfStudy
+        level: normalizedYear
       }).select('_id');
 
       const allFiles = await File.find({ course: { $in: courses.map((c) => c._id) } }).populate('course');
@@ -296,7 +298,10 @@ router.get('/course/:courseId', protect, async (req, res) => {
     // Admin can access any course materials
     if (!(user && user.role === 'admin')) {
       // Students can only access materials from their own department and year
-      if (!user || !user.department || user.department._id.toString() !== course.department._id.toString() || user.yearOfStudy !== course.level) {
+      const { normalizeAcademicLevel } = require('../utils/academicLevels');
+      const userLevel = normalizeAcademicLevel(user.yearOfStudy);
+      const courseLevel = normalizeAcademicLevel(course.level);
+      if (!user || !user.department || user.department._id.toString() !== course.department._id.toString() || userLevel !== courseLevel) {
         return res.status(403).json({
           success: false,
           message: 'You do not have access to this course materials'

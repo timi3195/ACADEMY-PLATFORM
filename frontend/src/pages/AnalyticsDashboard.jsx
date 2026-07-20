@@ -1,58 +1,41 @@
 import React, { useState, useEffect } from "react";
-import axios from "axios";
 import PremiumGate from "../components/PremiumGate";
 import { apiGet } from "../utils/api";
 import "./AnalyticsDashboard.css";
 
-// Mock data for a fictional ND2 Computer Science student
-const MOCK_STUDENT_DATA = {
-  name: "Chioma Okafor",
-  program: "ND2 Computer Science",
-  department: "Computer Science",
-  semester: "2025/2026 - Semester II",
-  overallAccuracy: 76.5,
-  examReadiness: 72,
-  enrolledCourses: 5,
-  coursesStrength: ["Data Structures", "Web Development"],
-  coursesWeakness: ["Advanced Algorithms", "Database Design"],
+const DEFAULT_STUDENT_DATA = {
+  name: "Student",
+  program: "Your Program",
+  department: "Your Department",
+  semester: "Current Semester",
+  yearOfStudy: "",
+  overallAccuracy: 0,
+  examReadiness: 0,
+  enrolledCourses: 0,
   engagement: {
-    conversations: 24,
-    processedNotes: 8,
-    learningPaths: 3
+    conversations: 0,
+    processedNotes: 0,
+    learningPaths: 0
   }
 };
 
-// Mock performance data by topic
-const MOCK_TOPIC_DATA = [
-  { topic: "Arrays & Lists", accuracy: 88, attempts: 12, mastery: "Mastered" },
-  { topic: "Pointers", accuracy: 76, attempts: 9, mastery: "Proficient" },
-  { topic: "Linked Lists", accuracy: 82, attempts: 8, mastery: "Mastered" },
-  { topic: "Trees & Graphs", accuracy: 68, attempts: 6, mastery: "Proficient" },
-  { topic: "Sorting Algorithms", accuracy: 72, attempts: 7, mastery: "Proficient" },
-  { topic: "Dynamic Programming", accuracy: 45, attempts: 5, mastery: "Developing" },
-  { topic: "Hash Tables", accuracy: 79, attempts: 6, mastery: "Proficient" },
-  { topic: "String Manipulation", accuracy: 85, attempts: 10, mastery: "Mastered" }
-];
-
-// Mock performance trend data (last 8 weeks)
-const MOCK_TREND_DATA = [
-  { week: "Week 1", accuracy: 65, attempts: 12 },
-  { week: "Week 2", accuracy: 68, attempts: 14 },
-  { week: "Week 3", accuracy: 71, attempts: 16 },
-  { week: "Week 4", accuracy: 69, attempts: 15 },
-  { week: "Week 5", accuracy: 74, attempts: 18 },
-  { week: "Week 6", accuracy: 73, attempts: 17 },
-  { week: "Week 7", accuracy: 76, attempts: 19 },
-  { week: "Week 8", accuracy: 76.5, attempts: 21 }
-];
-
-// Mock departmental average (anonymized)
-const DEPARTMENTAL_AVG = 68.2;
+const DEFAULT_TOPIC_DATA = [];
+const DEFAULT_TREND_DATA = [];
+const DEFAULT_DEPARTMENTAL_AVG = 0;
 
 const SimpleLineChart = ({ data, dataKey, color = "#667eea" }) => {
   const width = 500;
   const height = 200;
   const padding = 40;
+
+  if (!Array.isArray(data) || data.length === 0) {
+    return (
+      <div className="chart-empty">
+        <p>No trend data available yet.</p>
+      </div>
+    );
+  }
+
   const maxValue = Math.max(...data.map(d => d[dataKey]));
   const minValue = Math.min(...data.map(d => d[dataKey]));
   const range = maxValue - minValue || 1;
@@ -111,10 +94,10 @@ const AnalyticsDashboard = () => {
   const [courses, setCourses] = useState([]);
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [studentData, setStudentData] = useState(null);
-  const [topicData, setTopicData] = useState(MOCK_TOPIC_DATA);
-  const [trendData, setTrendData] = useState(MOCK_TREND_DATA);
-  const [departmentalAvg, setDepartmentalAvg] = useState(DEPARTMENTAL_AVG);
+  const [studentData, setStudentData] = useState(DEFAULT_STUDENT_DATA);
+  const [topicData, setTopicData] = useState(DEFAULT_TOPIC_DATA);
+  const [trendData, setTrendData] = useState(DEFAULT_TREND_DATA);
+  const [departmentalAvg, setDepartmentalAvg] = useState(DEFAULT_DEPARTMENTAL_AVG);
   const [usingRealData, setUsingRealData] = useState(false);
   const [error, setError] = useState(null);
 
@@ -135,76 +118,48 @@ const AnalyticsDashboard = () => {
   const loadAllData = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem("token");
-      
-      // Fetch courses
+
       const coursesRes = await apiGet('/api/courses');
       setCourses(coursesRes.courses || []);
       if (coursesRes.courses?.length > 0) {
         setSelectedCourse(coursesRes.courses[0]);
       }
 
-      // Fetch dashboard overview
-      try {
-        const dashRes = await axios.get(`${API_BASE}/analytics/dashboard`, {
-          headers: { Authorization: `Bearer ${token}` }
+      const dashRes = await apiGet('/api/analytics/dashboard');
+      if (dashRes.success && dashRes.student) {
+        const student = dashRes.student;
+        setStudentData({
+          name: student.name || DEFAULT_STUDENT_DATA.name,
+          program: student.program || DEFAULT_STUDENT_DATA.program,
+          department: student.department || DEFAULT_STUDENT_DATA.department,
+          semester: student.semester || DEFAULT_STUDENT_DATA.semester,
+          yearOfStudy: student.yearOfStudy || DEFAULT_STUDENT_DATA.yearOfStudy,
+          overallAccuracy: dashRes.dashboard?.totalAccuracy || DEFAULT_STUDENT_DATA.overallAccuracy,
+          examReadiness: dashRes.dashboard?.estimatedExamScore || DEFAULT_STUDENT_DATA.examReadiness,
+          enrolledCourses: coursesRes.courses?.length || DEFAULT_STUDENT_DATA.enrolledCourses,
+          engagement: {
+            conversations: dashRes.dashboard?.engagement?.conversations || DEFAULT_STUDENT_DATA.engagement.conversations,
+            processedNotes: dashRes.dashboard?.engagement?.processedNotes || DEFAULT_STUDENT_DATA.engagement.processedNotes,
+            learningPaths: dashRes.dashboard?.engagement?.learningPaths || DEFAULT_STUDENT_DATA.engagement.learningPaths
+          }
         });
 
-        if (dashRes.data?.student) {
-          // Real student data from backend
-          const realStudent = {
-            name: dashRes.data.student.name || "Student",
-            program: dashRes.data.student.program || "Unknown",
-            department: dashRes.data.student.department || "Unknown",
-            semester: dashRes.data.student.semester || "Current Semester",
-            overallAccuracy: dashRes.data.overall?.accuracy || MOCK_STUDENT_DATA.overallAccuracy,
-            examReadiness: dashRes.data.overall?.examReadiness || MOCK_STUDENT_DATA.examReadiness,
-            enrolledCourses: coursesRes.courses?.length || 0,
-            engagement: {
-              conversations: dashRes.data.engagement?.conversations || 0,
-              processedNotes: dashRes.data.engagement?.processedNotes || 0,
-              learningPaths: dashRes.data.engagement?.learningPaths || 0
-            }
-          };
-          setStudentData(realStudent);
-          setUsingRealData(true);
-
-          // Set departmental average if available
-          if (dashRes.data.departmentalAvg) {
-            setDepartmentalAvg(dashRes.data.departmentalAvg);
-          }
-
-          // Set topic data if available
-          if (dashRes.data.topicMetrics?.length > 0) {
-            const topics = dashRes.data.topicMetrics.map(t => ({
-              topic: t.name,
-              accuracy: Math.round(t.accuracy),
-              attempts: t.attempts,
-              mastery: t.accuracy >= 80 ? "Mastered" : t.accuracy >= 60 ? "Proficient" : "Developing"
-            }));
-            setTopicData(topics);
-          }
-
-          // Set trend data if available
-          if (dashRes.data.performanceTrend?.length > 0) {
-            const trends = dashRes.data.performanceTrend.map((t, idx) => ({
-              week: `Week ${idx + 1}`,
-              accuracy: Math.round(t.accuracy),
-              attempts: t.attempts
-            }));
-            setTrendData(trends);
-          }
-        }
-      } catch (dashError) {
-        console.warn("Dashboard data not available, using mock data:", dashError.message);
-        setStudentData(MOCK_STUDENT_DATA);
+        setDepartmentalAvg(dashRes.dashboard?.departmentalAvg ?? DEFAULT_DEPARTMENTAL_AVG);
+        setTopicData(Array.isArray(dashRes.dashboard?.topicMetrics) ? dashRes.dashboard.topicMetrics : DEFAULT_TOPIC_DATA);
+        setTrendData(Array.isArray(dashRes.dashboard?.performanceTrend) ? dashRes.dashboard.performanceTrend : DEFAULT_TREND_DATA);
+        setUsingRealData(true);
+      } else {
+        setError('Analytics dashboard data is not available.');
+        setTopicData(DEFAULT_TOPIC_DATA);
+        setTrendData(DEFAULT_TREND_DATA);
       }
-
-      setError(null);
     } catch (error) {
       console.error("Error loading dashboard:", error);
-      setError(error.message);
-      setStudentData(MOCK_STUDENT_DATA);
+      setError(error.message || 'Unable to load analytics dashboard.');
+      setStudentData(DEFAULT_STUDENT_DATA);
+      setTopicData(DEFAULT_TOPIC_DATA);
+      setTrendData(DEFAULT_TREND_DATA);
+      setUsingRealData(false);
     } finally {
       setLoading(false);
     }
@@ -212,43 +167,36 @@ const AnalyticsDashboard = () => {
 
   const loadCoursePerformance = async (courseId) => {
     try {
-      const token = localStorage.getItem("token");
+      const perfRes = await apiGet(`/api/analytics/performance/${courseId}`);
 
-      const perfRes = await axios.get(
-        `${API_BASE}/analytics/performance/${courseId}`,
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
-      );
+      if (perfRes.success && perfRes.performance) {
+        const topics = Array.isArray(perfRes.performance.topicMetrics)
+          ? perfRes.performance.topicMetrics.map(t => ({
+            topic: t.topic,
+            accuracy: Math.round(t.accuracy),
+            attempts: t.totalAttempts || 0,
+            mastery: t.masteryLevel === 'advanced' ? 'Mastered' : t.masteryLevel === 'intermediate' ? 'Proficient' : 'Developing'
+          }))
+          : [];
 
-      if (perfRes.data?.topicMetrics?.length > 0) {
-        const topics = perfRes.data.topicMetrics.map(t => ({
-          topic: t.topic,
-          accuracy: Math.round(t.accuracy),
-          attempts: t.attempts,
-          mastery: t.accuracy >= 80 ? "Mastered" : t.accuracy >= 60 ? "Proficient" : "Developing"
-        }));
         setTopicData(topics);
 
-        // Update student accuracy for this course
-        if (perfRes.data.overallAccuracy && studentData) {
+        if (perfRes.performance.overallAccuracy && studentData) {
           setStudentData(prev => ({
             ...prev,
-            overallAccuracy: Math.round(perfRes.data.overallAccuracy)
+            overallAccuracy: Math.round(perfRes.performance.overallAccuracy)
           }));
         }
       }
     } catch (error) {
       console.warn("Performance data not available:", error.message);
-      // Keep existing mock data
     }
   };
 
   // Use real data if available, otherwise mock data
-  const mockData = studentData || MOCK_STUDENT_DATA;
   const activeTrendData = trendData;
 
-  // Calculate strengths and weaknesses FIRST
+  // Calculate strengths and weaknesses from real data
   const strengths = topicData.filter(t => t.accuracy >= 75).map(t => t.topic);
   const weaknesses = topicData.filter(t => t.accuracy < 65).map(t => t.topic);
 
@@ -277,11 +225,11 @@ const AnalyticsDashboard = () => {
           <div className="header-info">
             <div className="info-item">
               <span className="label">Student</span>
-              <span className="value">{mockData.name}</span>
+              <span className="value">{studentData.name}</span>
             </div>
             <div className="info-item">
               <span className="label">Program</span>
-              <span className="value">{mockData.program}</span>
+              <span className="value">{studentData.program}</span>
             </div>
             {usingRealData && (
               <div className="info-item">
@@ -346,11 +294,11 @@ const AnalyticsDashboard = () => {
                 </div>
               </div>
               <div className="metric-body">
-                <p className="metric-value-large">{mockData.overallAccuracy}%</p>
+                <p className="metric-value-large">{studentData.overallAccuracy}%</p>
                 <div className="progress-bar large">
                   <div 
                     className="progress-fill" 
-                    style={{ width: `${mockData.overallAccuracy}%` }}
+                    style={{ width: `${studentData.overallAccuracy}%` }}
                   ></div>
                 </div>
                 <div className="progress-labels">
@@ -359,7 +307,7 @@ const AnalyticsDashboard = () => {
                   <span className="label-100">100%</span>
                 </div>
                 <div className="achievement-badge">
-                  {mockData.overallAccuracy >= 80 ? '⭐ Excellent' : mockData.overallAccuracy >= 70 ? '✨ Strong' : '📈 On Track'}
+                  {studentData.overallAccuracy >= 80 ? '⭐ Excellent' : studentData.overallAccuracy >= 70 ? '✨ Strong' : '📈 On Track'}
                 </div>
               </div>
             </div>
@@ -378,16 +326,16 @@ const AnalyticsDashboard = () => {
                       r="54" 
                       className="progress"
                       style={{
-                        strokeDasharray: `${(mockData.examReadiness / 100) * 339.3} 339.3`
+                        strokeDasharray: `${(studentData.examReadiness / 100) * 339.3} 339.3`
                       }}
                     />
                   </svg>
                   <div className="circle-text">
-                    <p className="circle-value">{mockData.examReadiness}%</p>
+                    <p className="circle-value">{studentData.examReadiness}%</p>
                   </div>
                 </div>
-                <p className={`readiness-status status-${mockData.examReadiness > 80 ? 'excellent' : mockData.examReadiness > 70 ? 'good' : 'fair'}`}>
-                  {mockData.examReadiness > 80 ? '🟢 Ready' : mockData.examReadiness > 70 ? '🟢 Good' : '🟡 Building'}
+                <p className={`readiness-status status-${studentData.examReadiness > 80 ? 'excellent' : studentData.examReadiness > 70 ? 'good' : 'fair'}`}>
+                  {studentData.examReadiness > 80 ? '🟢 Ready' : studentData.examReadiness > 70 ? '🟢 Good' : '🟡 Building'}
                 </p>
               </div>
             </div>
@@ -397,9 +345,9 @@ const AnalyticsDashboard = () => {
               <div className="metric-icon">💬</div>
               <div className="metric-content">
                 <p className="metric-label">AI Tutoring</p>
-                <p className="metric-value engagement">{mockData.engagement.conversations}</p>
+                <p className="metric-value engagement">{studentData.engagement.conversations}</p>
                 <p className="metric-subtext">Learning conversations</p>
-                <div className="micro-progress" style={{width: `${(mockData.engagement.conversations / 30) * 100}%`}}></div>
+                <div className="micro-progress" style={{width: `${(studentData.engagement.conversations / 30) * 100}%`}}></div>
               </div>
             </div>
 
@@ -407,9 +355,9 @@ const AnalyticsDashboard = () => {
               <div className="metric-icon">📝</div>
               <div className="metric-content">
                 <p className="metric-label">Study Materials</p>
-                <p className="metric-value engagement">{mockData.engagement.processedNotes}</p>
+                <p className="metric-value engagement">{studentData.engagement.processedNotes}</p>
                 <p className="metric-subtext">Enhanced study notes</p>
-                <div className="micro-progress" style={{width: `${(mockData.engagement.processedNotes / 12) * 100}%`}}></div>
+                <div className="micro-progress" style={{width: `${(studentData.engagement.processedNotes / 12) * 100}%`}}></div>
               </div>
             </div>
 
@@ -417,9 +365,9 @@ const AnalyticsDashboard = () => {
               <div className="metric-icon">🎓</div>
               <div className="metric-content">
                 <p className="metric-label">Growth Paths</p>
-                <p className="metric-value engagement">{mockData.engagement.learningPaths}</p>
+                <p className="metric-value engagement">{studentData.engagement.learningPaths}</p>
                 <p className="metric-subtext">Personalized plans started</p>
-                <div className="micro-progress" style={{width: `${(mockData.engagement.learningPaths / 5) * 100}%`}}></div>
+                <div className="micro-progress" style={{width: `${(studentData.engagement.learningPaths / 5) * 100}%`}}></div>
               </div>
             </div>
 
@@ -431,7 +379,7 @@ const AnalyticsDashboard = () => {
                 <div className="comparison-display">
                   <div className="you">
                     <span className="comp-label">You</span>
-                    <span className="comp-value">{mockData.overallAccuracy}%</span>
+                    <span className="comp-value">{studentData.overallAccuracy}%</span>
                   </div>
                   <div className="vs">vs</div>
                   <div className="average">
@@ -440,7 +388,7 @@ const AnalyticsDashboard = () => {
                   </div>
                 </div>
                 <p className="comparison-text">
-                  {mockData.overallAccuracy > departmentalAvg ? `🔝 +${(mockData.overallAccuracy - departmentalAvg).toFixed(1)}% above average` : `📍 ${Math.abs(mockData.overallAccuracy - departmentalAvg).toFixed(1)}% below average`}
+                  {studentData.overallAccuracy > departmentalAvg ? `🔝 +${(studentData.overallAccuracy - departmentalAvg).toFixed(1)}% above average` : `📍 ${Math.abs(studentData.overallAccuracy - departmentalAvg).toFixed(1)}% below average`}
                 </p>
               </div>
             </div>
@@ -549,19 +497,19 @@ const AnalyticsDashboard = () => {
             <div className="trend-stats">
               <div className="trend-stat">
                 <span className="stat-label">Starting Accuracy</span>
-                <span className="stat-value">{activeTrendData[0].accuracy}%</span>
+                <span className="stat-value">{activeTrendData.length ? activeTrendData[0].accuracy : 0}%</span>
               </div>
               <div className="trend-stat">
                 <span className="stat-label">Current Accuracy</span>
-                <span className="stat-value">{activeTrendData[activeTrendData.length - 1].accuracy}%</span>
+                <span className="stat-value">{activeTrendData.length ? activeTrendData[activeTrendData.length - 1].accuracy : 0}%</span>
               </div>
               <div className="trend-stat positive">
                 <span className="stat-label">Improvement</span>
-                <span className="stat-value">+{(activeTrendData[activeTrendData.length - 1].accuracy - activeTrendData[0].accuracy).toFixed(1)}%</span>
+                <span className="stat-value">+{activeTrendData.length ? (activeTrendData[activeTrendData.length - 1].accuracy - activeTrendData[0].accuracy).toFixed(1) : '0.0'}%</span>
               </div>
               <div className="trend-stat">
                 <span className="stat-label">Total Questions</span>
-                <span className="stat-value">{activeTrendData.reduce((sum, d) => sum + d.attempts, 0)}</span>
+                <span className="stat-value">{activeTrendData.reduce((sum, d) => sum + (d.attempts || 0), 0)}</span>
               </div>
             </div>
           </div>

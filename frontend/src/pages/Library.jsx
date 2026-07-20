@@ -12,7 +12,7 @@ import useDebounce from '../hooks/useDebounce';
 import { getProgressEntry, getProgressPercent, loadWishlistEntries, toggleWishlistEntry, isWishlisted } from '../utils/libraryState';
 
 export default function Library() {
-  const { items, loading, error, loadLibrary } = useLibrary();
+  const { items, loading, error, loadLibrary, pagination } = useLibrary();
   const { materials, loadMaterials } = useMarketplace();
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('newest');
@@ -25,9 +25,20 @@ export default function Library() {
   const pageSize = 8;
 
   useEffect(() => {
-    loadLibrary({ q: debouncedSearch, sortBy });
+    loadLibrary({
+      q: debouncedSearch,
+      sortBy,
+      department: filters.department,
+      course: filters.course,
+      semester: filters.semester,
+      level: filters.level,
+      materialType: filters.materialType,
+      price: filters.price,
+      page,
+      limit: 8
+    });
     loadMaterials({ limit: 24 }).catch(() => undefined);
-  }, [debouncedSearch, loadLibrary, loadMaterials, sortBy]);
+  }, [debouncedSearch, filters.department, filters.course, filters.semester, filters.level, filters.materialType, filters.price, page, sortBy, loadLibrary, loadMaterials]);
 
   useEffect(() => {
     setPage(1);
@@ -41,50 +52,12 @@ export default function Library() {
     .sort((a, b) => new Date(b.progress.lastOpened || 0) - new Date(a.progress.lastOpened || 0))
     .slice(0, 5), [sourceItems]);
 
-  const filteredItems = useMemo(() => {
-    const query = debouncedSearch.trim().toLowerCase();
-    const filtered = sourceItems.filter((item) => {
-      const material = item.material || {};
-      const title = material.title || '';
-      const lecturer = material.lecturer?.name || '';
-      const course = material.course?.title || material.course?.code || '';
-      const department = material.department?.name || '';
-      const semester = material.semester || '';
-      const level = material.level || '';
-      const type = material.materialType || '';
-      const price = Number(material.price || 0);
-      const searchMatches = !query || [title, lecturer, course, department, semester, level, type, material.description || ''].join(' ').toLowerCase().includes(query);
-      const departmentMatches = !filters.department || department === filters.department;
-      const courseMatches = !filters.course || course === filters.course;
-      const semesterMatches = !filters.semester || semester === filters.semester;
-      const levelMatches = !filters.level || level === filters.level;
-      const typeMatches = !filters.materialType || type === filters.materialType;
-      const priceMatches = filters.price === 'free' ? price === 0 : filters.price === 'paid' ? price > 0 : true;
-      const recentlyPurchasedMatches = !filters.recentlyPurchased || Boolean(item.purchasedAt);
-      const recentlyOpenedMatches = !filters.recentlyOpened || Boolean(getProgressEntry(material._id));
-      return searchMatches && departmentMatches && courseMatches && semesterMatches && levelMatches && typeMatches && priceMatches && recentlyPurchasedMatches && recentlyOpenedMatches;
-    });
+  const filteredItems = sourceItems;
 
-    const sorted = [...filtered];
-    switch (sortBy) {
-      case 'course':
-        sorted.sort((a, b) => (a.material?.course?.title || '').localeCompare(b.material?.course?.title || '')); break;
-      case 'lecturer':
-        sorted.sort((a, b) => (a.material?.lecturer?.name || '').localeCompare(b.material?.lecturer?.name || '')); break;
-      case 'department':
-        sorted.sort((a, b) => (a.material?.department?.name || '').localeCompare(b.material?.department?.name || '')); break;
-      case 'newest':
-      default:
-        sorted.sort((a, b) => new Date(b.purchasedAt || 0) - new Date(a.purchasedAt || 0));
-    }
+  const totalPages = useMemo(() => Math.max(1, pagination.totalPages || Math.ceil((pagination.total || sourceItems.length) / pageSize)), [pagination.totalPages, pagination.total, sourceItems.length]);
 
-    return sorted.slice((page - 1) * pageSize, page * pageSize);
-  }, [debouncedSearch, filters.course, filters.department, filters.level, filters.materialType, filters.price, filters.recentlyOpened, filters.recentlyPurchased, page, sortBy, sourceItems]);
-
-  const totalPages = useMemo(() => Math.max(1, Math.ceil(sourceItems.length / pageSize)), [sourceItems.length]);
-
-  const departmentOptions = useMemo(() => Array.from(new Set(sourceItems.map((item) => item.material?.department?.name).filter(Boolean))).sort(), [sourceItems]);
-  const courseOptions = useMemo(() => Array.from(new Set(sourceItems.map((item) => item.material?.course?.title || item.material?.course?.code).filter(Boolean))).sort(), [sourceItems]);
+  const departmentOptions = useMemo(() => Array.from(new Set(sourceItems.map((item) => item.material?.department?.name || item.material?.department).filter(Boolean))).sort(), [sourceItems]);
+  const courseOptions = useMemo(() => Array.from(new Set(sourceItems.map((item) => item.material?.course?.title || item.material?.course?.code || item.material?.course).filter(Boolean))).sort(), [sourceItems]);
   const semesterOptions = useMemo(() => Array.from(new Set(sourceItems.map((item) => item.material?.semester).filter(Boolean))).sort(), [sourceItems]);
   const levelOptions = useMemo(() => Array.from(new Set(sourceItems.map((item) => item.material?.level).filter(Boolean))).sort(), [sourceItems]);
   const materialTypeOptions = useMemo(() => Array.from(new Set(sourceItems.map((item) => item.material?.materialType).filter(Boolean))).sort(), [sourceItems]);

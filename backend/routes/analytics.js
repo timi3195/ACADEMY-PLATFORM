@@ -13,6 +13,7 @@ const StudentNote = require("../models/StudentNote");
 const LearningPath = require("../models/LearningPath");
 const Question = require("../models/Question");
 const Course = require("../models/course");
+const User = require("../models/User");
 
 /**
  * GET /api/analytics/performance/:courseId
@@ -50,31 +51,35 @@ router.get("/performance/:courseId", protect, requirePremium, async (req, res) =
 });
 
 /**
+ * GET /api/analytics/dashboard
  * GET /api/analytics/dashboard/:userId
  * Get overall analytics dashboard
  */
-router.get("/dashboard/:userId", protect, async (req, res) => {
+const getDashboardHandler = async (req, res) => {
   try {
+    const requestedUserId = req.params.userId || req.user.id;
+
     // Can only view own dashboard unless admin
-    if (req.user._id.toString() !== req.params.userId && req.user.role !== "admin") {
+    if (req.params.userId && req.user._id.toString() !== req.params.userId && req.user.role !== "admin") {
       return res.status(403).json({ success: false, message: "Unauthorized" });
     }
 
-    const userId = req.params.userId;
+    const student = await User.findById(requestedUserId).populate("department", "name code");
+    if (!student) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
 
-    // Get all courses the user is enrolled in
     const performances = await StudentPerformance.find({
-      user: userId
+      user: requestedUserId
     }).populate("course");
 
-    // Calculate aggregate metrics
     const totalAccuracy = performances.length > 0
-      ? (performances.reduce((sum, p) => sum + p.overallAccuracy, 0) / performances.length)
+      ? (performances.reduce((sum, p) => sum + (p.overallAccuracy || 0), 0) / performances.length)
       : 0;
 
     const allTopics = {};
     performances.forEach(p => {
-      p.topicMetrics.forEach(tm => {
+      (p.topicMetrics || []).forEach(tm => {
         if (!allTopics[tm.topic]) {
           allTopics[tm.topic] = { correct: 0, total: 0 };
         }
@@ -83,47 +88,112 @@ router.get("/dashboard/:userId", protect, async (req, res) => {
       });
     });
 
-    const topStrengths = Object.entries(allTopics)
+    const topicMetrics = Object.entries(allTopics)
       .map(([topic, data]) => ({
         topic,
-        accuracy: data.total > 0 ? (data.correct / data.total) * 100 : 0
+        accuracy: data.total > 0 ? Number(((data.correct / data.total) * 100).toFixed(1)) : 0,
+        attempts: data.total,
+        mastery: data.total > 0
+          ? (data.correct / data.total) >= 0.8 ? "Mastered"
+          : (data.correct / data.total) >= 0.6 ? "Proficient"
+          : "Developing"
+          : "Beginner"
       }))
-      .sort((a, b) => b.accuracy - a.accuracy)
-      .slice(0, 5)
-      .map(t => t.topic);
+      .sort((a, b) => b.accuracy - a.accuracy);
 
-    const areasToImprove = Object.entries(allTopics)
-      .map(([topic, data]) => ({
-        topic,
-        accuracy: data.total > 0 ? (data.correct / data.total) * 100 : 0
-      }))
+    const topStrengths = topicMetrics.slice(0, 5).map(t => t.topic);
+    const areasToImprove = topicMetrics
+      .filter(t => t.attempts > 0)
       .sort((a, b) => a.accuracy - b.accuracy)
       .slice(0, 5)
       .map(t => t.topic);
 
-    // Get engagement metrics
-    const conversations = await AIConversation.countDocuments({ user: userId });
-    const notes = await StudentNote.countDocuments({ user: userId });
-    const paths = await LearningPath.countDocuments({ user: userId });
+    const trendEntries = performances
+      .flatMap(p => p.performanceTrend || [])
+      .map((item) => ({
+        date: new Date(item.date),
+        accuracy: item.accuracy || 0,
+        questionsAnswered: item.questionsAnswered || 0
+      }))
+      .sort((a, b) => a.date - b.date);
 
-    res.json({
-      success: true,
-      dashboard: {
-        performanceByCourse: performances,
-        totalAccuracy,
-        topStrengths,
-        areasToImprove,
-        engagement: {
-          conversations,
-          processedNotes: notes,
-          learningPaths: paths
-        }
+    const uniqueTrend = [];
+    const trendDates = new Set();
+    trendEntries.forEach((entry) => {
+      const key = entry.date.toISOString().split('T')[0];
+      if (!trendDates.has(key)) {
+        trendDates.add(key);
+        uniqueTrend.push(entry);
       }
+    });
+
+    const performanceTrend = uniqueTrend.slice(-8).map((entry, index) => ({
+      ...entry,
+      week: `Week ${index + 1}`
+    }));
+
+    const conversations = await AIConversation.countDocuments({ user: requestedUserId });
+    const notes = await StudentNote.countDocuments({ user: requestedUserId });
+    const paths = await LearningPath.countDocuments({ user: requestedUserId });
+
+    let departmentalAvg = 0;
+    if (student.department) {
+      const avgResult = await StudentPerformance.aggregate([
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'user',
+            foreignField: '_id',
+            as: 'user'
+          }
+        },
+        { $unwind: '$user' },
+        { $match: { 'user.department': student.department._id } },
+        { $group: { _id: null, avgAccuracy: { $avg: '$overallAccuracy' } } }
+      ]);
+      departmentalAvg = avgResult[0]?.avgAccuracy || 0;
+    }
+
+    const estimatedExamScore = performances.length > 0
+      ? performances.reduce((sum, p) => sum + (p.estimatedExamScore || 0), 0) / performances.length
+      : 0;
+
+    const dashboard = {
+      performanceByCourse: performances,
+      totalAccuracy,
+      estimatedExamScore: Number(estimatedExamScore.toFixed(1)),
+      topStrengths,
+      areasToImprove,
+      topicMetrics,
+      performanceTrend,
+      departmentalAvg: Number(departmentalAvg.toFixed(1)),
+      engagement: {
+        conversations,
+        processedNotes: notes,
+        learningPaths: paths
+      }
+    };
+
+    return res.json({
+      success: true,
+      student: {
+        id: student._id,
+        name: student.name,
+        email: student.email,
+        program: student.department?.name || 'Unknown program',
+        department: student.department?.name || 'Unknown department',
+        semester: 'Current semester',
+        yearOfStudy: student.yearOfStudy
+      },
+      dashboard
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
-});
+};
+
+router.get("/dashboard", protect, getDashboardHandler);
+router.get("/dashboard/:userId", protect, getDashboardHandler);
 
 /**
  * GET /api/analytics/strengths/:courseId

@@ -98,7 +98,10 @@ export default function CourseDetail() {
     if (!user?.department || !user?.yearOfStudy) return false
     const courseDeptId = course.department?._id?.toString?.() || course.department?._id
     const userDeptId = (user.department._id || user.department)?.toString?.() || (user.department._id || user.department)
-    return courseDeptId === userDeptId && course.level === user.yearOfStudy
+    const { normalizeAcademicLevel } = require('../utils/academicLevels')
+    const userLevel = normalizeAcademicLevel(user.yearOfStudy)
+    const courseLevel = normalizeAcademicLevel(course.level)
+    return courseDeptId === userDeptId && courseLevel === userLevel
   }
 
   if (!course || loading) {

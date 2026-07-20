@@ -104,8 +104,8 @@ exports.getDepartmentMaterials = async (req, res) => {
 
 exports.listMaterials = async (req, res) => {
   try {
-    const materials = await marketplaceService.listMaterials(req.query);
-    res.json({ success: true, materials });
+    const result = await marketplaceService.listMaterials(req.query);
+    res.json({ success: true, ...result });
   } catch (error) {
     console.error("Marketplace list materials error:", error);
     res.status(500).json({ success: false, message: error.message });
@@ -114,7 +114,7 @@ exports.listMaterials = async (req, res) => {
 
 exports.getMaterial = async (req, res) => {
   try {
-    const material = await marketplaceService.getMaterialById(req.params.id);
+    const material = await marketplaceService.getMaterialById(req.params.id, req.user);
     if (!material) {
       return res.status(404).json({ success: false, message: "Material not found" });
     }
@@ -177,32 +177,4 @@ exports.verifyPurchase = async (req, res) => {
   }
 };
 
-exports.getPendingMaterials = async (req, res) => {
-  try {
-    const materials = await marketplaceService.listPendingMaterials();
-    res.json({ success: true, materials });
-  } catch (error) {
-    console.error("Marketplace pending materials error:", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-exports.approveMaterial = async (req, res) => {
-  try {
-    const validationError = marketplaceValidator.validateApprovalPayload(req.body);
-    if (validationError) {
-      return res.status(400).json({ success: false, message: validationError });
-    }
-
-    const { approved } = req.body;
-    const materialId = req.params.id;
-    const material = await marketplaceService.setMaterialApproval(materialId, approved);
-    if (!material) {
-      return res.status(404).json({ success: false, message: "Material not found" });
-    }
-    res.json({ success: true, material });
-  } catch (error) {
-    console.error("Marketplace approve material error:", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
+// Approval endpoints removed — materials are published immediately on creation.

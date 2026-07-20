@@ -49,7 +49,7 @@ const buildBadges = (material) => {
   if (sales > 20) badges.push('BEST SELLER');
   if (rating >= 4.5) badges.push('TOP RATED');
   if (material?.isPremium || material?.isPaid || Number(material?.price || 0) > 0) badges.push('PREMIUM');
-  if (material?.featured || material?.approved === true) badges.push('FEATURED');
+  if (material?.featured) badges.push('FEATURED');
 
   return badges.slice(0, 4);
 };
@@ -183,7 +183,6 @@ function MaterialCard({ material, onPurchase, onPreview, searchTerm = '', progre
         </div>
 
         <div className="product-card__state-row">
-          {material?.status === 'pending' && <span className="product-card__status">Pending approval</span>}
           {material?.status === 'draft' && <span className="product-card__status">Draft</span>}
           {material?.status === 'rejected' && <span className="product-card__status">Rejected</span>}
           {isUnavailable && !isOwner && !isPurchased && <span className="product-card__status">Unavailable</span>}

@@ -20,10 +20,10 @@ const courseSchema = new mongoose.Schema(
       required: true
     },
 
-    // Course level (ND1, ND2, HND1, HND2)
+    // Course level
     level: {
       type: String,
-      enum: ["ND1", "ND2", "HND1", "HND2"],
+      enum: ["100 Level", "200 Level", "300 Level", "400 Level", "500 Level"],
       required: true
     },
 

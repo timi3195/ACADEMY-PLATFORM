@@ -26,7 +26,7 @@ const emptyForm = {
   language: 'English',
   edition: '',
   publisher: '',
-  status: 'pending',
+  status: 'draft',
   session: '2025/2026',
   courseCode: '',
   isbn: '',
@@ -82,13 +82,7 @@ const MaterialFormModal = React.memo(function MaterialFormModal({ isOpen, onClos
       visibility: initialValues.visibility || 'public',
       level: initialValues.level || '100 Level',
       semester: initialValues.semester || 'First Semester',
-      status: initialValues.status || 'pending',
-      authorName: initialValues.authorName || 'Dr. John Doe',
-      faculty: initialValues.faculty || 'Engineering',
-      session: initialValues.session || '2025/2026',
-      pricingMode: Number(initialValues.price || 0) > 0 ? 'paid' : 'free',
-      allowDownload: initialValues.allowDownload !== false,
-      allowPreview: initialValues.allowPreview !== false
+      status: initialValues.status || 'draft'
     };
 
     setForm(resetForm);
@@ -101,7 +95,7 @@ const MaterialFormModal = React.memo(function MaterialFormModal({ isOpen, onClos
     setFeedback('');
     setIsDirty(false);
     setConfirmCloseOpen(false);
-  }, [isOpen]);
+  }, [initialValues, isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -148,12 +142,12 @@ const MaterialFormModal = React.memo(function MaterialFormModal({ isOpen, onClos
       return;
     }
 
-    const payload = buildMaterialPayload({ ...form, productStatus: publish ? 'published' : 'draft', status: publish ? 'pending' : 'draft' });
+    const payload = buildMaterialPayload({ ...form, productStatus: publish ? 'published' : 'draft', status: publish ? 'published' : 'draft' });
     setValidationErrors([]);
     setFeedback('');
     try {
       await onSubmit(payload, file, coverImage);
-      setFeedback(publish ? 'Material published successfully. It will appear after review.' : 'Draft saved successfully.');
+      setFeedback(publish ? 'Material published successfully and is now live.' : 'Draft saved successfully.');
       setIsDirty(false);
       onClose?.();
     } catch (submitError) {

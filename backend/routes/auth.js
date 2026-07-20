@@ -75,13 +75,18 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    const validYears = ["ND1", "ND2", "HND1", "HND2"];
-    if (!validYears.includes(yearOfStudy)) {
+    const { isValidAcademicLevel, normalizeAcademicLevel } = require('../utils/academicLevels');
+
+    // Normalize legacy values (ND/HND) to university levels
+    const normalizedYear = normalizeAcademicLevel(yearOfStudy);
+    if (!isValidAcademicLevel(normalizedYear)) {
       return res.status(400).json({
         success: false,
         message: "Invalid year of study"
       });
     }
+    // Replace incoming value with normalized for saving
+    req.body.yearOfStudy = normalizedYear;
 
     const departmentRecord = await Department.findById(department);
     if (!departmentRecord) {
@@ -652,7 +657,7 @@ router.post("/logout-all", protect, async (req, res) => {
       message: error.message
     });
   }
-});
+}); 
 
 /**
  * POST /api/auth/change-password

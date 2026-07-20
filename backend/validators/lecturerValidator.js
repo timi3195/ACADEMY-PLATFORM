@@ -38,8 +38,14 @@ exports.validateCreateMaterial = (body, file) => {
     errors.push({ field: "visibility", message: "Visibility must be public, unlisted, or private" });
   }
 
-  if (body.level && !["100 Level", "200 Level", "300 Level", "400 Level", "500 Level", "PGD", "Masters", "PhD", "ND1", "ND2", "HND1", "HND2", "Other"].includes(body.level)) {
-    errors.push({ field: "level", message: "Invalid level" });
+  const { FILE_LEVELS, normalizeAcademicLevel } = require('../utils/academicLevels');
+  if (body.level) {
+    const normalized = normalizeAcademicLevel(body.level);
+    if (!FILE_LEVELS.includes(normalized)) {
+      errors.push({ field: "level", message: "Invalid level" });
+    } else {
+      body.level = normalized;
+    }
   }
 
   if (body.previewPages !== undefined) {
@@ -94,8 +100,14 @@ exports.validateUpdateMaterial = (body, file) => {
     errors.push({ field: "visibility", message: "Visibility must be public, unlisted, or private" });
   }
 
-  if (body.level !== undefined && !["100 Level", "200 Level", "300 Level", "400 Level", "500 Level", "PGD", "Masters", "PhD", "ND1", "ND2", "HND1", "HND2", "Other"].includes(body.level)) {
-    errors.push({ field: "level", message: "Invalid level" });
+  const { FILE_LEVELS: FILE_LEVELS2, normalizeAcademicLevel: normalizeAcademicLevel2 } = require('../utils/academicLevels');
+  if (body.level !== undefined) {
+    const normalized = normalizeAcademicLevel2(body.level);
+    if (!FILE_LEVELS2.includes(normalized)) {
+      errors.push({ field: "level", message: "Invalid level" });
+    } else {
+      body.level = normalized;
+    }
   }
 
   if (body.previewPages !== undefined) {

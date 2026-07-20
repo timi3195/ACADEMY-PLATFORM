@@ -81,18 +81,6 @@ router.get(
   marketplaceController.verifyPurchase
 );
 
-// Admin moderation
-router.get(
-  "/materials/pending",
-  protect,
-  adminOnly,
-  marketplaceController.getPendingMaterials
-);
-router.put(
-  "/materials/:id/approval",
-  protect,
-  adminOnly,
-  marketplaceController.approveMaterial
-);
+// Admin moderation removed: approval workflow deprecated.
 
 module.exports = router;

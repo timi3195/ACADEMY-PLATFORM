@@ -75,15 +75,6 @@ export const marketplaceService = {
     return data;
   },
 
-  async getPendingMaterials() {
-    const { data } = await apiClient.get('/api/marketplace/materials/pending');
-    return data;
-  },
-
-  async approveMaterial(id, approved = true) {
-    const { data } = await apiClient.put(`/api/marketplace/materials/${id}/approval`, { approved });
-    return data;
-  }
 };
 
 export default marketplaceService;

@@ -39,7 +39,10 @@ export default function Courses() {
     ? courses.filter(course => {
         const courseDeptId = course.department?._id?.toString?.() || course.department?._id
         const userDeptId = (user.department._id || user.department)?.toString?.() || (user.department._id || user.department)
-        return courseDeptId === userDeptId && course.level === user.yearOfStudy
+        const { normalizeAcademicLevel } = require('../utils/academicLevels')
+        const userLevel = normalizeAcademicLevel(user.yearOfStudy)
+        const courseLevel = normalizeAcademicLevel(course.level)
+        return courseDeptId === userDeptId && courseLevel === userLevel
       })
     : courses
 
@@ -50,7 +53,7 @@ export default function Courses() {
     return matchesSearch && matchesLevel
   })
 
-  const levelOptions = ['all', 'ND1', 'ND2', 'HND1', 'HND2']
+  const levelOptions = ['all', '100 Level', '200 Level', '300 Level', '400 Level', '500 Level']
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">

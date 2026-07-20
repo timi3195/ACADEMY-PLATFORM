@@ -266,10 +266,11 @@ const Register = () => {
                   }`}
                 >
                   <option value="">Select year of study</option>
-                  <option value="ND1">ND 1</option>
-                  <option value="ND2">ND 2</option>
-                  <option value="HND1">HND 1</option>
-                  <option value="HND2">HND 2</option>
+                  <option value="100 Level">100 Level</option>
+                  <option value="200 Level">200 Level</option>
+                  <option value="300 Level">300 Level</option>
+                  <option value="400 Level">400 Level</option>
+                  <option value="500 Level">500 Level</option>
                 </select>
                 {errors.yearOfStudy && <p className="text-red-600 text-sm mt-1 font-medium">⚠️ {errors.yearOfStudy}</p>}
               </div>

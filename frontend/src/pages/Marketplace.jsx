@@ -60,9 +60,11 @@ export default function Marketplace() {
           course: filters.course || undefined,
           level: filters.level || undefined,
           semester: filters.semester || undefined,
-          materialType: filters.materialType || undefined
+          materialType: filters.materialType || undefined,
+          price: filters.price || undefined,
+          sortBy: filters.sortBy || 'newest'
         });
-        await loadLibrary();
+        await loadLibrary({ limit: 8 });
       } catch (err) {
         console.error(err);
       }
@@ -75,71 +77,19 @@ export default function Marketplace() {
     setPage(1);
   }, [debouncedSearch, filters.department, filters.course, filters.level, filters.semester, filters.materialType, filters.price, filters.sortBy]);
 
-  const totalPages = useMemo(() => Math.max(1, pagination?.totalPages || Math.ceil((materials?.length || 0) / 12)), [materials, pagination]);
+  const totalPages = useMemo(() => Math.max(1, pagination?.totalPages || 1), [pagination]);
 
   const courseOptions = useMemo(() => {
     const values = Array.isArray(materials) ? materials : [];
-    return Array.from(new Set(values.map((item) => item?.course?.code || item?.course?.title).filter(Boolean))).sort();
+    return Array.from(new Set(values.map((item) => item?.course || item?.course?.code || item?.course?.title).filter(Boolean))).sort();
   }, [materials]);
 
   const departmentOptions = useMemo(() => {
     const values = Array.isArray(materials) ? materials : [];
-    return Array.from(new Set(values.map((item) => item?.department?.name).filter(Boolean))).sort();
+    return Array.from(new Set(values.map((item) => item?.department || item?.department?.name).filter(Boolean))).sort();
   }, [materials]);
 
-  const visibleMaterials = useMemo(() => {
-    const source = Array.isArray(materials) ? materials : [];
-    const filtered = source.filter((material) => {
-      const matchesDepartment = !filters.department || material?.department?.name === filters.department;
-      const matchesCourse = !filters.course || material?.course?.code === filters.course || material?.course?.title === filters.course;
-      const matchesLevel = !filters.level || material?.level === filters.level;
-      const matchesSemester = !filters.semester || material?.semester === filters.semester;
-      const matchesMaterialType = !filters.materialType || material?.materialType === filters.materialType;
-      const matchesPrice = (() => {
-        if (filters.price === 'free') return Number(material?.price || 0) === 0 || material?.isFree;
-        if (filters.price === 'paid') return Number(material?.price || 0) > 0;
-        return true;
-      })();
-      const matchesRating = (() => {
-        if (filters.price === 'top-rated') return Number(material?.ratingAverage || 0) >= 4;
-        return true;
-      })();
-      const searchQuery = debouncedSearch.trim().toLowerCase();
-      const haystack = [material?.title, material?.description, material?.course?.title, material?.course?.code, material?.department?.name, material?.lecturer?.name, material?.materialType, ...(material?.tags || [])].filter(Boolean).join(' ').toLowerCase();
-      const matchesSearch = !searchQuery || haystack.includes(searchQuery);
-      return matchesDepartment && matchesCourse && matchesLevel && matchesSemester && matchesMaterialType && matchesPrice && matchesRating && matchesSearch;
-    });
-
-    const sorted = [...filtered];
-    switch (filters.sortBy) {
-      case 'oldest':
-        sorted.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
-        break;
-      case 'rating':
-        sorted.sort((a, b) => Number(b.ratingAverage || 0) - Number(a.ratingAverage || 0));
-        break;
-      case 'low-price':
-        sorted.sort((a, b) => Number(a.price || 0) - Number(b.price || 0));
-        break;
-      case 'high-price':
-        sorted.sort((a, b) => Number(b.price || 0) - Number(a.price || 0));
-        break;
-      case 'views':
-        sorted.sort((a, b) => Number(b.views || 0) - Number(a.views || 0));
-        break;
-      case 'sales':
-        sorted.sort((a, b) => Number(b.sales || b.purchases || 0) - Number(a.sales || a.purchases || 0));
-        break;
-      case 'alpha':
-        sorted.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-        break;
-      case 'newest':
-      default:
-        sorted.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-    }
-
-    return sorted;
-  }, [debouncedSearch, filters.course, filters.department, filters.level, filters.materialType, filters.price, filters.semester, filters.sortBy, materials]);
+  const visibleMaterials = useMemo(() => (Array.isArray(materials) ? materials : []), [materials]);
 
   const handleSearch = (value) => {
     setSearch(value);
@@ -198,7 +148,7 @@ export default function Marketplace() {
         <div style={{ flex: 1 }}>
           <SearchBar value={search} onChange={handleSearch} placeholder="Search by title, course, department, lecturer, tags or material type" />
         </div>
-        <div style={{ color: '#64748b', whiteSpace: 'nowrap' }}>{visibleMaterials.length} available</div>
+        <div style={{ color: '#64748b', whiteSpace: 'nowrap' }}>{pagination.total || 0} available</div>
       </div>
 
       <div className="wp-section marketplace-filters">
@@ -216,10 +166,11 @@ export default function Marketplace() {
         </select>
         <select name="level" value={filters.level} onChange={handleFilterChange} aria-label="Filter by level">
           <option value="">Level</option>
-          <option value="ND1">ND1</option>
-          <option value="ND2">ND2</option>
-          <option value="HND1">HND1</option>
-          <option value="HND2">HND2</option>
+          <option value="100 Level">100 Level</option>
+          <option value="200 Level">200 Level</option>
+          <option value="300 Level">300 Level</option>
+          <option value="400 Level">400 Level</option>
+          <option value="500 Level">500 Level</option>
           <option value="Other">Other</option>
         </select>
         <select name="semester" value={filters.semester} onChange={handleFilterChange} aria-label="Filter by semester">

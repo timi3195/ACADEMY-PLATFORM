@@ -195,6 +195,11 @@ app.get("/health", (req, res) => {
 });
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT);
+app.listen(PORT, () => {
+  console.log(`Server listening on port ${PORT}`);
+}).on('error', (err) => {
+  console.error('Server failed to start:', err.message);
+  process.exit(1);
+});
 
 module.exports = app;

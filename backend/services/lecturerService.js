@@ -12,6 +12,7 @@ const normalizeTags = (tags) => {
 const Transaction = require("../models/Transaction");
 const Withdrawal = require("../models/Withdrawal");
 const materialAccessService = require("../services/materialAccessService");
+const { normalizeAcademicLevel } = require('../utils/academicLevels');
 const NIGERIAN_BANKS = require("../utils/bankList");
 
 const buildLecturerMaterialFilters = (lecturerId, query) => {
@@ -141,10 +142,10 @@ const createLecturerMaterial = async ({ user, body, file, coverImage }) => {
     category: body.category || body.materialType || "Other",
     materialType: body.materialType || "Lecture Note",
     visibility: body.visibility || "public",
-    level: body.level || "100 Level",
+    level: normalizeAcademicLevel(body.level) || "100 Level",
     previewPages: Number(body.previewPages || 0),
     pageCount,
-    productStatus: body.productStatus || "draft",
+    productStatus: body.productStatus || (body.status === "draft" ? "draft" : "published"),
     language: body.language || "English",
     edition: body.edition || "",
     publisher: body.publisher || "",
@@ -157,8 +158,8 @@ const createLecturerMaterial = async ({ user, body, file, coverImage }) => {
     courseCode: body.courseCode || "",
     allowDownload: body.allowDownload !== "false" && body.allowDownload !== false,
     allowPreview: body.allowPreview !== "false" && body.allowPreview !== false,
-    approved: false,
-    status: body.status || "pending",
+    approved: true,
+    status: body.status === "draft" ? "pending" : "approved",
     hidden: false,
     featured: false,
     isDeleted: false,

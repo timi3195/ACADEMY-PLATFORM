@@ -63,6 +63,11 @@ const fileSchema = new mongoose.Schema({
     default: null
   },
 
+  lecturerName: {
+    type: String,
+    default: ""
+  },
+
   category: {
     type: String,
     enum: ["Book", "Lecture Notes", "Lab Manual", "Assignment", "Past Question", "Video", "PDF", "DOCX", "PPT", "ZIP", "Other", "Lecture Note", "Textbook", "Practical", "Research Paper", "Project Guide", "Presentation Slides"],
@@ -83,7 +88,7 @@ const fileSchema = new mongoose.Schema({
 
   level: {
     type: String,
-    enum: ["100 Level", "200 Level", "300 Level", "400 Level", "500 Level", "PGD", "Masters", "PhD", "ND1", "ND2", "HND1", "HND2", "Other"],
+    enum: ["100 Level", "200 Level", "300 Level", "400 Level", "500 Level", "PGD", "Masters", "PhD", "Other"],
     default: "100 Level"
   },
 

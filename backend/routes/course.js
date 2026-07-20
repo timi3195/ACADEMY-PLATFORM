@@ -45,9 +45,11 @@ router.get("/", protect, async (req, res) => {
       });
     }
 
+    const { normalizeAcademicLevel } = require('../utils/academicLevels');
+    const normalizedYear = normalizeAcademicLevel(user.yearOfStudy);
     const courses = await Course.find({
       department: user.department._id,
-      level: user.yearOfStudy
+      level: normalizedYear
     }).populate('department');
 
     res.json({

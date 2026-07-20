@@ -451,10 +451,11 @@ export default function AdminPanel() {
                     onChange={(e) => setCourseLevel(e.target.value)}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="ND1">ND1</option>
-                    <option value="ND2">ND2</option>
-                    <option value="HND1">HND1</option>
-                    <option value="HND2">HND2</option>
+                    <option value="100 Level">100 Level</option>
+                    <option value="200 Level">200 Level</option>
+                    <option value="300 Level">300 Level</option>
+                    <option value="400 Level">400 Level</option>
+                    <option value="500 Level">500 Level</option>
                   </select>
                 </div>
 
