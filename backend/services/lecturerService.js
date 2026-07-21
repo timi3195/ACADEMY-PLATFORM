@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const File = require("../models/File");
+const User = require("../models/User");
 
 const normalizeTags = (tags) => {
   if (!tags) return [];
@@ -125,6 +126,8 @@ const createLecturerMaterial = async ({ user, body, file, coverImage }) => {
   const pageCount = Number(body.pageCount || body.previewPages || 0);
   const normalizedCourse = body.course ? String(body.course) : null;
   const normalizedDepartment = body.department ? String(body.department) : null;
+  const lecturer = await User.findById(user.id).select("name email").lean();
+  const isDraft = body.status === "draft" || body.productStatus === "draft";
 
   return await File.create({
     title: body.title,
@@ -139,13 +142,14 @@ const createLecturerMaterial = async ({ user, body, file, coverImage }) => {
     department: normalizedDepartment,
     semester: body.semester || "First Semester",
     lecturer: user.id,
+    lecturerName: lecturer?.name || lecturer?.email || user.email || "",
     category: body.category || body.materialType || "Other",
     materialType: body.materialType || "Lecture Note",
     visibility: body.visibility || "public",
     level: normalizeAcademicLevel(body.level) || "100 Level",
     previewPages: Number(body.previewPages || 0),
     pageCount,
-    productStatus: body.productStatus || (body.status === "draft" ? "draft" : "published"),
+    productStatus: isDraft ? "draft" : "published",
     language: body.language || "English",
     edition: body.edition || "",
     publisher: body.publisher || "",
@@ -159,7 +163,7 @@ const createLecturerMaterial = async ({ user, body, file, coverImage }) => {
     allowDownload: body.allowDownload !== "false" && body.allowDownload !== false,
     allowPreview: body.allowPreview !== "false" && body.allowPreview !== false,
     approved: true,
-    status: body.status === "draft" ? "pending" : "approved",
+    status: isDraft ? "draft" : "published",
     hidden: false,
     featured: false,
     isDeleted: false,

@@ -2,6 +2,8 @@ const path = require("path");
 const fs = require("fs");
 const mongoose = require("mongoose");
 const File = require("../models/File");
+const Course = require("../models/course");
+const Department = require("../models/Department");
 const Transaction = require("../models/Transaction");
 const paystackService = require("./paystackService");
 const materialAccessService = require("./materialAccessService");
@@ -118,7 +120,7 @@ const createMaterial = async ({ user, body, file }) => {
     isPaid,
     premiumDiscount: Number(body.premiumDiscount || 0),
     approved: true,
-    status: "approved",
+    status: "published",
     hidden: false,
     featured: false,
     uploads: 0,
@@ -204,12 +206,8 @@ const getMaterialById = async (id, user = null) => {
     return null;
   }
 
-  if (material.productStatus === "published" || material.status === "approved") {
-    if (user) {
-      return material;
-    }
-
-    return ["public", "unlisted"].includes(material.visibility) ? material : null;
+  if ((material.productStatus === "published" || material.status === "approved") && ["public", "unlisted"].includes(material.visibility)) {
+    return material;
   }
 
   return null;
@@ -316,7 +314,11 @@ const getCourseMaterials = async (courseId, query) => {
   const page = Math.max(Number(query.page) || 1, 1);
   const skip = (page - 1) * limit;
 
-  const materials = await File.find({ course: courseId, productStatus: "published", visibility: "public", hidden: false, isDeleted: false })
+  const course = mongoose.Types.ObjectId.isValid(String(courseId))
+    ? await Course.findById(courseId).select("title code").lean()
+    : null;
+  const courseValues = [courseId, course?.title, course?.code].filter(Boolean);
+  const materials = await File.find({ course: { $in: courseValues }, productStatus: "published", visibility: "public", hidden: false, isDeleted: false })
     .populate({ path: "lecturer", select: "name email" })
     .sort({ createdAt: -1 })
     .skip(skip)
@@ -331,7 +333,11 @@ const getDepartmentMaterials = async (departmentId, query) => {
   const page = Math.max(Number(query.page) || 1, 1);
   const skip = (page - 1) * limit;
 
-  const materials = await File.find({ department: departmentId, productStatus: "published", visibility: "public", hidden: false, isDeleted: false })
+  const department = mongoose.Types.ObjectId.isValid(String(departmentId))
+    ? await Department.findById(departmentId).select("name code").lean()
+    : null;
+  const departmentValues = [departmentId, department?.name, department?.code].filter(Boolean);
+  const materials = await File.find({ department: { $in: departmentValues }, productStatus: "published", visibility: "public", hidden: false, isDeleted: false })
     .populate({ path: "lecturer", select: "name email" })
     .sort({ createdAt: -1 })
     .skip(skip)

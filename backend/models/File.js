@@ -125,8 +125,8 @@ const fileSchema = new mongoose.Schema({
 
   status: {
     type: String,
-    enum: ["pending", "approved", "rejected", "hidden"],
-    default: "pending"
+    enum: ["draft", "published", "pending", "approved", "rejected", "hidden"],
+    default: "draft"
   },
 
   hidden: {

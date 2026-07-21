@@ -70,8 +70,10 @@ export default function LecturerDashboard() {
         setFeedback('Material updated successfully.');
       } else {
         await lecturerService.createMaterial(payload, file, coverImage);
-        setFeedback('Material published successfully. It will appear after review.');
+        setFeedback('Material published successfully and is now visible in the marketplace.');
       }
+      window.dispatchEvent(new Event('marketplace:updated'));
+      window.localStorage.setItem('marketplace:updated', String(Date.now()));
       setModalOpen(false);
       await loadData();
     } catch (err) {

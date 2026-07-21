@@ -9,6 +9,7 @@ export function MarketplaceProvider({ children }) {
   const [error, setError] = useState('');
   const [pagination, setPagination] = useState({ page: 1, limit: 12, total: 0, totalPages: 1 });
   const lastRequestKeyRef = useRef('');
+  const lastParamsRef = useRef({ page: 1, limit: 12 });
 
   const loadMaterials = useCallback(async (params = {}) => {
     const normalizedParams = {
@@ -24,6 +25,7 @@ export function MarketplaceProvider({ children }) {
       sortBy: params.sortBy || 'newest'
     };
     const requestKey = JSON.stringify(normalizedParams);
+    lastParamsRef.current = normalizedParams;
 
     if (lastRequestKeyRef.current === requestKey && materials.length) {
       return { materials, pagination };
@@ -52,13 +54,19 @@ export function MarketplaceProvider({ children }) {
   }, [materials, pagination]);
 
   useEffect(() => {
-    const handleAuthUpdated = () => {
+    const refreshMarketplace = () => {
       lastRequestKeyRef.current = '';
-      loadMaterials({ page: 1, limit: 12 }).catch(() => undefined);
+      loadMaterials(lastParamsRef.current).catch(() => undefined);
     };
 
-    window.addEventListener('auth:updated', handleAuthUpdated);
-    return () => window.removeEventListener('auth:updated', handleAuthUpdated);
+    window.addEventListener('auth:updated', refreshMarketplace);
+    window.addEventListener('marketplace:updated', refreshMarketplace);
+    window.addEventListener('storage', refreshMarketplace);
+    return () => {
+      window.removeEventListener('auth:updated', refreshMarketplace);
+      window.removeEventListener('marketplace:updated', refreshMarketplace);
+      window.removeEventListener('storage', refreshMarketplace);
+    };
   }, [loadMaterials]);
 
   const value = useMemo(() => ({

@@ -36,7 +36,13 @@ export default function Dashboard() {
     }
 
     window.addEventListener('auth:updated', refreshDashboardState)
-    return () => window.removeEventListener('auth:updated', refreshDashboardState)
+    window.addEventListener('marketplace:updated', refreshDashboardState)
+    window.addEventListener('storage', refreshDashboardState)
+    return () => {
+      window.removeEventListener('auth:updated', refreshDashboardState)
+      window.removeEventListener('marketplace:updated', refreshDashboardState)
+      window.removeEventListener('storage', refreshDashboardState)
+    }
   }, [isAuthenticated, loadLibrary, loadMaterials])
 
   const fetchCourses = async () => {
