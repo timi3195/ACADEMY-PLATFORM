@@ -30,6 +30,7 @@ router.post("/initialize", protect, async (req, res) => {
   try {
     const { amount, semester, plan } = req.body;
     const email = req.user.email || req.body.email; // Use authenticated user email
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
 
     if (!semester || !plan) {
       return res.status(400).json({
@@ -59,6 +60,7 @@ router.post("/initialize", protect, async (req, res) => {
       {
         email,
         amount: amount * 100,
+        callback_url: `${frontendUrl}/upgrade`,
         metadata: {
           semester,
           plan

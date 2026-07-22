@@ -5,19 +5,26 @@ if (!PAYSTACK_SECRET_KEY) {
   console.error("PAYSTACK_SECRET_KEY is not configured");
 }
 
-const initializePayment = async ({ email, amount, metadata }) => {
+const initializePayment = async ({ email, amount, metadata, callbackUrl }) => {
   if (!PAYSTACK_SECRET_KEY) {
     const error = new Error("Paystack configuration missing");
     error.statusCode = 500;
     throw error;
   }
+
+  const payload = {
+    email,
+    amount: Math.round(amount * 100),
+    metadata
+  };
+
+  if (callbackUrl) {
+    payload.callback_url = callbackUrl;
+  }
+
   const response = await axios.post(
     "https://api.paystack.co/transaction/initialize",
-    {
-      email,
-      amount: Math.round(amount * 100),
-      metadata
-    },
+    payload,
     {
       headers: {
         Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,

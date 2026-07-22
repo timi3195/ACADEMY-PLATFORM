@@ -28,7 +28,7 @@ const buildList = (value) => {
 export default function MarketplaceDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { materials, loadMaterials } = useMarketplace();
   const { loadLibrary } = useLibrary();
   const [material, setMaterial] = useState(null);
@@ -158,10 +158,15 @@ export default function MarketplaceDetail() {
         clearPendingPurchase();
         setPendingPurchase(null);
         setAccess({ access: true, reason: 'Access unlocked after successful verification' });
+
         await Promise.allSettled([
+          refreshUser(),
           loadLibrary({ limit: 20 }),
           loadMaterials({ limit: 24 })
         ]);
+
+        window.dispatchEvent(new Event('auth:updated'));
+        window.dispatchEvent(new Event('marketplace:updated'));
         setPurchaseMessage('Payment verified. Your material is now available in your library.');
       } catch (err) {
         const message = err.message || 'Verification failed.';

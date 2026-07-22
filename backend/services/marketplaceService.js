@@ -530,9 +530,11 @@ const initializePurchase = async (materialId, user) => {
   }
 
   const finalPrice = getDiscountedPrice(material, user);
+  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
   const transport = await paystackService.initializePayment({
     email: user.email,
     amount: finalPrice,
+    callbackUrl: `${frontendUrl}/marketplace/${material._id}`,
     metadata: {
       materialId: material._id.toString(),
       paymentType: "material",
@@ -570,36 +572,31 @@ const verifyPurchase = async (materialId, reference, user) => {
     throw error;
   }
 
-  const alreadyVerifiedTransaction = await Transaction.findOne({ reference });
-  if (alreadyVerifiedTransaction) {
-    if (alreadyVerifiedTransaction.material.toString() !== material._id.toString() || alreadyVerifiedTransaction.user.toString() !== user.id.toString()) {
+  const existingTransaction = await Transaction.findOne({ reference }).lean();
+  if (existingTransaction) {
+    if (
+      existingTransaction.material && existingTransaction.material.toString() !== material._id.toString() ||
+      existingTransaction.user && existingTransaction.user.toString() !== user.id.toString()
+    ) {
       const error = new Error("Payment reference already used");
       error.statusCode = 409;
       throw error;
     }
-    return alreadyVerifiedTransaction;
+
+    if (existingTransaction.status === "success") {
+      return existingTransaction;
+    }
   }
 
-  const amount = verification.amount / 100;
-  const transaction = await Transaction.create({
-    user: user.id,
-    email: user.email,
-    amount,
+  const amount = Number((verification.amount || 0) / 100);
+  const discount = Number(verification.metadata?.discount || material.premiumDiscount || 0);
+  const transaction = await materialAccessService.recordPurchase({
+    user,
+    material,
     reference,
-    status: "success",
-    plan: "material",
-    paymentType: "material",
-    semester: null,
-    expiresAt: null,
-    paidAt: new Date(),
-    material: material._id,
-    materialPrice: material.price,
-    discount: material.premiumDiscount || 0
+    amount,
+    discount
   });
-
-  material.purchases += 1;
-  material.sales += 1;
-  await material.save();
 
   return transaction;
 };

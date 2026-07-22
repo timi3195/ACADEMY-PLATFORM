@@ -47,6 +47,8 @@ export default function Upgrade() {
         setStatusMessage('Refreshing your account...')
         try {
           const refreshedUser = await refreshUser()
+          window.dispatchEvent(new Event('auth:updated'))
+          window.dispatchEvent(new Event('marketplace:updated'))
           const isPremiumNow = refreshedUser?.subscriptionType === 'premium' || refreshedUser?.plan === 'premium'
           setStatusMessage(isPremiumNow ? 'Your account has been upgraded to premium!' : 'Subscription verified. Updating your access now...')
         } catch (refreshError) {
