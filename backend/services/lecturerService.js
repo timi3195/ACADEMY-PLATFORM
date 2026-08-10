@@ -146,7 +146,7 @@ const createLecturerMaterial = async ({ user, body, file, coverImage }) => {
     category: body.category || body.materialType || "Other",
     materialType: body.materialType || "Lecture Note",
     visibility: body.visibility || "public",
-    level: normalizeAcademicLevel(body.level) || "100 Level",
+    level: normalizeAcademicLevel(body.level) || "ND1",
     previewPages: Number(body.previewPages || 0),
     pageCount,
     productStatus: isDraft ? "draft" : "published",

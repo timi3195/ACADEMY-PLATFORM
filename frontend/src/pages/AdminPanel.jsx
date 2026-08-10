@@ -17,6 +17,11 @@ export default function AdminPanel() {
   const [materialTitle, setMaterialTitle] = useState('')
   const [materialFile, setMaterialFile] = useState(null)
   const [materialIsPremium, setMaterialIsPremium] = useState(false)
+  const [pastQuestionTitle, setPastQuestionTitle] = useState('')
+  const [pastQuestionFile, setPastQuestionFile] = useState(null)
+  const [pastQuestionLevel, setPastQuestionLevel] = useState('ND1')
+  const [pastQuestionSemester, setPastQuestionSemester] = useState('First')
+  const [pastQuestionYear, setPastQuestionYear] = useState(new Date().getFullYear().toString())
 
   const [questionCourse, setQuestionCourse] = useState('')
   const [hasSubQuestions, setHasSubQuestions] = useState(false)
@@ -267,6 +272,36 @@ export default function AdminPanel() {
     }
   }
 
+  const handleUploadPastQuestion = async (e) => {
+    e.preventDefault()
+    if (!pastQuestionTitle || !questionCourse || !pastQuestionFile) {
+      alert('Please provide a title, course, and image/PDF file')
+      return
+    }
+
+    try {
+      setIsSubmitting(true)
+      const formData = new FormData()
+      formData.append('title', pastQuestionTitle)
+      formData.append('course', questionCourse)
+      formData.append('level', pastQuestionLevel)
+      formData.append('semester', pastQuestionSemester)
+      formData.append('examinationYear', pastQuestionYear)
+      formData.append('file', pastQuestionFile)
+      const res = await apiPost('/api/files/past-questions/upload', formData)
+      if (res.success) {
+        alert('Past question paper uploaded successfully')
+        setPastQuestionTitle('')
+        setPastQuestionFile(null)
+        fetchQuestions()
+      }
+    } catch (err) {
+      alert('Error uploading past question paper: ' + err.message)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   const handleUploadCBT = async (e) => {
     e.preventDefault()
     if (!cbtCourse || !cbtJson) {
@@ -378,7 +413,7 @@ export default function AdminPanel() {
 
       <div className="max-w-6xl mx-auto px-6 py-8">
         <div className="flex gap-2 mb-6 flex-wrap">
-          {['addCourse', 'uploadMaterial', 'addQuestion', 'uploadCBT', 'viewCourses', 'viewMaterials', 'viewQuestions'].map(tab => (
+          {['addCourse', 'uploadMaterial', 'uploadPastQuestion', 'uploadCBT', 'viewCourses', 'viewMaterials', 'viewQuestions'].map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -390,7 +425,7 @@ export default function AdminPanel() {
             >
               {tab === 'addCourse' && '📘 Add Course'}
               {tab === 'uploadMaterial' && '📁 Upload Material'}
-              {tab === 'addQuestion' && '❓ Add Question'}
+              {tab === 'uploadPastQuestion' && '📝 Upload Past Question'}
               {tab === 'uploadCBT' && '🧠 Upload CBT Set'}
               {tab === 'viewCourses' && '📚 View Courses'}
               {tab === 'viewMaterials' && '📋 View Materials'}
@@ -451,11 +486,10 @@ export default function AdminPanel() {
                     onChange={(e) => setCourseLevel(e.target.value)}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="100 Level">100 Level</option>
-                    <option value="200 Level">200 Level</option>
-                    <option value="300 Level">300 Level</option>
-                    <option value="400 Level">400 Level</option>
-                    <option value="500 Level">500 Level</option>
+                    <option value="ND1">ND1</option>
+                    <option value="ND2">ND2</option>
+                    <option value="HND1">HND1</option>
+                    <option value="HND2">HND2</option>
                   </select>
                 </div>
 
@@ -651,6 +685,30 @@ export default function AdminPanel() {
               >
                 {isSubmitting ? 'Uploading...' : '📤 Upload Material'}
               </button>
+            </form>
+          </div>
+        )}
+
+        {activeTab === 'uploadPastQuestion' && (
+          <div className="bg-white rounded-lg shadow-lg p-8">
+            <h2 className="text-2xl font-bold mb-6">Upload Past Question Paper</h2>
+            <form onSubmit={handleUploadPastQuestion} className="space-y-6">
+              <input value={pastQuestionTitle} onChange={(e) => setPastQuestionTitle(e.target.value)} placeholder="Paper title" className="w-full px-4 py-2 border rounded-lg" required />
+              <select value={questionCourse} onChange={(e) => setQuestionCourse(e.target.value)} className="w-full px-4 py-2 border rounded-lg" required>
+                <option value="">Select course</option>
+                {courses.map((course) => <option key={course._id} value={course._id}>{course.code} - {course.title}</option>)}
+              </select>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <select value={pastQuestionLevel} onChange={(e) => setPastQuestionLevel(e.target.value)} className="px-4 py-2 border rounded-lg">
+                  {['ND1', 'ND2', 'HND1', 'HND2'].map((level) => <option key={level}>{level}</option>)}
+                </select>
+                <select value={pastQuestionSemester} onChange={(e) => setPastQuestionSemester(e.target.value)} className="px-4 py-2 border rounded-lg">
+                  <option>First</option><option>Second</option>
+                </select>
+                <input value={pastQuestionYear} onChange={(e) => setPastQuestionYear(e.target.value)} className="px-4 py-2 border rounded-lg" placeholder="Exam year" required />
+              </div>
+              <input type="file" accept="application/pdf,image/*" onChange={(e) => setPastQuestionFile(e.target.files?.[0] || null)} required />
+              <button type="submit" disabled={isSubmitting} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg">{isSubmitting ? 'Uploading...' : 'Upload Paper'}</button>
             </form>
           </div>
         )}

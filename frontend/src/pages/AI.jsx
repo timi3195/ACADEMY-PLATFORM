@@ -1,74 +1,5 @@
 import React, { useEffect, useState } from 'react'
 import { apiGet, apiPost } from '../utils/api'
-import PremiumGate from '../components/PremiumGate'
-
-// Mock data for demonstration
-const SAMPLE_CONVERSATIONS = {
-  demo1: [
-    {
-      role: 'student',
-      content: 'What is a pointer in C?',
-      timestamp: new Date(Date.now() - 3600000)
-    },
-    {
-      role: 'tutor',
-      content: `A pointer is a variable that stores the memory address of another variable. Here's what you need to know:
-
-**Key Concepts:**
-1. **Declaration**: A pointer is declared using the asterisk (*) symbol
-   - Example: \`int *ptr;\`
-
-2. **Address-of Operator (&)**: Gets the address of a variable
-   - Example: \`ptr = &x;\`
-
-3. **Dereference Operator (*)**: Accesses the value at the pointer address
-   - Example: \`printf("%d", *ptr);\`
-
-**Simple Example:**
-\`\`\`c
-int x = 10;
-int *ptr = &x;  // ptr now holds address of x
-printf("%d", *ptr);  // Output: 10
-\`\`\`
-
-**Why Use Pointers?**
-- Dynamic memory allocation
-- Creating complex data structures (linked lists, trees)
-- Passing variables by reference
-- Array manipulation`,
-      timestamp: new Date(Date.now() - 3540000)
-    },
-    {
-      role: 'student',
-      content: 'Can you give me a practice question on this?',
-      timestamp: new Date(Date.now() - 3480000)
-    },
-    {
-      role: 'tutor',
-      content: `**Practice Question: Pointer Fundamentals**
-
-Given the following code:
-\`\`\`c
-int a = 5;
-int *p = &a;
-int **q = &p;
-printf("%d", **q);
-\`\`\`
-
-**What will be the output?**
-A) Error
-B) Address of a
-C) Address of p
-D) 5
-
-**Solution:** D) 5
-- \`q\` is a pointer to pointer \`p\`
-- \`*q\` gives us \`p\` (which holds address of \`a\`)
-- \`**q\` gives us the value at that address, which is 5`,
-      timestamp: new Date(Date.now() - 3400000)
-    }
-  ]
-}
 
 const SUGGESTED_PROMPTS = [
   {
@@ -112,12 +43,10 @@ export default function AI() {
   const [question, setQuestion] = useState('')
   const [courses, setCourses] = useState([])
   const [selectedCourse, setSelectedCourse] = useState('')
-  const [messages, setMessages] = useState(SAMPLE_CONVERSATIONS.demo1)
+  const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(false)
   const [conversationId, setConversationId] = useState(null)
   const [error, setError] = useState('')
-  const [showSampleData, setShowSampleData] = useState(true)
-  const [demoMode, setDemoMode] = useState(false)
 
   useEffect(() => {
     const loadCourses = async () => {
@@ -142,7 +71,6 @@ export default function AI() {
       return
     }
 
-    setShowSampleData(false)
     const userMessage = { role: 'student', content: question }
     setMessages(prev => [...prev, userMessage])
     setQuestion('')
@@ -160,15 +88,9 @@ export default function AI() {
         setConversationId(res.conversation._id)
       }
 
-      // Check if response is using mock data
-      if (res.isMockData) {
-        setDemoMode(true)
-      }
-
       const assistantMessage = {
         role: 'tutor',
-        content: res.message || res.response || 'I could not process your request. Please try again.',
-        isMockData: res.isMockData
+        content: res.message || res.response || 'I could not process your request. Please try again.'
       }
       setMessages(prev => [...prev, assistantMessage])
     } catch (err) {
@@ -196,19 +118,10 @@ export default function AI() {
     setMessages([])
     setConversationId(null)
     setQuestion('')
-    setShowSampleData(true)
   }
 
   return (
-    <PremiumGate fallback={
-      <div className="page premium-required">
-        <div className="premium-message">
-          <h2>🤖 AI Study Assistant</h2>
-          <p>Unlock personalized AI tutoring with a premium subscription</p>
-          <p className="features">Get instant explanations, practice questions, exam prep, and more!</p>
-        </div>
-      </div>
-    }>
+    <>
       <div className="page ai-study-page">
         <div className="ai-header">
           <div>
@@ -220,16 +133,6 @@ export default function AI() {
           </button>
         </div>
 
-        {demoMode && (
-          <div className="demo-mode-banner">
-            <span className="banner-icon">⚠️</span>
-            <div className="banner-content">
-              <strong>Demo Mode Active</strong>
-              <p>The OpenAI API quota has been exceeded. Showing demo responses. <a href="https://platform.openai.com/account/billing/overview" target="_blank" rel="noopener noreferrer">Click here to fix your billing</a></p>
-            </div>
-          </div>
-        )}
-
         <div className="ai-container">
           <div className="ai-sidebar">
             <div className="course-selection">
@@ -240,7 +143,6 @@ export default function AI() {
                   setSelectedCourse(e.target.value)
                   setMessages([])
                   setConversationId(null)
-                  setShowSampleData(true)
                 }}
                 className="course-select"
               >
@@ -253,7 +155,7 @@ export default function AI() {
               </select>
             </div>
 
-            {showSampleData && (
+            {selectedCourse && (
               <div className="suggested-prompts">
                 <h3>💡 Quick Start</h3>
                 <p className="prompt-subtitle">Click a topic or ask anything</p>
@@ -700,62 +602,6 @@ export default function AI() {
           font-size: 1.2rem;
         }
 
-        .demo-mode-banner {
-          display: flex;
-          gap: 1rem;
-          align-items: flex-start;
-          background: linear-gradient(135deg, #fef3c7 0%, #fef08a 100%);
-          border: 2px solid #fcd34d;
-          border-radius: 8px;
-          padding: 1rem 1.5rem;
-          margin: 1rem;
-          animation: slideDown 0.3s ease;
-        }
-
-        @keyframes slideDown {
-          from {
-            opacity: 0;
-            transform: translateY(-10px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-
-        .demo-mode-banner .banner-icon {
-          font-size: 1.5rem;
-          flex-shrink: 0;
-        }
-
-        .demo-mode-banner .banner-content {
-          flex: 1;
-        }
-
-        .demo-mode-banner .banner-content strong {
-          display: block;
-          color: #92400e;
-          font-size: 0.95rem;
-          margin-bottom: 0.25rem;
-        }
-
-        .demo-mode-banner .banner-content p {
-          margin: 0;
-          color: #78350f;
-          font-size: 0.9rem;
-          line-height: 1.4;
-        }
-
-        .demo-mode-banner a {
-          color: #d97706;
-          text-decoration: underline;
-          font-weight: 600;
-        }
-
-        .demo-mode-banner a:hover {
-          color: #b45309;
-        }
-
         .chat-input-area {
           display: flex;
           gap: 0.75rem;
@@ -822,6 +668,6 @@ export default function AI() {
           }
         }
       `}</style>
-    </PremiumGate>
+    </>
   )
 }

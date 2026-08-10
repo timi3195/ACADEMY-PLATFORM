@@ -193,7 +193,6 @@ const AnalyticsDashboard = () => {
     }
   };
 
-  // Use real data if available, otherwise mock data
   const activeTrendData = trendData;
 
   // Calculate strengths and weaknesses from real data
@@ -201,14 +200,14 @@ const AnalyticsDashboard = () => {
   const weaknesses = topicData.filter(t => t.accuracy < 65).map(t => t.topic);
 
   // Get top weakness for recommendations
-  const topWeakness = weaknesses.length > 0 ? weaknesses[0] : "Dynamic Programming";
+  const topWeakness = weaknesses[0] || null;
   const topWeaknessData = topicData.find(t => t.topic === topWeakness);
-  const topWeaknessAccuracy = topWeaknessData?.accuracy || 45;
+  const topWeaknessAccuracy = topWeaknessData?.accuracy || 0;
 
   // Get second weakness
-  const secondWeakness = weaknesses.length > 1 ? weaknesses[1] : "Advanced Algorithms";
+  const secondWeakness = weaknesses[1] || null;
   const secondWeaknessData = topicData.find(t => t.topic === secondWeakness);
-  const secondWeaknessAccuracy = secondWeaknessData?.accuracy || 68;
+  const secondWeaknessAccuracy = secondWeaknessData?.accuracy || 0;
 
   // Get top strengths for congratulations
   const topStrengths = strengths.slice(0, 3).join(", ");
@@ -236,11 +235,6 @@ const AnalyticsDashboard = () => {
                 <span className="data-badge real">✓ Real Data</span>
               </div>
             )}
-            {!usingRealData && !loading && (
-              <div className="info-item">
-                <span className="data-badge demo">📋 Demo Data</span>
-              </div>
-            )}
           </div>
         </div>
 
@@ -255,7 +249,7 @@ const AnalyticsDashboard = () => {
         {error && (
           <div className="error-banner">
             <span>⚠️ Could not load real data: {error}</span>
-            <p style={{margin: '0.5rem 0 0 0', fontSize: '0.9rem'}}>Showing sample data for demonstration</p>
+            <p style={{margin: '0.5rem 0 0 0', fontSize: '0.9rem'}}>No real performance data is available yet.</p>
           </div>
         )}
 
@@ -584,9 +578,7 @@ const AnalyticsDashboard = () => {
         <div className="analytics-footer">
           {usingRealData ? (
             <p>✅ <strong>Real Data Connected:</strong> This dashboard is displaying your actual performance metrics from the backend API.</p>
-          ) : (
-            <p>📌 <strong>Demo Mode:</strong> Showing sample data for demonstration. Your real performance metrics will appear here once the backend API is connected.</p>
-          )}
+          ) : <p>No performance data is available yet.</p>}
         </div>
       </div>
 
@@ -640,10 +632,6 @@ const AnalyticsDashboard = () => {
           color: #065f46;
         }
 
-        .data-badge.demo {
-          background: #fef3c7;
-          color: #92400e;
-        }
 
         .analytics-header {
           display: flex;

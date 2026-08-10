@@ -166,11 +166,10 @@ export default function Marketplace() {
         </select>
         <select name="level" value={filters.level} onChange={handleFilterChange} aria-label="Filter by level">
           <option value="">Level</option>
-          <option value="100 Level">100 Level</option>
-          <option value="200 Level">200 Level</option>
-          <option value="300 Level">300 Level</option>
-          <option value="400 Level">400 Level</option>
-          <option value="500 Level">500 Level</option>
+          <option value="ND1">ND1</option>
+          <option value="ND2">ND2</option>
+          <option value="HND1">HND1</option>
+          <option value="HND2">HND2</option>
           <option value="Other">Other</option>
         </select>
         <select name="semester" value={filters.semester} onChange={handleFilterChange} aria-label="Filter by semester">

@@ -9,7 +9,8 @@ const Register = () => {
     password: '',
     confirmPassword: '',
     department: '',
-    yearOfStudy: ''
+    yearOfStudy: '',
+    semester: 'First'
   });
   const [departments, setDepartments] = useState([]);
   const [departmentsLoading, setDepartmentsLoading] = useState(true);
@@ -109,7 +110,8 @@ const Register = () => {
     if (!formData.email.trim()) newErrors.email = 'Email is required';
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) newErrors.email = 'Invalid email format';
     if (!formData.department) newErrors.department = 'Department is required';
-    if (!formData.yearOfStudy) newErrors.yearOfStudy = 'Year of study is required';
+    if (!formData.yearOfStudy) newErrors.yearOfStudy = 'Academic level is required';
+    if (!formData.semester) newErrors.semester = 'Semester is required';
     if (!formData.password) newErrors.password = 'Password is required';
     else if (formData.password.length < 8) newErrors.password = 'Password must be at least 8 characters';
     if (formData.password !== formData.confirmPassword) newErrors.confirmPassword = 'Passwords do not match';
@@ -129,7 +131,7 @@ const Register = () => {
       const response = await apiPost('/api/auth/register', formData);
       if (response.success) {
         setSuccess(true);
-        setFormData({ name: '', email: '', password: '', confirmPassword: '', department: '', yearOfStudy: '' });
+        setFormData({ name: '', email: '', password: '', confirmPassword: '', department: '', yearOfStudy: '', semester: 'First' });
         setTimeout(() => {
           navigate('/verify-email', { state: { email: emailAddress } });
         }, 2000);
@@ -253,7 +255,7 @@ const Register = () => {
               {/* Year of Study Field */}
               <div>
                 <label htmlFor="yearOfStudy" className="block text-sm font-semibold text-gray-800 mb-2">
-                  Year of Study
+                  Academic Level
                 </label>
                 <select
                   id="yearOfStudy"
@@ -265,14 +267,22 @@ const Register = () => {
                     errors.yearOfStudy ? 'border-red-500 focus:border-red-500 focus:ring-red-200' : 'border-gray-200 focus:border-blue-500 focus:ring-blue-200'
                   }`}
                 >
-                  <option value="">Select year of study</option>
-                  <option value="100 Level">100 Level</option>
-                  <option value="200 Level">200 Level</option>
-                  <option value="300 Level">300 Level</option>
-                  <option value="400 Level">400 Level</option>
-                  <option value="500 Level">500 Level</option>
+                  <option value="">Select academic level</option>
+                  <option value="ND1">ND1</option>
+                  <option value="ND2">ND2</option>
+                  <option value="HND1">HND1</option>
+                  <option value="HND2">HND2</option>
                 </select>
                 {errors.yearOfStudy && <p className="text-red-600 text-sm mt-1 font-medium">⚠️ {errors.yearOfStudy}</p>}
+              </div>
+
+              <div>
+                <label htmlFor="semester" className="block text-sm font-semibold text-gray-800 mb-2">Semester</label>
+                <select id="semester" name="semester" value={formData.semester} onChange={handleChange} disabled={loading} className="w-full px-4 py-3 border-2 rounded-lg">
+                  <option value="First">First Semester</option>
+                  <option value="Second">Second Semester</option>
+                </select>
+                {errors.semester && <p className="text-red-600 text-sm mt-1 font-medium">{errors.semester}</p>}
               </div>
 
               {/* Password Field */}

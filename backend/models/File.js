@@ -88,8 +88,8 @@ const fileSchema = new mongoose.Schema({
 
   level: {
     type: String,
-    enum: ["100 Level", "200 Level", "300 Level", "400 Level", "500 Level", "PGD", "Masters", "PhD", "Other"],
-    default: "100 Level"
+    enum: ["ND1", "ND2", "HND1", "HND2"],
+    default: "ND1"
   },
 
   previewPages: {

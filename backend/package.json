@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node app.js",
     "dev": "nodemon app.js",
+    "migrate:nd-hnd": "node scripts/migrate_to_nd_hnd.js",
     "promote-admin": "node scripts/promote-admin.js",
     "reset-platform": "node reset_platform.js",
     "mark-questions-premium": "node scripts/mark_questions_premium.js",
@@ -16,7 +17,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.32.0",
+    "@google/generative-ai": "^0.24.1",
     "@sendgrid/mail": "^8.1.6",
     "axios": "^1.16.1",
     "bcryptjs": "^3.0.3",

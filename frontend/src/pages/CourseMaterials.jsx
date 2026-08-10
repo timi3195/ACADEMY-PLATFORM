@@ -51,7 +51,7 @@ export default function CourseMaterials() {
     const { normalizeAcademicLevel } = require('../utils/academicLevels')
     const userLevel = normalizeAcademicLevel(user.yearOfStudy)
     const courseLevel = normalizeAcademicLevel(course.level)
-    return courseDeptId === userDeptId && courseLevel === userLevel
+    return courseDeptId === userDeptId && courseLevel === userLevel && (!user.semester || user.semester === course.semester)
   }
 
   if (loading && !course) {

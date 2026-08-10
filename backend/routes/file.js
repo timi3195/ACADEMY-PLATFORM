@@ -5,6 +5,7 @@ const path = require("path");
 const fs = require("fs");
 const mongoose = require("mongoose");
 const File = require("../models/File");
+const PastQuestionPaper = require("../models/PastQuestionPaper");
 const User = require("../models/User");
 const protect = require("../config/middleware/authMiddleware");
 const adminOnly = require("../config/middleware/adminOnly");
@@ -47,7 +48,6 @@ router.post("/upload", protect, adminOnly, upload.single("file"), async (req, re
       return res.status(400).json({ success: false, message: 'Please select a file to upload.' });
     }
 
-    const isPremium = req.body.isPremium === 'true' || req.body.isPremium === 'on' || req.body.isPremium === true;
     const title = typeof req.body.title === 'string' ? req.body.title.trim() : '';
     const courseId = typeof req.body.course === 'string' ? req.body.course.trim() : '';
 
@@ -68,13 +68,30 @@ router.post("/upload", protect, adminOnly, upload.single("file"), async (req, re
     // Persist metadata (store server-side filename separately)
     const created = await File.create({
       title,
-      course: courseId,
-      isPremium,
+      description: req.body.description || "",
+      course: course.title,
+      department: course.department?.toString?.() || course.department,
+      semester: req.body.semester || course.semester,
+      level: req.body.level || course.level,
+      materialType: "Lecture Note",
+      category: "Lecture Notes",
+      visibility: "public",
+      productStatus: "published",
+      status: "published",
+      approved: true,
+      hidden: false,
+      isDeleted: false,
+      isPremium: false,
       fileUrl: '',
       storageFilename: req.file.filename,
       originalName: req.file.originalname,
       uploadedAt: new Date()
     });
+
+      if (created.department) {
+        const department = await require("../models/Department").findById(created.department).select("name").lean();
+        if (department) created.department = department.name;
+      }
 
     // Expose a safe view URL that streams through the backend by file id
     created.fileUrl = `/api/files/view/${created._id}`;
@@ -92,6 +109,69 @@ router.post("/upload", protect, adminOnly, upload.single("file"), async (req, re
       message: err.message
     });
   }
+});
+
+// Upload an image/PDF past-question paper - admin only
+router.post("/past-questions/upload", protect, adminOnly, upload.single("file"), async (req, res) => {
+  try {
+    const { title, course, level, semester, examinationYear } = req.body;
+    if (!title || !course || !level || !semester || !examinationYear || !req.file) {
+      return res.status(400).json({ success: false, message: "Title, course, level, semester, examination year, and file are required." });
+    }
+
+    const courseDoc = await require("../models/course").findById(course).lean();
+    if (!courseDoc) return res.status(404).json({ success: false, message: "Course not found." });
+
+    const paper = await PastQuestionPaper.create({
+      title: title.trim(),
+      course: courseDoc._id,
+      department: courseDoc.department,
+      level,
+      semester,
+      examinationYear: String(examinationYear),
+      fileUrl: `/api/files/past-questions/${Date.now()}`,
+      storageFilename: req.file.filename,
+      originalName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      uploadedBy: req.user.id
+    });
+
+    paper.fileUrl = `/api/files/past-questions/${paper._id}`;
+    await paper.save();
+    res.status(201).json({ success: true, paper });
+  } catch (error) {
+    console.error("Past question paper upload error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.get("/past-questions", protect, async (req, res) => {
+  const User = require("../models/User");
+  const Course = require("../models/course");
+  const user = await User.findById(req.user.id).lean();
+  const filters = {};
+  if (req.query.course) filters.course = req.query.course;
+  if (req.query.level) filters.level = req.query.level;
+  if (req.query.semester) filters.semester = req.query.semester;
+  if (user?.role !== "admin") {
+    if (!user?.department || !user?.yearOfStudy || !user?.semester) {
+      return res.json({ success: true, papers: [], message: "Complete your department, academic level, and semester profile first." });
+    }
+    const courses = await Course.find({ department: user.department, level: user.yearOfStudy, semester: user.semester }).select("_id");
+    filters.course = { $in: courses.map((course) => course._id) };
+    filters.level = user.yearOfStudy;
+    filters.semester = user.semester;
+  }
+  const papers = await PastQuestionPaper.find(filters).populate("course", "title code").sort({ examinationYear: -1 }).lean();
+  res.json({ success: true, papers });
+});
+
+router.get("/past-questions/:id", protect, async (req, res) => {
+  const paper = await PastQuestionPaper.findById(req.params.id);
+  if (!paper) return res.status(404).json({ success: false, message: "Past question paper not found." });
+  const filePath = path.join(uploadDir, paper.storageFilename);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ success: false, message: "Past question file is unavailable." });
+  res.type(paper.mimeType).sendFile(filePath);
 });
 
 // Helper: simple mime lookup for common types
@@ -218,7 +298,7 @@ const getFilesHandler = async (req, res) => {
 
     // Admin sees all files
     if (user && user.role === 'admin') {
-      const files = await File.find().populate("course");
+      const files = await File.find();
       const mapped = files.map(f => ({
         _id: f._id,
         title: f.title,
@@ -239,7 +319,12 @@ const getFilesHandler = async (req, res) => {
         level: normalizedYear
       }).select('_id');
 
-      const allFiles = await File.find({ course: { $in: courses.map((c) => c._id) } }).populate('course');
+      const courseRecords = await Course.find({
+        department: user.department._id,
+        level: normalizedYear
+      }).select('_id title code');
+      const courseValues = courseRecords.flatMap((course) => [course._id.toString(), course.title, course.code]);
+      const allFiles = await File.find({ course: { $in: courseValues } });
       const accessibleFiles = await Promise.all(
         allFiles.map(async (f) => {
           const access = await materialAccessService.canViewMaterial({
@@ -309,7 +394,7 @@ router.get('/course/:courseId', protect, async (req, res) => {
       }
     }
 
-    const files = await File.find({ course: courseId }).populate('course');
+    const files = await File.find({ course: { $in: [courseId, course.title, course.code] } });
 
     const processed = await Promise.all(
       files.map(async (f) => {

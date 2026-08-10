@@ -16,10 +16,12 @@ const StudentPerformance = require("../models/StudentPerformance");
 const LearningPath = require("../models/LearningPath");
 const Question = require("../models/Question");
 const Course = require("../models/course");
+const File = require("../models/File");
+const PastQuestionPaper = require("../models/PastQuestionPaper");
 const User = require("../models/User");
 
 // Services
-const claudeService = require("../utils/claude");
+const geminiService = require("../utils/gemini");
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -58,7 +60,7 @@ const upload = multer({
  * POST /api/ai/chat
  * Send message to AI Study Assistant
  */
-router.post("/chat", protect, requirePremium, async (req, res) => {
+router.post("/chat", protect, async (req, res) => {
   try {
     const { courseId, message, conversationId } = req.body;
 
@@ -109,7 +111,7 @@ router.post("/chat", protect, requirePremium, async (req, res) => {
       timestamp: new Date()
     });
 
-    // Build messages array for OpenAI
+    // Build messages array for Gemini
     const messagesForAI = conversation.messages.map(msg => ({
       role: msg.role === "student" ? "user" : "assistant",
       content: msg.content
@@ -121,19 +123,27 @@ router.post("/chat", protect, requirePremium, async (req, res) => {
       course: courseId
     });
 
+    const [materials, papers] = await Promise.all([
+      File.find({ course: course.title, productStatus: "published", hidden: false, isDeleted: false }).select("title description materialType").lean(),
+      PastQuestionPaper.find({ course: courseId }).select("title examinationYear level semester").lean()
+    ]);
+
     const courseContext = {
       courseName: course.title,
       courseCode: course.code,
       departmentName: course.department?.name || "Unknown",
       academicLevel: req.user.yearOfStudy || "Unknown",
-      topicsMastery: performance ? performance.topicMetrics : []
+      topicsMastery: performance ? performance.topicMetrics : [],
+      sources: [
+        ...materials.map((item) => ({ type: item.materialType || "course material", title: item.title, description: item.description })),
+        ...papers.map((item) => ({ type: "past-question paper", title: item.title, description: `${item.examinationYear}, ${item.level}, ${item.semester}` }))
+      ]
     };
 
-    // Call OpenAI
-    const aiResponse = await claudeService.chatWithStudent(
+    const aiResponse = await geminiService.chatWithStudent(
       messagesForAI,
       courseContext,
-      "gpt-3.5-turbo"
+      "gemini-2.0-flash"
     );
 
     // Add assistant message
@@ -285,8 +295,8 @@ router.post("/notes/upload", protect, requirePremium, upload.single("file"), asy
       extractedContent += req.body.manualContent;
     }
 
-    // Call OpenAI to enhance the content
-    const enhancements = await claudeService.enhanceNoteContent(
+    // Call Gemini to enhance the content
+    const enhancements = await geminiService.enhanceNoteContent(
       extractedContent,
       course.title,
       course.courseCharacteristics || {
@@ -424,7 +434,7 @@ router.delete("/notes/:noteId", protect, async (req, res) => {
  * POST /api/ai/explain-question
  * Get detailed explanation for a past question
  */
-router.post("/explain-question", protect, requirePremium, async (req, res) => {
+router.post("/explain-question", protect, async (req, res) => {
   try {
     const { questionId } = req.body;
 
@@ -466,8 +476,8 @@ router.post("/explain-question", protect, requirePremium, async (req, res) => {
       examFormat: course.courseCharacteristics?.examFormat || "multiple-choice"
     };
 
-    // Generate explanation using OpenAI
-    const aiExplanation = await claudeService.explainQuestion(
+    // Generate explanation using Gemini
+    const aiExplanation = await geminiService.explainQuestion(
       question,
       question.answer,
       courseContext
@@ -583,7 +593,7 @@ router.get("/usage/stats", protect, async (req, res) => {
       return res.status(403).json({ success: false, message: "Admin only" });
     }
 
-    const stats = claudeService.getUsageStats();
+    const stats = geminiService.getUsageStats();
 
     res.json({
       success: true,
@@ -653,8 +663,8 @@ router.post("/learning-path/generate", protect, requirePremium, async (req, res)
       });
     }
 
-    // Generate learning path using OpenAI
-    const pathData = await claudeService.generateLearningPath(
+    // Generate learning path using Gemini
+    const pathData = await geminiService.generateLearningPath(
       performance,
       course.title,
       targetExamDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),

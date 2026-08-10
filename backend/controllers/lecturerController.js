@@ -32,6 +32,9 @@ const getUploadedFiles = (req) => {
 exports.createMaterial = async (req, res) => {
   try {
     const { file, coverImage } = getUploadedFiles(req);
+    if (!['Book', 'Textbook'].includes(req.body.materialType)) {
+      return res.status(403).json({ success: false, message: "Lecturers can publish books only. Admins upload course materials." });
+    }
     const errors = lecturerValidator.validateCreateMaterial(req.body, file);
     if (errors.length) {
       return res.status(400).json({ success: false, errors });
@@ -55,6 +58,9 @@ exports.updateMaterial = async (req, res) => {
   try {
     const materialId = req.params.id;
     const { file, coverImage } = getUploadedFiles(req);
+    if (req.body.materialType && !['Book', 'Textbook'].includes(req.body.materialType)) {
+      return res.status(403).json({ success: false, message: "Lecturers can publish books only. Admins upload course materials." });
+    }
     const errors = lecturerValidator.validateUpdateMaterial(req.body, file);
     if (errors.length) {
       return res.status(400).json({ success: false, errors });

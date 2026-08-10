@@ -293,11 +293,10 @@ export default function Dashboard() {
 
                         // Determine level icon and color (explicit Tailwind classes)
                         const levelConfig = {
-                          '100 Level': { icon: '1️⃣', border: 'border-blue-200', headerBg: 'bg-blue-50', headerHover: 'hover:bg-blue-100', label: '100 Level' },
-                          '200 Level': { icon: '2️⃣', border: 'border-purple-200', headerBg: 'bg-purple-50', headerHover: 'hover:bg-purple-100', label: '200 Level' },
-                          '300 Level': { icon: '3️⃣', border: 'border-orange-200', headerBg: 'bg-orange-50', headerHover: 'hover:bg-orange-100', label: '300 Level' },
-                          '400 Level': { icon: '4️⃣', border: 'border-red-200', headerBg: 'bg-red-50', headerHover: 'hover:bg-red-100', label: '400 Level' },
-                          '500 Level': { icon: '5️⃣', border: 'border-green-200', headerBg: 'bg-green-50', headerHover: 'hover:bg-green-100', label: '500 Level' }
+                          ND1: { icon: '1️⃣', border: 'border-blue-200', headerBg: 'bg-blue-50', headerHover: 'hover:bg-blue-100', label: 'ND1' },
+                          ND2: { icon: '2️⃣', border: 'border-purple-200', headerBg: 'bg-purple-50', headerHover: 'hover:bg-purple-100', label: 'ND2' },
+                          HND1: { icon: '1️⃣', border: 'border-orange-200', headerBg: 'bg-orange-50', headerHover: 'hover:bg-orange-100', label: 'HND1' },
+                          HND2: { icon: '2️⃣', border: 'border-red-200', headerBg: 'bg-red-50', headerHover: 'hover:bg-red-100', label: 'HND2' }
                         }
                         const config = levelConfig[level] || { icon: '📚', border: 'border-gray-200', headerBg: 'bg-gray-50', headerHover: 'hover:bg-gray-100', label: level }
 

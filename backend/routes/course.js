@@ -49,7 +49,8 @@ router.get("/", protect, async (req, res) => {
     const normalizedYear = normalizeAcademicLevel(user.yearOfStudy);
     const courses = await Course.find({
       department: user.department._id,
-      level: normalizedYear
+      level: normalizedYear,
+      ...(user.semester ? { semester: user.semester } : {})
     }).populate('department');
 
     res.json({
@@ -100,8 +101,9 @@ router.get("/:id", protect, async (req, res) => {
     }
 
     // Check if student's department and year match the course
-    if (user.department._id.toString() !== course.department._id.toString() || 
-        user.yearOfStudy !== course.level) {
+    if (user.department._id.toString() !== course.department._id.toString() ||
+      user.yearOfStudy !== course.level ||
+      (user.semester && user.semester !== course.semester)) {
       return res.status(403).json({
         success: false,
         message: 'You do not have access to this course. It is only available to students in the ' + 

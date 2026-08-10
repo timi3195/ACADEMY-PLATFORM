@@ -53,7 +53,7 @@ export default function Courses() {
     return matchesSearch && matchesLevel
   })
 
-  const levelOptions = ['all', '100 Level', '200 Level', '300 Level', '400 Level', '500 Level']
+  const levelOptions = ['all', 'ND1', 'ND2', 'HND1', 'HND2']
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">

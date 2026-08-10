@@ -107,7 +107,12 @@ const userSchema = new mongoose.Schema({
   },
   yearOfStudy: {
     type: String,
-    enum: ["100 Level", "200 Level", "300 Level", "400 Level", "500 Level"],
+    enum: ["ND1", "ND2", "HND1", "HND2"],
+    default: null
+  },
+  semester: {
+    type: String,
+    enum: ["First", "Second"],
     default: null
   },
 

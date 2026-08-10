@@ -15,10 +15,10 @@ const emptyForm = {
   price: '0',
   discount: '0',
   visibility: 'public',
-  level: '100 Level',
+  level: 'ND1',
   semester: 'First Semester',
-  materialType: 'Lecture Note',
-  category: 'Lecture Note',
+  materialType: 'Textbook',
+  category: 'Book',
   previewPages: '5',
   pageCount: '0',
   tags: '',
@@ -38,10 +38,10 @@ const emptyForm = {
 const stepLabels = ['Academic Information', 'Material Details', 'Files & Media', 'Pricing', 'Preview & Publish'];
 const facultyOptions = ['Engineering', 'Science', 'Technology', 'Environmental', 'Management Sciences', 'Education', 'Arts', 'Social Sciences'];
 const departmentOptions = ['Computer Science', 'Electrical Engineering', 'Civil Engineering', 'Business Administration', 'Accounting', 'Mass Communication', 'Mathematics', 'Physics', 'Chemistry', 'Statistics'];
-const levelOptions = ['100 Level', '200 Level', '300 Level', '400 Level', '500 Level', 'PGD', 'Masters', 'PhD'];
+const levelOptions = ['ND1', 'ND2', 'HND1', 'HND2'];
 const semesterOptions = ['First Semester', 'Second Semester', 'Rain Semester', 'Harmattan Semester'];
 const sessionOptions = ['2024/2025', '2025/2026', '2026/2027'];
-const materialTypes = ['Lecture Note', 'Textbook', 'Past Question', 'Lab Manual', 'Assignment', 'Project Guide', 'Research Paper', 'Presentation Slides', 'Practical'];
+const materialTypes = ['Book', 'Textbook'];
 
 const validateForm = (form, file) => {
   const errors = [];
@@ -80,7 +80,7 @@ const MaterialFormModal = React.memo(function MaterialFormModal({ isOpen, onClos
       discount: initialValues.discount ?? '0',
       previewPages: initialValues.previewPages ?? '5',
       visibility: initialValues.visibility || 'public',
-      level: initialValues.level || '100 Level',
+      level: initialValues.level || 'ND1',
       semester: initialValues.semester || 'First Semester',
       status: initialValues.status || 'draft'
     };

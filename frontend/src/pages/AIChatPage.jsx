@@ -1,36 +1,23 @@
 import React, { useState, useEffect } from "react";
-import axios from "axios";
 import ChatInterface from "../components/AI/ChatInterface/ChatInterface";
-import PremiumGate from "../components/PremiumGate";
+import { useAuth } from "../utils/auth";
+import { apiGet } from "../utils/api";
 import "./AIChatPage.css";
 
 const AIChatPage = () => {
   const [courses, setCourses] = useState([]);
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState(null);
-
-  const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+  const { user } = useAuth();
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const token = localStorage.getItem("token");
-        
-        // Get user data
-        const userRes = await axios.get(`${API_BASE}/users/profile`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        setUser(userRes.data.user);
+        const coursesRes = await apiGet('/api/courses');
+        setCourses(coursesRes.courses || []);
 
-        // Get courses
-        const coursesRes = await axios.get(`${API_BASE}/courses`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        setCourses(coursesRes.data.courses || []);
-
-        if (coursesRes.data.courses?.length > 0) {
-          setSelectedCourse(coursesRes.data.courses[0]);
+        if (coursesRes.courses?.length > 0) {
+          setSelectedCourse(coursesRes.courses[0]);
         }
       } catch (error) {
         console.error("Error fetching data:", error);
@@ -41,10 +28,6 @@ const AIChatPage = () => {
 
     fetchData();
   }, []);
-
-  if (!user?.subscriptionType || user.subscriptionType === "free") {
-    return <PremiumGate feature="AI Study Assistant" />;
-  }
 
   if (loading) {
     return (

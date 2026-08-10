@@ -51,13 +51,13 @@ const clearAuthCookies = (res) => {
  */
 router.post("/register", async (req, res) => {
   try {
-    const { name, email, password, confirmPassword, department, yearOfStudy } = req.body;
+    const { name, email, password, confirmPassword, department, yearOfStudy, semester } = req.body;
 
     // Validation
-    if (!name || !email || !password || !department || !yearOfStudy) {
+    if (!name || !email || !password || !department || !yearOfStudy || !semester) {
       return res.status(400).json({
         success: false,
-        message: "Please provide name, email, password, department, and year of study"
+        message: "Please provide name, email, password, department, academic level, and semester"
       });
     }
 
@@ -84,6 +84,9 @@ router.post("/register", async (req, res) => {
         success: false,
         message: "Invalid year of study"
       });
+    }
+    if (!["First", "Second"].includes(semester)) {
+      return res.status(400).json({ success: false, message: "Invalid semester" });
     }
     // Replace incoming value with normalized for saving
     req.body.yearOfStudy = normalizedYear;
@@ -112,7 +115,8 @@ router.post("/register", async (req, res) => {
       password,
       authProvider: "email",
       department: departmentRecord._id,
-      yearOfStudy
+      yearOfStudy: normalizedYear,
+      semester
     });
 
     // In development, auto-verify email for testing
@@ -257,7 +261,8 @@ router.post("/login", rateLimitLogin, async (req, res) => {
         subscriptionType: user.subscriptionType,
         subscriptionExpiresAt: user.subscriptionExpiresAt,
         department: user.department,
-        yearOfStudy: user.yearOfStudy
+        yearOfStudy: user.yearOfStudy,
+        semester: user.semester
       }
     });
 
@@ -554,7 +559,8 @@ router.post("/refresh", async (req, res) => {
         subscriptionType: user.subscriptionType,
         subscriptionExpiresAt: user.subscriptionExpiresAt,
         department: user.department,
-        yearOfStudy: user.yearOfStudy
+        yearOfStudy: user.yearOfStudy,
+        semester: user.semester
       }
     });
 
