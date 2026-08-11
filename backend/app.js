@@ -5,6 +5,14 @@ const cookieParser = require("cookie-parser");
 const path = require("path");
 const session = require("express-session");
 require("dotenv").config({ path: path.resolve(__dirname, '.env') });
+
+process.on('warning', (warning) => {
+  if (warning.name === 'DeprecationWarning' && /url\.parse\(\)/i.test(warning.message)) {
+    return;
+  }
+  console.warn(warning.stack || warning);
+});
+
 const passport = require("./config/middleware/passport");
 const app = express();
 const questionRoutes = require("./routes/question");
