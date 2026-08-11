@@ -14,6 +14,7 @@ process.on('warning', (warning) => {
 });
 
 const passport = require("./config/middleware/passport");
+const { logger } = require("./utils/logger");
 const app = express();
 const questionRoutes = require("./routes/question");
 const protect = require("./config/middleware/authMiddleware");
@@ -60,6 +61,8 @@ app.use(
 app.use(passport.initialize());
 app.use(passport.session());
 app.use(express.json({ limit: '10mb' }));
+
+app.use(logger.requestLogger);
 
 // Middleware to serve PDFs inline instead of forcing download
 app.use((req, res, next) => {
