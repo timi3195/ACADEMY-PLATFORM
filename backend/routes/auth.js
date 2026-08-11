@@ -738,9 +738,13 @@ router.post("/change-password", protect, async (req, res) => {
  */
 router.get(
   "/google",
-  passport.authenticate("google", {
-    scope: ["profile", "email"]
-  })
+  (req, res, next) => {
+    const callbackURL = passport.buildCallbackUrl(req);
+    passport.authenticate("google", {
+      scope: ["profile", "email"],
+      callbackURL
+    })(req, res, next);
+  }
 );
 
 /**
@@ -750,9 +754,11 @@ router.get(
 router.get(
   "/google/callback",
   (req, res, next) => {
+    const callbackURL = passport.buildCallbackUrl(req);
     passport.authenticate("google", {
       session: false,
-      failureRedirect: process.env.FRONTEND_URL + "/login?error=auth_failed"
+      callbackURL,
+      failureRedirect: (process.env.FRONTEND_URL || 'http://localhost:5173') + "/login?error=auth_failed"
     })(req, res, next);
   },
   async (req, res) => {
