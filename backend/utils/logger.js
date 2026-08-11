@@ -18,7 +18,7 @@ function isSensitiveKey(key) {
   return SENSITIVE_KEYS.has(normalized) || normalized.includes('password') || normalized.includes('token') || normalized.includes('secret') || normalized.includes('cookie') || normalized.includes('authorization');
 }
 
-function sanitizeForLog(value, parentKey = '') {
+function sanitizeForLog(value, parentKey = '', seen = new WeakSet()) {
   if (value === null || value === undefined) {
     return value;
   }
@@ -34,13 +34,12 @@ function sanitizeForLog(value, parentKey = '') {
     return value;
   }
 
-  if (Array.isArray(value)) {
-    return value.map((item) => sanitizeForLog(item, parentKey));
-  }
-
-  const seen = new WeakSet();
   if (seen.has(value)) return '[Circular]';
   seen.add(value);
+
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeForLog(item, parentKey, seen));
+  }
 
   const sanitized = {};
   for (const [key, nestedValue] of Object.entries(value)) {
@@ -50,7 +49,7 @@ function sanitizeForLog(value, parentKey = '') {
       continue;
     }
 
-    sanitized[key] = sanitizeForLog(nestedValue, nextKey);
+    sanitized[key] = sanitizeForLog(nestedValue, nextKey, seen);
   }
 
   return sanitized;
