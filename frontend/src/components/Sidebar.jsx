@@ -1,47 +1,69 @@
 import React, { useState } from 'react';
-import { NavLink } from 'react-router-dom';
-
-const links = [
-  { to: '/', label: 'Dashboard' },
-  { to: '/courses', label: 'Courses' },
-  { to: '/marketplace', label: 'Marketplace' },
-  { to: '/library', label: 'Library' },
-  { to: '/notes', label: 'Notes' },
-  { to: '/past-questions', label: 'Past Questions' },
-  { to: '/ai', label: 'AI Study' },
-  { to: '/analytics', label: 'Analytics' },
-  { to: '/lecturer', label: 'Lecturer' }
-];
+import { NavLink, useNavigate } from 'react-router-dom';
+import { useAuth } from '../utils/auth';
 
 export default function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const links = [
+    { to: '/', label: 'Dashboard', icon: '◫' },
+    { to: '/courses', label: 'Courses', icon: '◔' },
+    { to: '/marketplace', label: 'Marketplace', icon: '✦' },
+    { to: '/library', label: 'Library', icon: '⌂' },
+    { to: '/notes', label: 'Notes', icon: '✎' },
+    { to: '/past-questions', label: 'Past Questions', icon: '✓' },
+    { to: '/ai', label: 'AI Study', icon: '◎' },
+    { to: '/analytics', label: 'Analytics', icon: '◭' },
+  ];
+
+  if (user?.role === 'lecturer' || user?.role === 'admin') {
+    links.splice(8, 0, { to: '/lecturer', label: 'Lecturer', icon: '▣' });
+  }
+
+  if (user?.role === 'admin') {
+    links.push({ to: '/admin', label: 'Admin', icon: '⚑' });
+  }
 
   return (
-    <aside className={`sidebar ${mobileOpen ? 'is-open' : ''}`}>
-      <div className="sidebar-header">
-        <h3>Explore</h3>
-        <button
-          type="button"
-          className="sidebar-toggle"
-          aria-label="Toggle sidebar"
-          aria-expanded={mobileOpen}
-          onClick={() => setMobileOpen((open) => !open)}
-        >
-          ☰
-        </button>
+    <aside className={`sidebar-panel ${mobileOpen ? 'is-open' : ''}`}>
+      <div className="brand-block">
+        <div className="brand-mark">
+          <span className="brand-dot" />
+          <span className="brand-edu">AcademicHub</span>
+        </div>
       </div>
-      <nav className="sidebar-nav">
+
+      <nav className="sidebar-menu" aria-label="Primary navigation">
         {links.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
             onClick={() => setMobileOpen(false)}
-            style={({ isActive }) => ({ padding: '8px 10px', borderRadius: '8px', color: isActive ? '#2563eb' : '#334155', textDecoration: 'none', fontWeight: isActive ? 700 : 500 })}
+            className={({ isActive }) => `side-link ${isActive ? 'active' : ''}`}
           >
-            {item.label}
+            <span aria-hidden="true" className="side-icon">{item.icon}</span>
+            <span>{item.label}</span>
           </NavLink>
         ))}
       </nav>
+
+      <button
+        type="button"
+        className="sidebar-logout"
+        onClick={async () => {
+          try {
+            await logout();
+          } catch (error) {
+            console.error('Logout failed:', error);
+          }
+          navigate('/login');
+        }}
+      >
+        <span aria-hidden="true">⇠</span>
+        <span>Log out</span>
+      </button>
     </aside>
   );
 }

@@ -1,76 +1,32 @@
-import React, { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { useAuth } from '../utils/auth'
-import { useLibrary } from '../context/LibraryContext'
-import { loadWishlistEntries } from '../utils/libraryState'
+import React from 'react';
+import { Link } from 'react-router-dom';
+import { useAuth } from '../utils/auth';
 
 export default function Navbar() {
-  const { user, logout } = useAuth()
-  const { items: libraryItems } = useLibrary()
-  const navigate = useNavigate()
-  const [wishlistCount, setWishlistCount] = useState(0)
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-
-  const handleLogout = () => {
-    setMobileMenuOpen(false)
-    logout()
-    navigate('/login')
-  }
-
-  useEffect(() => {
-    const syncWishlist = () => setWishlistCount(loadWishlistEntries().length)
-    const syncAuthState = () => setMobileMenuOpen(false)
-
-    syncWishlist()
-    window.addEventListener('storage', syncWishlist)
-    window.addEventListener('auth:updated', syncAuthState)
-    return () => {
-      window.removeEventListener('storage', syncWishlist)
-      window.removeEventListener('auth:updated', syncAuthState)
-    }
-  }, [])
-
-  const closeMenu = () => setMobileMenuOpen(false)
+  const { user } = useAuth();
+  const initials = (user?.name || user?.email || 'Student')
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || '')
+    .join('') || 'S';
 
   return (
-    <nav className="navbar">
-      <div className="navbar-left">
-        <Link to="/" className="brand" onClick={closeMenu}>Academy</Link>
+    <header className="topbar">
+      <div className="topbar-search">
+        <span className="search-icon" aria-hidden="true">⌕</span>
+        <input aria-label="Search" type="text" placeholder="Search courses, materials or notes" />
       </div>
 
-      {user && (
-        <button
-          type="button"
-          className="navbar-toggle"
-          aria-label="Toggle navigation menu"
-          aria-expanded={mobileMenuOpen}
-          onClick={() => setMobileMenuOpen(prev => !prev)}
-        >
-          ☰ Menu
+      <div className="topbar-actions">
+        <button type="button" className="icon-button" aria-label="Notifications">
+          ⎈
         </button>
-      )}
-
-      <div className={`navbar-right ${mobileMenuOpen ? 'is-open' : ''}`}>
-        {user ? (
-          <>
-            <span className="user-pill">Hi, {user.name || user.email}</span>
-            <span className="nav-pill">{user.role === 'admin' ? 'Admin' : 'Student'}</span>
-            <Link to="/courses" onClick={closeMenu}>Courses</Link>
-            <Link to="/marketplace" onClick={closeMenu}>Marketplace</Link>
-            <Link to="/library" onClick={closeMenu}>Library ({libraryItems?.length || 0})</Link>
-            <Link to="/library" onClick={closeMenu}>♡ {wishlistCount}</Link>
-            <Link to="/notes" onClick={closeMenu}>Notes</Link>
-            <Link to="/past-questions" onClick={closeMenu}>Past Questions</Link>
-            <Link to="/ai-chat" onClick={closeMenu}>🤖 AI Assistant</Link>
-            <Link to="/analytics" onClick={closeMenu}>📊 Analytics</Link>
-            {user.role === 'admin' && <Link to="/admin" onClick={closeMenu}>Admin</Link>}
-            {user.subscriptionType !== 'premium' && user.plan !== 'premium' && <Link to="/upgrade" onClick={closeMenu}>Upgrade</Link>}
-            <button type="button" onClick={handleLogout}>Logout</button>
-          </>
-        ) : (
-          <Link to="/login" onClick={closeMenu}>Login</Link>
-        )}
+        <Link to="/" className="user-chip" aria-label="Profile">
+          <span className="user-avatar">{initials}</span>
+          <span>{user?.name || user?.email || 'Student'}</span>
+        </Link>
       </div>
-    </nav>
-  )
+    </header>
+  );
 }

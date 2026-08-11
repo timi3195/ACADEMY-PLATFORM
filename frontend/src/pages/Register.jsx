@@ -2,142 +2,103 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { apiGet, apiPost } from '../utils/api';
 
+const initialForm = {
+  name: '',
+  email: '',
+  password: '',
+  confirmPassword: '',
+  department: '',
+  yearOfStudy: '',
+  semester: 'First'
+};
+
+const getErrorMessage = (error, fallback) => error?.body?.message || error?.message || fallback;
+
 const Register = () => {
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    password: '',
-    confirmPassword: '',
-    department: '',
-    yearOfStudy: '',
-    semester: 'First'
-  });
+  const [formData, setFormData] = useState(initialForm);
   const [departments, setDepartments] = useState([]);
   const [departmentsLoading, setDepartmentsLoading] = useState(true);
   const [departmentsError, setDepartmentsError] = useState('');
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const navigate = useNavigate();
   const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:5000';
 
   useEffect(() => {
-    fetchDepartments()
-  }, [])
+    fetchDepartments();
+  }, []);
 
   const fetchDepartments = async () => {
     try {
-      setDepartmentsLoading(true)
-      setDepartmentsError('')
-      
-      const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:5000'
-      console.log('📚 Fetching departments from:', apiBase)
-      
-      // First, test if backend is reachable
-      try {
-        const healthRes = await fetch(`${apiBase}/health`)
-        if (!healthRes.ok) {
-          console.warn('⚠️ Backend health check failed:', healthRes.status)
-        } else {
-          console.log('✅ Backend is reachable')
-        }
-      } catch (healthErr) {
-        console.error('❌ Backend unreachable:', healthErr.message)
-      }
-      
-      const res = await apiGet('/api/departments')
-      console.log('✅ Departments response:', res)
-      
-      if (res.success && res.departments) {
-        if (Array.isArray(res.departments)) {
-          setDepartments(res.departments)
-          console.log(`✅ Loaded ${res.departments.length} departments`)
-          if (res.departments.length === 0) {
-            setDepartmentsError('No departments available. Please contact the administrator to set up departments.')
-          }
-        } else {
-          throw new Error('Departments response is not an array')
+      setDepartmentsLoading(true);
+      setDepartmentsError('');
+
+      const response = await apiGet('/api/departments');
+
+      if (response && Array.isArray(response.departments)) {
+        setDepartments(response.departments);
+        if (response.departments.length === 0) {
+          setDepartmentsError('No departments are available yet. Please contact your administrator.');
         }
       } else {
-        const errorMsg = res.message || 'Failed to fetch departments'
-        console.error('❌ Error in response:', errorMsg)
-        setDepartmentsError(errorMsg)
+        throw new Error(response?.message || 'Unable to load departments');
       }
     } catch (error) {
-      console.error('❌ Departments fetch error:', error)
-      console.error('Error details:', {
-        message: error.message,
-        status: error.status,
-        body: error.body,
-        network: error.network
-      })
-      
-      const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:5000'
-      let errorMessage = 'Unable to load departments. '
-      
-      if (error.network || error.status === 0) {
-        errorMessage = `Cannot connect to backend at ${apiBase}. Backend may be down or unreachable.`
-      } else if (error.status === 404) {
-        errorMessage += 'Departments endpoint not found.'
-      } else if (error.status === 500) {
-        errorMessage += 'Server error - check backend logs.'
-      } else if (error.status === 403 || error.message?.includes('CORS')) {
-        errorMessage += 'CORS error - backend needs to allow this origin.'
-      } else {
-        errorMessage += 'Please check your connection and refresh.'
-      }
-      
-      setDepartmentsError(errorMessage)
+      setDepartmentsError(getErrorMessage(error, 'Unable to load departments right now.'));
     } finally {
-      setDepartmentsLoading(false)
+      setDepartmentsLoading(false);
     }
-  }
+  };
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+  const handleChange = (event) => {
+    const { name, value } = event.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
     if (errors[name]) {
-      setErrors(prev => ({ ...prev, [name]: '' }));
+      setErrors((prev) => ({ ...prev, [name]: '' }));
     }
   };
 
   const validateForm = () => {
-    const newErrors = {};
-    if (!formData.name.trim()) newErrors.name = 'Name is required';
-    if (!formData.email.trim()) newErrors.email = 'Email is required';
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) newErrors.email = 'Invalid email format';
-    if (!formData.department) newErrors.department = 'Department is required';
-    if (!formData.yearOfStudy) newErrors.yearOfStudy = 'Academic level is required';
-    if (!formData.semester) newErrors.semester = 'Semester is required';
-    if (!formData.password) newErrors.password = 'Password is required';
-    else if (formData.password.length < 8) newErrors.password = 'Password must be at least 8 characters';
-    if (formData.password !== formData.confirmPassword) newErrors.confirmPassword = 'Passwords do not match';
-    return newErrors;
+    const nextErrors = {};
+
+    if (!formData.name.trim()) nextErrors.name = 'Your full name is required.';
+    if (!formData.email.trim()) nextErrors.email = 'Email is required.';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) nextErrors.email = 'Enter a valid email address.';
+    if (!formData.department) nextErrors.department = 'Please select your department.';
+    if (!formData.yearOfStudy) nextErrors.yearOfStudy = 'Please select your academic level.';
+    if (!formData.semester) nextErrors.semester = 'Please select your semester.';
+    if (!formData.password) nextErrors.password = 'Create a password.';
+    else if (formData.password.length < 8) nextErrors.password = 'Password must be at least 8 characters.';
+    if (!formData.confirmPassword) nextErrors.confirmPassword = 'Please confirm your password.';
+    else if (formData.password !== formData.confirmPassword) nextErrors.confirmPassword = 'Passwords do not match.';
+
+    return nextErrors;
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    const newErrors = validateForm();
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    const nextErrors = validateForm();
+
+    if (Object.keys(nextErrors).length > 0) {
+      setErrors(nextErrors);
       return;
     }
+
     setLoading(true);
-    const emailAddress = formData.email;
+    setErrors({});
+
     try {
       const response = await apiPost('/api/auth/register', formData);
-      if (response.success) {
+      if (response?.success) {
         setSuccess(true);
-        setFormData({ name: '', email: '', password: '', confirmPassword: '', department: '', yearOfStudy: '', semester: 'First' });
-        setTimeout(() => {
-          navigate('/verify-email', { state: { email: emailAddress } });
-        }, 2000);
+        setFormData(initialForm);
+        setTimeout(() => navigate('/verify-email', { state: { email: formData.email } }), 1500);
       }
     } catch (error) {
-      setErrors({ submit: error.body?.message || error.message || 'Registration failed. Please try again.' });
+      setErrors({ submit: getErrorMessage(error, 'Registration failed. Please try again.') });
     } finally {
       setLoading(false);
     }
@@ -148,265 +109,194 @@ const Register = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-600 via-blue-500 to-indigo-600 flex items-center justify-center py-6 px-3 sm:py-12 sm:px-4">
-      <div className="w-full max-w-lg">
-        {/* Logo/Header Section */}
-        <div className="text-center mb-8 sm:mb-12">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-white rounded-full shadow-lg mb-4">
-            <span className="text-3xl font-bold text-blue-600">✏️</span>
-          </div>
-          <h1 className="text-4xl sm:text-5xl font-bold text-white mb-3">Join Academy</h1>
-          <p className="text-blue-100 text-base sm:text-lg">Start your learning journey today</p>
+    <div className="auth-card auth-card--wide">
+      <div className="auth-card__header auth-card__header--stacked">
+        <div className="auth-brand" aria-label="AcademicHUB home">
+          <span className="auth-brand__mark">A</span>
+          <span className="auth-brand__text">AcademicHUB</span>
         </div>
-
-        {/* Main Registration Card */}
-        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
-          <div className="p-6 sm:p-10">
-            {/* Success Message */}
-            {success && (
-              <div className="mb-6 p-4 bg-green-50 border-l-4 border-green-500 rounded-lg">
-                <p className="text-green-700 font-medium text-sm flex items-center gap-2">
-                  <span>✓</span>
-                  Registration successful! Check your email to verify your account.
-                </p>
-              </div>
-            )}
-
-            {/* Error Message */}
-            {errors.submit && (
-              <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg">
-                <p className="text-red-700 font-medium text-sm flex items-center gap-2">
-                  <span>⚠️</span>
-                  {errors.submit}
-                </p>
-              </div>
-            )}
-
-            {/* Registration Form */}
-            <form onSubmit={handleSubmit} className="space-y-5">
-              {/* Full Name Field */}
-              <div>
-                <label htmlFor="name" className="block text-sm font-semibold text-gray-800 mb-2">
-                  Full Name
-                </label>
-                <input
-                  type="text"
-                  id="name"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleChange}
-                  placeholder="John Doe"
-                  disabled={loading}
-                  className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 transition-all disabled:bg-gray-100 ${
-                    errors.name ? 'border-red-500 focus:border-red-500 focus:ring-red-200' : 'border-gray-200 focus:border-blue-500 focus:ring-blue-200'
-                  }`}
-                />
-                {errors.name && <p className="text-red-600 text-sm mt-1 font-medium">⚠️ {errors.name}</p>}
-              </div>
-
-              {/* Email Field */}
-              <div>
-                <label htmlFor="email" className="block text-sm font-semibold text-gray-800 mb-2">
-                  Email Address
-                </label>
-                <input
-                  type="email"
-                  id="email"
-                  name="email"
-                  value={formData.email}
-                  onChange={handleChange}
-                  placeholder="you@example.com"
-                  disabled={loading}
-                  className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 transition-all disabled:bg-gray-100 ${
-                    errors.email ? 'border-red-500 focus:border-red-500 focus:ring-red-200' : 'border-gray-200 focus:border-blue-500 focus:ring-blue-200'
-                  }`}
-                />
-                {errors.email && <p className="text-red-600 text-sm mt-1 font-medium">⚠️ {errors.email}</p>}
-              </div>
-
-              {/* Department Field */}
-              <div>
-                <label htmlFor="department" className="block text-sm font-semibold text-gray-800 mb-2">
-                  Department
-                </label>
-                <select
-                  id="department"
-                  name="department"
-                  value={formData.department}
-                  onChange={handleChange}
-                  disabled={loading || departmentsLoading}
-                  className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 transition-all disabled:bg-gray-100 ${
-                    errors.department ? 'border-red-500 focus:border-red-500 focus:ring-red-200' : 'border-gray-200 focus:border-blue-500 focus:ring-blue-200'
-                  }`}
-                >
-                  <option value="">
-                    {departmentsLoading ? 'Loading departments...' : 'Select department'}
-                  </option>
-                  {departments.map(dept => (
-                    <option key={dept._id} value={dept._id}>
-                      {dept.name} {dept.code ? `(${dept.code})` : ''}
-                    </option>
-                  ))}
-                </select>
-                {errors.department && <p className="text-red-600 text-sm mt-1 font-medium">⚠️ {errors.department}</p>}
-                {departmentsError && <p className="text-red-600 text-sm mt-1">{departmentsError}</p>}
-              </div>
-
-              {/* Year of Study Field */}
-              <div>
-                <label htmlFor="yearOfStudy" className="block text-sm font-semibold text-gray-800 mb-2">
-                  Academic Level
-                </label>
-                <select
-                  id="yearOfStudy"
-                  name="yearOfStudy"
-                  value={formData.yearOfStudy}
-                  onChange={handleChange}
-                  disabled={loading}
-                  className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 transition-all disabled:bg-gray-100 ${
-                    errors.yearOfStudy ? 'border-red-500 focus:border-red-500 focus:ring-red-200' : 'border-gray-200 focus:border-blue-500 focus:ring-blue-200'
-                  }`}
-                >
-                  <option value="">Select academic level</option>
-                  <option value="ND1">ND1</option>
-                  <option value="ND2">ND2</option>
-                  <option value="HND1">HND1</option>
-                  <option value="HND2">HND2</option>
-                </select>
-                {errors.yearOfStudy && <p className="text-red-600 text-sm mt-1 font-medium">⚠️ {errors.yearOfStudy}</p>}
-              </div>
-
-              <div>
-                <label htmlFor="semester" className="block text-sm font-semibold text-gray-800 mb-2">Semester</label>
-                <select id="semester" name="semester" value={formData.semester} onChange={handleChange} disabled={loading} className="w-full px-4 py-3 border-2 rounded-lg">
-                  <option value="First">First Semester</option>
-                  <option value="Second">Second Semester</option>
-                </select>
-                {errors.semester && <p className="text-red-600 text-sm mt-1 font-medium">{errors.semester}</p>}
-              </div>
-
-              {/* Password Field */}
-              <div>
-                <label htmlFor="password" className="block text-sm font-semibold text-gray-800 mb-2">
-                  Password
-                </label>
-                <input
-                  type="password"
-                  id="password"
-                  name="password"
-                  value={formData.password}
-                  onChange={handleChange}
-                  placeholder="••••••••"
-                  disabled={loading}
-                  className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 transition-all disabled:bg-gray-100 ${
-                    errors.password ? 'border-red-500 focus:border-red-500 focus:ring-red-200' : 'border-gray-200 focus:border-blue-500 focus:ring-blue-200'
-                  }`}
-                />
-                {errors.password && <p className="text-red-600 text-sm mt-1 font-medium">⚠️ {errors.password}</p>}
-                <p className="text-gray-600 text-xs mt-2">• At least 8 characters • Mix of letters & numbers</p>
-              </div>
-
-              {/* Confirm Password Field */}
-              <div>
-                <label htmlFor="confirmPassword" className="block text-sm font-semibold text-gray-800 mb-2">
-                  Confirm Password
-                </label>
-                <input
-                  type="password"
-                  id="confirmPassword"
-                  name="confirmPassword"
-                  value={formData.confirmPassword}
-                  onChange={handleChange}
-                  placeholder="••••••••"
-                  disabled={loading}
-                  className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 transition-all disabled:bg-gray-100 ${
-                    errors.confirmPassword ? 'border-red-500 focus:border-red-500 focus:ring-red-200' : 'border-gray-200 focus:border-blue-500 focus:ring-blue-200'
-                  }`}
-                />
-                {errors.confirmPassword && <p className="text-red-600 text-sm mt-1 font-medium">⚠️ {errors.confirmPassword}</p>}
-              </div>
-
-              {/* Create Account Button */}
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:from-gray-400 disabled:to-gray-500 text-white font-bold rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl disabled:shadow-none mt-6"
-              >
-                {loading ? (
-                  <>
-                    <span className="animate-spin">⏳</span>
-                    Creating account...
-                  </>
-                ) : (
-                  <>
-                    <span>🚀</span>
-                    Create My Account
-                  </>
-                )}
-              </button>
-            </form>
-
-            {/* Divider */}
-            <div className="relative my-8">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t-2 border-gray-200"></div>
-              </div>
-              <div className="relative flex justify-center">
-                <span className="px-3 bg-white text-gray-500 font-medium text-sm">Or</span>
-              </div>
-            </div>
-
-            {/* Google OAuth Button */}
-            <button
-              onClick={handleGoogleLogin}
-              type="button"
-              className="w-full py-3 px-4 border-2 border-gray-200 rounded-lg text-gray-700 font-semibold hover:bg-gray-50 hover:border-gray-300 transition-all duration-200 flex items-center justify-center gap-3 shadow-sm hover:shadow-md"
-            >
-              <svg className="w-6 h-6" viewBox="0 0 24 24">
-                <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-                <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
-              </svg>
-              Sign up with Google
-            </button>
-
-            {/* Login Link */}
-            <div className="mt-8 text-center">
-              <p className="text-gray-700 font-medium">
-                Already have an account?{' '}
-                <Link to="/login" className="text-blue-600 hover:text-blue-700 font-bold transition-colors">
-                  Sign in here →
-                </Link>
-              </p>
-            </div>
-          </div>
-
-          {/* Features Section - Integrated in Card */}
-          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 px-6 py-8 sm:px-10 border-t-2 border-gray-100">
-            <p className="text-center text-gray-600 font-semibold text-sm mb-5">What you'll get:</p>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <div className="text-center">
-                <div className="text-3xl mb-2">📚</div>
-                <p className="text-xs text-gray-600 font-medium">Quality<br/>Content</p>
-              </div>
-              <div className="text-center">
-                <div className="text-3xl mb-2">🎯</div>
-                <p className="text-xs text-gray-600 font-medium">Practice<br/>Exams</p>
-              </div>
-              <div className="text-center">
-                <div className="text-3xl mb-2">🚀</div>
-                <p className="text-xs text-gray-600 font-medium">Fast<br/>Learning</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Trust Badges */}
-        <div className="mt-8 text-center">
-          <p className="text-blue-100 text-xs font-semibold mb-2">✓ Secure Signup • ✓ Free Forever • ✓ No Credit Card</p>
+        <div>
+          <p className="auth-card__eyebrow">Start learning smarter</p>
+          <h1 className="auth-card__title">Create your account</h1>
         </div>
       </div>
+
+      {success && (
+        <div className="auth-notice auth-notice--success" role="status">
+          Registration successful. Please check your email to verify your account before logging in.
+        </div>
+      )}
+
+      {errors.submit && (
+        <div className="auth-notice auth-notice--error" role="alert">
+          {errors.submit}
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="auth-form" noValidate>
+        <div className="auth-field">
+          <label htmlFor="name">Full name</label>
+          <input
+            id="name"
+            name="name"
+            type="text"
+            value={formData.name}
+            onChange={handleChange}
+            placeholder="Jane Doe"
+            autoComplete="name"
+            disabled={loading}
+            className={errors.name ? 'error' : ''}
+          />
+          {errors.name && <span className="auth-field__error">{errors.name}</span>}
+        </div>
+
+        <div className="auth-field-row">
+          <div className="auth-field">
+            <label htmlFor="email">Email address</label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              value={formData.email}
+              onChange={handleChange}
+              placeholder="student@school.edu.ng"
+              autoComplete="email"
+              disabled={loading}
+              className={errors.email ? 'error' : ''}
+            />
+            {errors.email && <span className="auth-field__error">{errors.email}</span>}
+          </div>
+
+          <div className="auth-field">
+            <label htmlFor="department">Department</label>
+            <select
+              id="department"
+              name="department"
+              value={formData.department}
+              onChange={handleChange}
+              disabled={loading || departmentsLoading}
+              className={errors.department ? 'error' : ''}
+            >
+              <option value="">Select department</option>
+              {departments.map((department) => (
+                <option key={department._id} value={department._id}>
+                  {department.name}
+                </option>
+              ))}
+            </select>
+            {errors.department && <span className="auth-field__error">{errors.department}</span>}
+          </div>
+        </div>
+
+        <div className="auth-field-row">
+          <div className="auth-field">
+            <label htmlFor="yearOfStudy">Academic level</label>
+            <select
+              id="yearOfStudy"
+              name="yearOfStudy"
+              value={formData.yearOfStudy}
+              onChange={handleChange}
+              disabled={loading}
+              className={errors.yearOfStudy ? 'error' : ''}
+            >
+              <option value="">Select level</option>
+              <option value="ND1">ND1</option>
+              <option value="ND2">ND2</option>
+              <option value="HND1">HND1</option>
+              <option value="HND2">HND2</option>
+            </select>
+            {errors.yearOfStudy && <span className="auth-field__error">{errors.yearOfStudy}</span>}
+          </div>
+
+          <div className="auth-field">
+            <label htmlFor="semester">Semester</label>
+            <select
+              id="semester"
+              name="semester"
+              value={formData.semester}
+              onChange={handleChange}
+              disabled={loading}
+              className={errors.semester ? 'error' : ''}
+            >
+              <option value="First">First Semester</option>
+              <option value="Second">Second Semester</option>
+            </select>
+            {errors.semester && <span className="auth-field__error">{errors.semester}</span>}
+          </div>
+        </div>
+
+        <div className="auth-field-row">
+          <div className="auth-field auth-field--with-action">
+            <label htmlFor="password">Password</label>
+            <div className="auth-input-wrap">
+              <input
+                id="password"
+                name="password"
+                type={showPassword ? 'text' : 'password'}
+                value={formData.password}
+                onChange={handleChange}
+                placeholder="Create a strong password"
+                autoComplete="new-password"
+                disabled={loading}
+                className={errors.password ? 'error' : ''}
+              />
+              <button
+                type="button"
+                className="auth-toggle"
+                onClick={() => setShowPassword((value) => !value)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? 'Hide' : 'Show'}
+              </button>
+            </div>
+            {errors.password && <span className="auth-field__error">{errors.password}</span>}
+          </div>
+
+          <div className="auth-field auth-field--with-action">
+            <label htmlFor="confirmPassword">Confirm password</label>
+            <div className="auth-input-wrap">
+              <input
+                id="confirmPassword"
+                name="confirmPassword"
+                type={showConfirmPassword ? 'text' : 'password'}
+                value={formData.confirmPassword}
+                onChange={handleChange}
+                placeholder="Re-enter password"
+                autoComplete="new-password"
+                disabled={loading}
+                className={errors.confirmPassword ? 'error' : ''}
+              />
+              <button
+                type="button"
+                className="auth-toggle"
+                onClick={() => setShowConfirmPassword((value) => !value)}
+                aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+              >
+                {showConfirmPassword ? 'Hide' : 'Show'}
+              </button>
+            </div>
+            {errors.confirmPassword && <span className="auth-field__error">{errors.confirmPassword}</span>}
+          </div>
+        </div>
+
+        <div className="auth-helper-text">Use at least 8 characters with a mix of letters and numbers.</div>
+
+        {departmentsError && <div className="auth-notice auth-notice--error">{departmentsError}</div>}
+
+        <button type="submit" className="auth-button auth-button--primary" disabled={loading || departmentsLoading}>
+          {loading ? 'Creating account...' : 'Create account'}
+        </button>
+      </form>
+
+      <div className="auth-divider"><span>or</span></div>
+
+      <button type="button" className="auth-button auth-button--secondary" onClick={handleGoogleLogin}>
+        Continue with Google
+      </button>
+
+      <p className="auth-footer-text">
+        Already have an account? <Link to="/login">Sign in</Link>
+      </p>
     </div>
   );
 };

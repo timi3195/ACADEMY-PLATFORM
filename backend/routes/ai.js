@@ -143,7 +143,7 @@ router.post("/chat", protect, async (req, res) => {
     const aiResponse = await geminiService.chatWithStudent(
       messagesForAI,
       courseContext,
-      "gemini-2.0-flash"
+      req.user.id
     );
 
     // Add assistant message
@@ -165,11 +165,6 @@ router.post("/chat", protect, async (req, res) => {
     // Save conversation
     await conversation.save();
 
-    // Track user AI usage
-    await User.findByIdAndUpdate(req.user.id, {
-      $inc: { "aiUsage.messagesThisMonth": 1 }
-    });
-
     res.json({
       success: true,
       conversationId: conversation._id,
@@ -179,7 +174,7 @@ router.post("/chat", protect, async (req, res) => {
     });
   } catch (error) {
     console.error("Chat error:", error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -206,7 +201,7 @@ router.get("/chat/:courseId", protect, async (req, res) => {
       count: conversations.length
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -233,7 +228,7 @@ router.get("/chat/conversation/:conversationId", protect, async (req, res) => {
 
     res.json({ success: true, conversation });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -260,7 +255,7 @@ router.delete("/chat/:conversationId", protect, async (req, res) => {
 
     res.json({ success: true, message: "Conversation deleted" });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -304,7 +299,8 @@ router.post("/notes/upload", protect, requirePremium, upload.single("file"), asy
         requiresCodeExamples: false,
         requiresDiagrams: false,
         examFormat: "multiple-choice"
-      }
+      },
+      req.user.id
     );
 
     // Create StudentNote
@@ -336,7 +332,7 @@ router.post("/notes/upload", protect, requirePremium, upload.single("file"), asy
     });
   } catch (error) {
     console.error("Note upload error:", error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -363,7 +359,7 @@ router.get("/notes/:courseId", protect, async (req, res) => {
       count: notes.length
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -395,7 +391,7 @@ router.get("/notes/detail/:noteId", protect, async (req, res) => {
 
     res.json({ success: true, note });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -422,7 +418,7 @@ router.delete("/notes/:noteId", protect, async (req, res) => {
 
     res.json({ success: true, message: "Note deleted" });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -480,7 +476,8 @@ router.post("/explain-question", protect, async (req, res) => {
     const aiExplanation = await geminiService.explainQuestion(
       question,
       question.answer,
-      courseContext
+      courseContext,
+      req.user.id
     );
 
     // Cache the explanation
@@ -507,7 +504,7 @@ router.post("/explain-question", protect, async (req, res) => {
     });
   } catch (error) {
     console.error("Explanation error:", error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -539,7 +536,7 @@ router.get("/question/:questionId/explanation", protect, async (req, res) => {
 
     res.json({ success: true, explanation });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -574,7 +571,7 @@ router.post("/question/:questionId/feedback", protect, async (req, res) => {
 
     res.json({ success: true, message: "Feedback recorded", explanation });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -601,7 +598,7 @@ router.get("/usage/stats", protect, async (req, res) => {
       message: "Current session usage statistics"
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -619,7 +616,7 @@ router.get("/user/usage", protect, async (req, res) => {
       limits: user.subscriptionFeatures
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -665,10 +662,13 @@ router.post("/learning-path/generate", protect, requirePremium, async (req, res)
 
     // Generate learning path using Gemini
     const pathData = await geminiService.generateLearningPath(
-      performance,
-      course.title,
-      targetExamDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-      studyHoursPerDay || 2
+      {
+        courseName: course.title,
+        courseCode: course.code,
+        academicLevel: req.user.yearOfStudy,
+        sources: []
+      },
+      req.user.id
     );
 
     // Create LearningPath document
@@ -690,7 +690,7 @@ router.post("/learning-path/generate", protect, requirePremium, async (req, res)
     });
   } catch (error) {
     console.error("Learning path error:", error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -717,7 +717,7 @@ router.get("/learning-path/:courseId", protect, async (req, res) => {
 
     res.json({ success: true, path });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 

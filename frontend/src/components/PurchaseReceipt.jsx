@@ -21,7 +21,7 @@ export default function PurchaseReceipt({ receipt, onPrint, onDownload }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
         <div>
           <p style={{ margin: 0, color: '#2563eb', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em' }}>Purchase receipt</p>
-          <h3 style={{ margin: '4px 0' }}>Academy Platform</h3>
+          <h3 style={{ margin: '4px 0' }}>AcademicHub</h3>
           <p style={{ margin: 0, color: '#64748b' }}>Official digital purchase confirmation</p>
         </div>
         <div style={{ textAlign: 'right' }}>

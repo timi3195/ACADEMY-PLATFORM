@@ -142,6 +142,26 @@ const userSchema = new mongoose.Schema({
       type: Number,
       default: 0
     },
+    dailyRequests: {
+      type: Number,
+      default: 0
+    },
+    dailyRequestDate: {
+      type: String,
+      default: ""
+    },
+    monthlyRequests: {
+      type: Number,
+      default: 0
+    },
+    monthlyRequestMonth: {
+      type: String,
+      default: ""
+    },
+    lastRequestAt: {
+      type: Date,
+      default: null
+    },
     notesProcessedThisMonth: {
       type: Number,
       default: 0
