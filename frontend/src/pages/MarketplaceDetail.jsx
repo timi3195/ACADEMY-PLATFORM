@@ -15,6 +15,7 @@ import { useAuth } from '../utils/auth';
 import { useMarketplace } from '../context/MarketplaceContext';
 import { useLibrary } from '../context/LibraryContext';
 import { addRecentlyViewed, clearPendingPurchase, isWishlisted, loadPendingPurchase, loadLatestPurchase, saveLatestPurchase, savePendingPurchase, toggleWishlistEntry } from '../utils/libraryState';
+import { normalizeMaterialAccess } from '../utils/marketplaceAccess';
 
 const buildList = (value) => {
   if (!value) return [];
@@ -56,7 +57,7 @@ export default function MarketplaceDetail() {
         setAccessLoading(true);
         try {
           const accessResponse = await purchaseService.getMaterialAccess(id);
-          setAccess(accessResponse?.access ? { access: true, reason: accessResponse.reason } : { access: false, reason: accessResponse?.reason || 'No access yet' });
+          setAccess(normalizeMaterialAccess(accessResponse));
         } catch (accessErr) {
           setAccess({ access: false, reason: accessErr.message || 'Unable to verify access' });
         } finally {

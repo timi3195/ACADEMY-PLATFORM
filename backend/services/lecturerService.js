@@ -135,7 +135,7 @@ const createLecturerMaterial = async ({ user, body, file, coverImage }) => {
     coverImageUrl,
     coverImageFilename: coverImage?.filename || "",
     coverImageOriginalName: coverImage?.originalname || "",
-    fileUrl: `/api/marketplace/materials/${body.title || "material"}`,
+    fileUrl: `/api/files/view/${body.title ? 'placeholder' : 'placeholder'}`,
     storageFilename: file.filename,
     originalName: file.originalname,
     course: normalizedCourse,
@@ -174,7 +174,8 @@ const createLecturerMaterial = async ({ user, body, file, coverImage }) => {
     ratingAverage: 0,
     ratingCount: 0
   }).then(async (created) => {
-    created.fileUrl = `/api/marketplace/materials/${created._id}`;
+    created.fileUrl = `/api/files/view/${created._id}`;
+    created.downloadUrl = `/api/files/download/${created._id}`;
     await created.save();
     return created;
   });
@@ -236,7 +237,8 @@ const updateLecturerMaterial = async ({ user, materialId, body, file, coverImage
   if (file) {
     updates.storageFilename = file.filename;
     updates.originalName = file.originalname;
-    updates.fileUrl = `/api/marketplace/materials/${material._id}`;
+    updates.fileUrl = `/api/files/view/${material._id}`;
+    updates.downloadUrl = `/api/files/download/${material._id}`;
   }
 
   Object.assign(material, updates);

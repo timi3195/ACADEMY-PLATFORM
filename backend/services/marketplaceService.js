@@ -19,6 +19,20 @@ const normalizeTags = (tags) => {
 
 const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+const normalizeMaterialFileUrl = (material) => {
+  if (!material || !material._id) return material;
+
+  const fileId = String(material._id);
+  const viewUrl = `/api/files/view/${fileId}`;
+  const downloadUrl = `/api/files/download/${fileId}`;
+
+  return {
+    ...material,
+    fileUrl: material.fileUrl && material.fileUrl.startsWith('/api/marketplace/materials/') ? viewUrl : (material.fileUrl || viewUrl),
+    downloadUrl: material.downloadUrl && material.downloadUrl.startsWith('/api/marketplace/materials/') ? downloadUrl : (material.downloadUrl || downloadUrl)
+  };
+};
+
 const buildMaterialFilters = (query) => {
   const clauses = [
     {
@@ -133,7 +147,8 @@ const createMaterial = async ({ user, body, file }) => {
     isPremium: false
   });
 
-  created.fileUrl = `/api/marketplace/materials/${created._id}`;
+  created.fileUrl = `/api/files/view/${created._id}`;
+  created.downloadUrl = `/api/files/download/${created._id}`;
   await created.save();
   return created;
 };
@@ -167,10 +182,13 @@ const listMaterials = async (query) => {
     .lean();
 
   return {
-    materials: materials.map((material) => ({
-      ...material,
-      accessUrl: `/api/marketplace/materials/${material._id}`
-    })),
+    materials: materials.map((material) => {
+      const normalized = normalizeMaterialFileUrl(material);
+      return {
+        ...normalized,
+        accessUrl: `/api/marketplace/materials/${material._id}`
+      };
+    }),
     pagination: {
       page,
       limit,
@@ -194,20 +212,26 @@ const getMaterialById = async (id, user = null) => {
     return null;
   }
 
+  const normalizedMaterial = normalizeMaterialFileUrl(material);
+
+  if (!normalizedMaterial || normalizedMaterial.isDeleted) {
+    return null;
+  }
+
   const userId = user?.id || user?._id;
   const isOwner = Boolean(material.lecturer && userId && material.lecturer._id?.toString() === userId.toString());
   const isAdmin = Boolean(user && user.role === "admin");
 
   if (isOwner || isAdmin) {
-    return material;
+    return normalizedMaterial;
   }
 
-  if (material.hidden) {
+  if (normalizedMaterial.hidden) {
     return null;
   }
 
-  if ((material.productStatus === "published" || material.status === "approved") && ["public", "unlisted"].includes(material.visibility)) {
-    return material;
+  if ((normalizedMaterial.productStatus === "published" || normalizedMaterial.status === "approved") && ["public", "unlisted"].includes(normalizedMaterial.visibility)) {
+    return normalizedMaterial;
   }
 
   return null;
@@ -259,7 +283,8 @@ const updateMaterial = async ({ user, materialId, body, file }) => {
   if (file) {
     updates.storageFilename = file.filename;
     updates.originalName = file.originalname;
-    updates.fileUrl = `/api/marketplace/materials/${material._id}`;
+    updates.fileUrl = `/api/files/view/${material._id}`;
+    updates.downloadUrl = `/api/files/download/${material._id}`;
   }
 
   Object.assign(material, updates);
@@ -295,7 +320,7 @@ const getFeaturedMaterials = async (query) => {
     .limit(limit)
     .lean();
 
-  return materials;
+  return materials.map((material) => normalizeMaterialFileUrl(material));
 };
 
 const getNewMaterials = async (query) => {
@@ -306,7 +331,7 @@ const getNewMaterials = async (query) => {
     .limit(limit)
     .lean();
 
-  return materials;
+  return materials.map((material) => normalizeMaterialFileUrl(material));
 };
 
 const getCourseMaterials = async (courseId, query) => {
@@ -325,7 +350,7 @@ const getCourseMaterials = async (courseId, query) => {
     .limit(limit)
     .lean();
 
-  return materials;
+  return materials.map((material) => normalizeMaterialFileUrl(material));
 };
 
 const getDepartmentMaterials = async (departmentId, query) => {
@@ -344,7 +369,7 @@ const getDepartmentMaterials = async (departmentId, query) => {
     .limit(limit)
     .lean();
 
-  return materials;
+  return materials.map((material) => normalizeMaterialFileUrl(material));
 };
 
 const getLibrary = async (userId, query = {}) => {

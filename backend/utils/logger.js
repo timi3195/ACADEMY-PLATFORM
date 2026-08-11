@@ -18,7 +18,7 @@ function isSensitiveKey(key) {
   return SENSITIVE_KEYS.has(normalized) || normalized.includes('password') || normalized.includes('token') || normalized.includes('secret') || normalized.includes('cookie') || normalized.includes('authorization');
 }
 
-function sanitizeForLog(value, parentKey = '', seen = new WeakSet()) {
+function sanitizeForLog(value, parentKey = '', seen = new WeakSet(), depth = 0) {
   if (value === null || value === undefined) {
     return value;
   }
@@ -34,22 +34,31 @@ function sanitizeForLog(value, parentKey = '', seen = new WeakSet()) {
     return value;
   }
 
+  if (depth > 6) {
+    return '[Truncated]';
+  }
+
   if (seen.has(value)) return '[Circular]';
   seen.add(value);
 
   if (Array.isArray(value)) {
-    return value.map((item) => sanitizeForLog(item, parentKey, seen));
+    return value.map((item) => sanitizeForLog(item, parentKey, seen, depth + 1));
   }
 
   const sanitized = {};
   for (const [key, nestedValue] of Object.entries(value)) {
     const nextKey = String(key || '');
+
+    if (nextKey === '$__' || nextKey === '_doc' || nextKey === '$isNew' || nextKey === 'skipId' || nextKey === 'selected' || nextKey === 'exclude' || nextKey === 'wasPopulated' || nextKey === 'parent') {
+      continue;
+    }
+
     if (isSensitiveKey(nextKey)) {
       sanitized[key] = '********';
       continue;
     }
 
-    sanitized[key] = sanitizeForLog(nestedValue, nextKey, seen);
+    sanitized[key] = sanitizeForLog(nestedValue, nextKey, seen, depth + 1);
   }
 
   return sanitized;
