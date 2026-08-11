@@ -11,36 +11,42 @@ const router = express.Router();
 
 // ==================== UTILITY FUNCTIONS ====================
 
+const getCookieBaseOptions = (extra = {}) => ({
+  httpOnly: true,
+  path: "/",
+  sameSite: "lax",
+  secure: process.env.NODE_ENV === "production",
+  ...extra
+});
+
+const getRefreshTokenCookieOptions = () => getCookieBaseOptions({
+  maxAge: 30 * 24 * 60 * 60 * 1000
+});
+
+const getAccessTokenCookieOptions = () => getCookieBaseOptions({
+  maxAge: 15 * 60 * 1000
+});
+
 /**
  * Set secure HTTP-only cookie for refresh token
  */
 const setRefreshTokenCookie = (res, refreshToken) => {
-  res.cookie("refreshToken", refreshToken, {
-    httpOnly: true, // Prevents XSS attacks
-    secure: process.env.NODE_ENV === "production", // HTTPS only in production
-    sameSite: "strict", // CSRF protection
-    maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
-  });
+  res.cookie("refreshToken", refreshToken, getRefreshTokenCookieOptions());
 };
 
 /**
  * Set secure HTTP-only cookie for access token (optional, can also use Bearer)
  */
 const setAccessTokenCookie = (res, accessToken) => {
-  res.cookie("accessToken", accessToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
-    maxAge: 15 * 60 * 1000 // 15 minutes
-  });
+  res.cookie("accessToken", accessToken, getAccessTokenCookieOptions());
 };
 
 /**
  * Clear auth cookies
  */
 const clearAuthCookies = (res) => {
-  res.clearCookie("refreshToken");
-  res.clearCookie("accessToken");
+  res.clearCookie("refreshToken", { path: "/" });
+  res.clearCookie("accessToken", { path: "/" });
 };
 
 // ==================== PUBLIC ROUTES ====================
@@ -862,3 +868,4 @@ router.post("/test-email", protect, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.getRefreshTokenCookieOptions = getRefreshTokenCookieOptions;
