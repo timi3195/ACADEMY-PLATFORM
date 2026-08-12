@@ -2,7 +2,7 @@ const marketplaceService = require("../services/marketplaceService");
 
 exports.getLibrary = async (req, res) => {
   try {
-    const library = await marketplaceService.getLibrary(req.user.id, req.query);
+    const library = await marketplaceService.getLibrary(req.user.id, req.query, req);
     res.json({ success: true, library });
   } catch (error) {
     console.error("Library fetch error:", error);
@@ -12,7 +12,7 @@ exports.getLibrary = async (req, res) => {
 
 exports.getLibraryItem = async (req, res) => {
   try {
-    const item = await marketplaceService.getLibraryItem(req.user.id, req.params.id);
+    const item = await marketplaceService.getLibraryItem(req.user.id, req.params.id, req);
     if (!item) {
       return res.status(404).json({ success: false, message: "Library item not found" });
     }

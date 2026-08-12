@@ -137,7 +137,7 @@ exports.getLecturerMaterials = async (req, res) => {
 
 exports.getLibrary = async (req, res) => {
   try {
-    const library = await marketplaceService.getLibrary(req.user.id);
+    const library = await marketplaceService.getLibrary(req.user.id, {}, req);
     res.json({ success: true, library });
   } catch (error) {
     console.error("Marketplace get library error:", error);

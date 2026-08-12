@@ -19,17 +19,50 @@ const normalizeTags = (tags) => {
 
 const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-const normalizeMaterialFileUrl = (material) => {
+const getBaseApiUrl = (req = null) => {
+  if (req && req.protocol && req.get) {
+    const forwardedProto = req.get("x-forwarded-proto") || req.protocol;
+    const forwardedHost = req.get("x-forwarded-host") || req.get("host");
+    if (forwardedHost) {
+      return `${forwardedProto}://${forwardedHost}`;
+    }
+  }
+
+  return (process.env.BACKEND_URL || process.env.RENDER_EXTERNAL_URL || process.env.APP_URL || "http://localhost:5000").replace(/\/$/, "");
+};
+
+const toAbsoluteUrl = (value, req = null) => {
+  if (!value) {
+    return value;
+  }
+
+  if (/^https?:\/\//i.test(value)) {
+    return value;
+  }
+
+  if (value.startsWith("/")) {
+    return `${getBaseApiUrl(req)}${value}`;
+  }
+
+  return value;
+};
+
+const normalizeMaterialFileUrl = (material, req = null) => {
   if (!material || !material._id) return material;
 
   const fileId = String(material._id);
   const viewUrl = `/api/files/view/${fileId}`;
   const downloadUrl = `/api/files/download/${fileId}`;
 
+  const resolvedFileUrl = material.fileUrl && material.fileUrl.startsWith('/api/marketplace/materials/') ? viewUrl : (material.fileUrl || viewUrl);
+  const resolvedDownloadUrl = material.downloadUrl && material.downloadUrl.startsWith('/api/marketplace/materials/') ? downloadUrl : (material.downloadUrl || downloadUrl);
+
   return {
     ...material,
-    fileUrl: material.fileUrl && material.fileUrl.startsWith('/api/marketplace/materials/') ? viewUrl : (material.fileUrl || viewUrl),
-    downloadUrl: material.downloadUrl && material.downloadUrl.startsWith('/api/marketplace/materials/') ? downloadUrl : (material.downloadUrl || downloadUrl)
+    coverImageUrl: toAbsoluteUrl(material.coverImageUrl, req),
+    fileUrl: toAbsoluteUrl(resolvedFileUrl, req),
+    downloadUrl: toAbsoluteUrl(resolvedDownloadUrl, req),
+    accessUrl: toAbsoluteUrl(material.accessUrl || `/api/marketplace/materials/${fileId}`, req)
   };
 };
 
@@ -372,7 +405,7 @@ const getDepartmentMaterials = async (departmentId, query) => {
   return materials.map((material) => normalizeMaterialFileUrl(material));
 };
 
-const getLibrary = async (userId, query = {}) => {
+const getLibrary = async (userId, query = {}, req = null) => {
   const filters = {
     user: userId,
     plan: "material",
@@ -412,18 +445,25 @@ const getLibrary = async (userId, query = {}) => {
   const sorter = sortFns[sortBy] || sortFns.newest;
   transactions.sort(sorter);
 
-  return transactions.map((transaction) => ({
-    transactionId: transaction._id,
-    reference: transaction.reference,
-    status: transaction.status,
-    purchasedAt: transaction.paidAt,
-    amount: transaction.amount,
-    discount: transaction.discount || 0,
-    material: transaction.material
-  }));
+  return transactions.map((transaction) => {
+    const material = normalizeMaterialFileUrl(transaction.material, req);
+    return {
+      transactionId: transaction._id,
+      reference: transaction.reference,
+      status: transaction.status,
+      purchasedAt: transaction.paidAt,
+      amount: transaction.amount,
+      discount: transaction.discount || 0,
+      material: {
+        ...material,
+        allowDownload: true,
+        canDownload: true
+      }
+    };
+  });
 };
 
-const getLibraryItem = async (userId, materialId) => {
+const getLibraryItem = async (userId, materialId, req = null) => {
   if (!mongoose.Types.ObjectId.isValid(materialId)) {
     return null;
   }
@@ -444,6 +484,8 @@ const getLibraryItem = async (userId, materialId) => {
     return null;
   }
 
+  const material = normalizeMaterialFileUrl(transaction.material, req);
+
   return {
     transactionId: transaction._id,
     reference: transaction.reference,
@@ -451,7 +493,11 @@ const getLibraryItem = async (userId, materialId) => {
     purchasedAt: transaction.paidAt,
     amount: transaction.amount,
     discount: transaction.discount || 0,
-    material: transaction.material
+    material: {
+      ...material,
+      allowDownload: true,
+      canDownload: true
+    }
   };
 };
 
@@ -627,6 +673,7 @@ const verifyPurchase = async (materialId, reference, user) => {
 };
 
 module.exports = {
+  normalizeMaterialFileUrl,
   createMaterial,
   listMaterials,
   getMaterialById,
