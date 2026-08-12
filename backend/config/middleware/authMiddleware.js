@@ -20,10 +20,10 @@ const protect = (req, res, next) => {
     token = req.cookies.accessToken;
   }
 
-  if (!token) {
+  if (!token || token === "null" || token === "undefined") {
     return res.status(401).json({
       success: false,
-      message: "Not authorized. Please provide a token."
+      message: "Not authorized. Please provide a valid token."
     });
   }
 

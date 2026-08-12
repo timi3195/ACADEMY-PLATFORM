@@ -10,10 +10,22 @@ const apiClient = axios.create({
   }
 });
 
-export const getAccessToken = () => localStorage.getItem('accessToken');
+const sanitizeToken = (token) => {
+  if (typeof token !== 'string') return null;
+  const normalized = token.trim();
+  if (!normalized || normalized === 'null' || normalized === 'undefined') return null;
+  return normalized;
+};
+
+export const getAccessToken = () => {
+  const token = localStorage.getItem('accessToken');
+  return sanitizeToken(token);
+};
+
 export const setAccessToken = (token) => {
-  if (token) {
-    localStorage.setItem('accessToken', token);
+  const sanitized = sanitizeToken(token);
+  if (sanitized) {
+    localStorage.setItem('accessToken', sanitized);
   } else {
     localStorage.removeItem('accessToken');
   }

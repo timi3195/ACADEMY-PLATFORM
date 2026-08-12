@@ -1,5 +1,22 @@
 const jwt = require("jsonwebtoken");
 
+const normalizeToken = (value) => {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (trimmed === "null" || trimmed === "undefined" || trimmed.toLowerCase() === "null" || trimmed.toLowerCase() === "undefined") {
+    return null;
+  }
+
+  return trimmed;
+};
+
 /**
  * Generate JWT access token (short-lived)
  * @param {string} userId - User ID
@@ -123,10 +140,16 @@ const decodeToken = (token) => {
  * @returns {string|null} Token or null if not found
  */
 const extractTokenFromHeader = (authHeader) => {
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+  if (typeof authHeader !== "string") {
     return null;
   }
-  return authHeader.substring(7);
+
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match) {
+    return null;
+  }
+
+  return normalizeToken(match[1]);
 };
 
 /**

@@ -1,11 +1,20 @@
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:5000'
 
+function sanitizeToken(token) {
+  if (typeof token !== 'string') return null
+  const normalized = token.trim()
+  if (!normalized || normalized === 'null' || normalized === 'undefined') return null
+  return normalized
+}
+
 function getAccessToken() {
-  return localStorage.getItem('accessToken')
+  const token = localStorage.getItem('accessToken')
+  return sanitizeToken(token)
 }
 
 function setAccessToken(token) {
-  if (token) localStorage.setItem('accessToken', token)
+  const sanitized = sanitizeToken(token)
+  if (sanitized) localStorage.setItem('accessToken', sanitized)
   else localStorage.removeItem('accessToken')
 }
 

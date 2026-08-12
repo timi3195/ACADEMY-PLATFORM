@@ -26,10 +26,24 @@ const ChatInterface = ({ courseId, courseName }) => {
     }
   }, [courseId]);
 
+  const getAuthToken = () => {
+    const directToken = localStorage.getItem("accessToken");
+    if (directToken && directToken !== "null" && directToken !== "undefined") {
+      return directToken;
+    }
+
+    const legacyToken = localStorage.getItem("token");
+    if (legacyToken && legacyToken !== "null" && legacyToken !== "undefined") {
+      return legacyToken;
+    }
+
+    return null;
+  };
+
   const loadConversations = async () => {
     try {
       const response = await axios.get(`${API_BASE}/ai/chat/${courseId}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
+        headers: { Authorization: `Bearer ${getAuthToken()}` }
       });
       if (response.data.success) {
         setConversations(response.data.conversations);
@@ -42,7 +56,7 @@ const ChatInterface = ({ courseId, courseName }) => {
   const loadConversation = async (convId) => {
     try {
       const response = await axios.get(`${API_BASE}/ai/chat/conversation/${convId}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
+        headers: { Authorization: `Bearer ${getAuthToken()}` }
       });
       if (response.data.success) {
         setMessages(response.data.conversation.messages);
@@ -79,7 +93,7 @@ const ChatInterface = ({ courseId, courseName }) => {
           conversationId
         },
         {
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
+          headers: { Authorization: `Bearer ${getAuthToken()}` }
         }
       );
 
@@ -112,7 +126,7 @@ const ChatInterface = ({ courseId, courseName }) => {
 
     try {
       await axios.delete(`${API_BASE}/ai/chat/${convId}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
+        headers: { Authorization: `Bearer ${getAuthToken()}` }
       });
       loadConversations();
       if (conversationId === convId) {
