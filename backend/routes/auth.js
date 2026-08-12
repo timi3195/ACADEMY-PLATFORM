@@ -11,13 +11,17 @@ const router = express.Router();
 
 // ==================== UTILITY FUNCTIONS ====================
 
-const getCookieBaseOptions = (extra = {}) => ({
-  httpOnly: true,
-  path: "/",
-  sameSite: "lax",
-  secure: process.env.NODE_ENV === "production",
-  ...extra
-});
+const getCookieBaseOptions = (extra = {}) => {
+  const isProduction = process.env.NODE_ENV === "production";
+
+  return {
+    httpOnly: true,
+    path: "/",
+    sameSite: isProduction ? "none" : "lax",
+    secure: isProduction,
+    ...extra
+  };
+};
 
 const getRefreshTokenCookieOptions = () => getCookieBaseOptions({
   maxAge: 30 * 24 * 60 * 60 * 1000
