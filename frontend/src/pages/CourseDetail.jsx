@@ -230,10 +230,25 @@ export default function CourseDetail() {
                             !isPDF && (
                               (canDownload ? (
                                 <a
-                                  href={`/api/files/download/${file._id}`}
+                                  onClick={async (event) => {
+                                    event.preventDefault();
+                                    try {
+                                      const response = await (await import('../services/fileService')).default.downloadFile(file._id);
+                                      const blob = new Blob([response.data], { type: response.headers?.['content-type'] || 'application/octet-stream' });
+                                      const objectUrl = URL.createObjectURL(blob);
+                                      const anchor = document.createElement('a');
+                                      anchor.href = objectUrl;
+                                      anchor.download = file.title || 'material';
+                                      document.body.appendChild(anchor);
+                                      anchor.click();
+                                      anchor.remove();
+                                      URL.revokeObjectURL(objectUrl);
+                                    } catch (downloadError) {
+                                      const message = downloadError?.response?.data?.message || downloadError?.message || 'Unable to download this file.';
+                                      window.alert(message);
+                                    }
+                                  }}
                                   className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition"
-                                  target="_blank"
-                                  rel="noreferrer"
                                 >
                                   📥 Download
                                 </a>
@@ -255,7 +270,7 @@ export default function CourseDetail() {
                       {/* PDF Viewer - embedded for inline viewing */}
                       {canAccess && isPDF && (
                         <div className="mt-4">
-                          <PDFViewer fileUrl={file.fileUrl} fileName={file.title} downloadUrl={`/api/files/download/${file._id}`} canDownload={canDownload} />
+                          <PDFViewer fileUrl={file.fileUrl} fileName={file.title} downloadUrl={`/api/files/download/${file._id}`} canDownload={canDownload} materialId={file._id} />
                         </div>
                       )}
                     </div>

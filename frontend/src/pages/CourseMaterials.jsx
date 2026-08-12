@@ -113,7 +113,23 @@ export default function CourseMaterials() {
                     {isAccessible ? (
                       !isPDF && (
                         (canDownload ? (
-                          <a href={`/api/files/download/${f._id}`} className="bg-blue-600 text-white px-3 py-2 rounded" target="_blank" rel="noreferrer">Download</a>
+                          <button type="button" onClick={async () => {
+                            try {
+                              const response = await (await import('../services/fileService')).default.downloadFile(f._id);
+                              const blob = new Blob([response.data], { type: response.headers?.['content-type'] || 'application/octet-stream' });
+                              const objectUrl = URL.createObjectURL(blob);
+                              const anchor = document.createElement('a');
+                              anchor.href = objectUrl;
+                              anchor.download = f.title || 'material';
+                              document.body.appendChild(anchor);
+                              anchor.click();
+                              anchor.remove();
+                              URL.revokeObjectURL(objectUrl);
+                            } catch (downloadError) {
+                              const message = downloadError?.response?.data?.message || downloadError?.message || 'Unable to download this file.';
+                              window.alert(message);
+                            }
+                          }} className="bg-blue-600 text-white px-3 py-2 rounded">Download</button>
                         ) : (
                           <Link to="/upgrade" className="bg-yellow-400 text-yellow-900 px-3 py-2 rounded">Upgrade</Link>
                         ))
@@ -130,7 +146,7 @@ export default function CourseMaterials() {
                 {/* PDF Viewer - embedded for inline viewing */}
                 {isAccessible && isPDF && (
                   <div className="mt-3">
-                    <PDFViewer fileUrl={f.fileUrl} fileName={f.title} downloadUrl={`/api/files/download/${f._id}`} canDownload={canDownload} />
+                    <PDFViewer fileUrl={f.fileUrl} fileName={f.title} downloadUrl={`/api/files/download/${f._id}`} canDownload={canDownload} materialId={f._id} />
                   </div>
                 )}
               </div>

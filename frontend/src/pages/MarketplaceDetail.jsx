@@ -590,7 +590,28 @@ export default function MarketplaceDetail() {
               <button type="button" className="button-ghost" onClick={handleWishlistToggle}>{wishlist ? 'Saved' : 'Wishlist'}</button>
             </div>
             <div className="product-purchase-panel__meta">{tags.slice(0, 5).map((tag) => <span key={tag} className="product-hero__badge">{tag}</span>)}</div>
-            {material.fileUrl && <a href={material.fileUrl} className="product-purchase-panel__link" target="_blank" rel="noreferrer">Open file</a>}
+            {material._id && (
+              <button
+                type="button"
+                className="product-purchase-panel__link"
+                onClick={async () => {
+                  try {
+                    const response = await (await import('../services/fileService')).default.viewFile(material._id);
+                    const blob = new Blob([response.data], { type: response.headers?.['content-type'] || 'application/pdf' });
+                    const objectUrl = URL.createObjectURL(blob);
+                    const newTab = window.open('', '_blank', 'noopener,noreferrer');
+                    if (newTab) {
+                      newTab.document.write('<html><body style="margin:0"><iframe src="' + objectUrl + '" style="width:100vw;height:100vh;border:0" /></body></html>');
+                    }
+                  } catch (viewError) {
+                    const message = viewError?.response?.data?.message || viewError?.message || 'Unable to open this file.';
+                    window.alert(message);
+                  }
+                }}
+              >
+                Open file
+              </button>
+            )}
           </div>
         </aside>
       </div>

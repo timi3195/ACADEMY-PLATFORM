@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
+import fileService from '../services/fileService';
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
-export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload, maxPages }) {
+export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload, maxPages, materialId }) {
   const [numPages, setNumPages] = useState(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [scale, setScale] = useState(1);
@@ -11,24 +12,58 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload,
   const [fileWithAuth, setFileWithAuth] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const storageKey = useMemo(() => `pdf-page:${fileUrl || 'default'}`, [fileUrl]);
+  const storageKey = useMemo(() => `pdf-page:${fileUrl || materialId || 'default'}`, [fileUrl, materialId]);
+  const resolvedMaterialId = materialId || (typeof fileUrl === 'string' ? fileUrl.match(/\/api\/files\/(?:view|download)\/([^/?#]+)/)?.[1] : null);
 
   useEffect(() => {
-    if (!fileUrl) return;
+    let objectUrl;
+    let active = true;
 
-    const token = localStorage.getItem('accessToken');
-    const fileObj = { url: fileUrl, withCredentials: true };
-    if (token) {
-      fileObj.httpHeaders = { Authorization: `Bearer ${token}` };
-    }
+    const loadAuthorizedFile = async () => {
+      if (!resolvedMaterialId && !fileUrl) return;
 
-    const savedPage = Number(window.localStorage.getItem(storageKey)) || 1;
-    setPageNumber(savedPage);
-    setNumPages(null);
-    setError(null);
-    setLoading(true);
-    setFileWithAuth(fileObj);
-  }, [fileUrl, storageKey]);
+      const savedPage = Number(window.localStorage.getItem(storageKey)) || 1;
+      setPageNumber(savedPage);
+      setNumPages(null);
+      setError(null);
+      setLoading(true);
+
+      try {
+        if (resolvedMaterialId) {
+          const response = await fileService.viewFile(resolvedMaterialId);
+          const blob = new Blob([response.data], {
+            type: response.headers?.['content-type'] || 'application/pdf'
+          });
+          objectUrl = URL.createObjectURL(blob);
+          if (active) {
+            setFileWithAuth({ url: objectUrl, withCredentials: false });
+          }
+          return;
+        }
+
+        const token = localStorage.getItem('accessToken');
+        const fileObj = { url: fileUrl, withCredentials: true };
+        if (token) {
+          fileObj.httpHeaders = { Authorization: `Bearer ${token}` };
+        }
+        if (active) setFileWithAuth(fileObj);
+      } catch (loadError) {
+        const message = loadError?.response?.data?.message || loadError?.message || 'Unable to load this file.';
+        if (active) setError(new Error(message));
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    loadAuthorizedFile();
+
+    return () => {
+      active = false;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [fileUrl, resolvedMaterialId, storageKey]);
 
   useEffect(() => {
     if (pageNumber > 1) {
@@ -47,6 +82,36 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload,
   const onDocumentLoadError = (error) => {
     setError(error);
     setLoading(false);
+  };
+
+  const handleDownload = async () => {
+    if (!resolvedMaterialId && !downloadUrl) return;
+
+    try {
+      const idToDownload = resolvedMaterialId || (typeof downloadUrl === 'string' ? downloadUrl.match(/\/api\/files\/download\/([^/?#]+)/)?.[1] : null);
+      if (!idToDownload) {
+        if (downloadUrl) {
+          window.open(downloadUrl, '_blank', 'noopener,noreferrer');
+        }
+        return;
+      }
+
+      const response = await fileService.downloadFile(idToDownload);
+      const blob = new Blob([response.data], {
+        type: response.headers?.['content-type'] || 'application/octet-stream'
+      });
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = fileName || 'material';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (downloadError) {
+      const message = downloadError?.response?.data?.message || downloadError?.message || 'Unable to download this file.';
+      setError(new Error(message));
+    }
   };
 
   const effectiveMaxPages = Number(maxPages || 0);
@@ -71,9 +136,9 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload,
         <p style={{ color: '#7f1d1d', marginBottom: '10px' }}>{error.message || 'Unable to open this file.'}</p>
         {isAuthError && <p style={{ color: '#b45309', marginBottom: '12px' }}>This material may require access permission.</p>}
         {downloadUrl && canDownload && (
-          <a href={downloadUrl} style={{ display: 'inline-block', padding: '8px 12px', background: '#2563eb', color: '#fff', borderRadius: '8px', textDecoration: 'none' }}>
+          <button type="button" onClick={handleDownload} style={{ display: 'inline-block', padding: '8px 12px', background: '#2563eb', color: '#fff', borderRadius: '8px', border: 'none', cursor: 'pointer' }}>
             Open file link
-          </a>
+          </button>
         )}
       </div>
     );
@@ -91,7 +156,7 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload,
           <span>{Math.round(scale * 100)}%</span>
           <button type="button" onClick={zoomIn} disabled={scale >= 2.5}>+</button>
           <button type="button" onClick={resetZoom}>Reset</button>
-          {canDownload && downloadUrl && <a href={downloadUrl} style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 600 }}>Open</a>}
+          {canDownload && (downloadUrl || resolvedMaterialId) && <button type="button" onClick={handleDownload} style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 600, background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}>Open</button>}
         </div>
       </div>
 
