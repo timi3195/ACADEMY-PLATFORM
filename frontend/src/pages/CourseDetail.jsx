@@ -203,8 +203,6 @@ export default function CourseDetail() {
               ) : (
                 materials.map(file => {
                   const canAccess = canAccessMaterial(file)
-                  const isPDF = file.title?.toLowerCase().endsWith('.pdf') || (file.originalName && file.originalName.toLowerCase().endsWith('.pdf'))
-                  
                   const canDownload = (user && (user.role === 'admin' || (user.plan === 'premium' || user.subscriptionType === 'premium') && (!user.subscriptionExpiresAt || new Date(user.subscriptionExpiresAt) > new Date())));
 
                   return (
@@ -227,35 +225,33 @@ export default function CourseDetail() {
 
                         <div className="flex items-center gap-2">
                           {canAccess ? (
-                            !isPDF && (
-                              (canDownload ? (
-                                <a
-                                  onClick={async (event) => {
-                                    event.preventDefault();
-                                    try {
-                                      const response = await (await import('../services/fileService')).default.downloadFile(file._id);
-                                      const blob = new Blob([response.data], { type: response.headers?.['content-type'] || 'application/octet-stream' });
-                                      const objectUrl = URL.createObjectURL(blob);
-                                      const anchor = document.createElement('a');
-                                      anchor.href = objectUrl;
-                                      anchor.download = file.title || 'material';
-                                      document.body.appendChild(anchor);
-                                      anchor.click();
-                                      anchor.remove();
-                                      URL.revokeObjectURL(objectUrl);
-                                    } catch (downloadError) {
-                                      const message = downloadError?.response?.data?.message || downloadError?.message || 'Unable to download this file.';
-                                      window.alert(message);
-                                    }
-                                  }}
-                                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition"
-                                >
-                                  📥 Download
-                                </a>
-                              ) : (
-                                <Link to="/upgrade" className="bg-yellow-400 hover:bg-yellow-500 text-yellow-900 px-4 py-2 rounded-lg transition font-bold">⭐ Upgrade to Download</Link>
-                              ))
-                            )
+                            (canDownload ? (
+                              <a
+                                onClick={async (event) => {
+                                  event.preventDefault();
+                                  try {
+                                    const response = await (await import('../services/fileService')).default.downloadFile(file._id);
+                                    const blob = new Blob([response.data], { type: response.headers?.['content-type'] || 'application/octet-stream' });
+                                    const objectUrl = URL.createObjectURL(blob);
+                                    const anchor = document.createElement('a');
+                                    anchor.href = objectUrl;
+                                    anchor.download = file.title || 'material';
+                                    document.body.appendChild(anchor);
+                                    anchor.click();
+                                    anchor.remove();
+                                    URL.revokeObjectURL(objectUrl);
+                                  } catch (downloadError) {
+                                    const message = downloadError?.response?.data?.message || downloadError?.message || 'Unable to download this file.';
+                                    window.alert(message);
+                                  }
+                                }}
+                                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition"
+                              >
+                                📥 Download
+                              </a>
+                            ) : (
+                              <Link to="/upgrade" className="bg-yellow-400 hover:bg-yellow-500 text-yellow-900 px-4 py-2 rounded-lg transition font-bold">⭐ Upgrade to Download</Link>
+                            ))
                           ) : (
                             <>
                               <span className="text-sm text-red-700 font-bold">Locked</span>
@@ -267,8 +263,8 @@ export default function CourseDetail() {
                         </div>
                       </div>
 
-                      {/* PDF Viewer - embedded for inline viewing */}
-                      {canAccess && isPDF && (
+                      {/* Inline file preview - the reader handles PDF and DOCX automatically */}
+                      {canAccess && (
                         <div className="mt-4">
                           <PDFViewer fileUrl={file.fileUrl} fileName={file.title} downloadUrl={`/api/files/download/${file._id}`} canDownload={canDownload} materialId={file._id} />
                         </div>

@@ -100,7 +100,6 @@ export default function CourseMaterials() {
             // Use backend 'accessible' field if available
             const isAccessible = 'accessible' in f ? f.accessible : true
             const canDownload = user && (user.role === 'admin' || ((user.plan === 'premium' || user.subscriptionType === 'premium') && (!user.subscriptionExpiresAt || new Date(user.subscriptionExpiresAt) > new Date())));
-            const isPDF = f.title?.toLowerCase().endsWith('.pdf') || f.originalName?.toLowerCase?.().endsWith?.('.pdf')
             return (
               <div key={f._id} className={`p-4 rounded-lg border ${isAccessible ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}>
                 <div className="flex items-center justify-between mb-3">
@@ -111,29 +110,27 @@ export default function CourseMaterials() {
 
                   <div className="flex items-center gap-2">
                     {isAccessible ? (
-                      !isPDF && (
-                        (canDownload ? (
-                          <button type="button" onClick={async () => {
-                            try {
-                              const response = await (await import('../services/fileService')).default.downloadFile(f._id);
-                              const blob = new Blob([response.data], { type: response.headers?.['content-type'] || 'application/octet-stream' });
-                              const objectUrl = URL.createObjectURL(blob);
-                              const anchor = document.createElement('a');
-                              anchor.href = objectUrl;
-                              anchor.download = f.title || 'material';
-                              document.body.appendChild(anchor);
-                              anchor.click();
-                              anchor.remove();
-                              URL.revokeObjectURL(objectUrl);
-                            } catch (downloadError) {
-                              const message = downloadError?.response?.data?.message || downloadError?.message || 'Unable to download this file.';
-                              window.alert(message);
-                            }
-                          }} className="bg-blue-600 text-white px-3 py-2 rounded">Download</button>
-                        ) : (
-                          <Link to="/upgrade" className="bg-yellow-400 text-yellow-900 px-3 py-2 rounded">Upgrade</Link>
-                        ))
-                      )
+                      (canDownload ? (
+                        <button type="button" onClick={async () => {
+                          try {
+                            const response = await (await import('../services/fileService')).default.downloadFile(f._id);
+                            const blob = new Blob([response.data], { type: response.headers?.['content-type'] || 'application/octet-stream' });
+                            const objectUrl = URL.createObjectURL(blob);
+                            const anchor = document.createElement('a');
+                            anchor.href = objectUrl;
+                            anchor.download = f.title || 'material';
+                            document.body.appendChild(anchor);
+                            anchor.click();
+                            anchor.remove();
+                            URL.revokeObjectURL(objectUrl);
+                          } catch (downloadError) {
+                            const message = downloadError?.response?.data?.message || downloadError?.message || 'Unable to download this file.';
+                            window.alert(message);
+                          }
+                        }} className="bg-blue-600 text-white px-3 py-2 rounded">Download</button>
+                      ) : (
+                        <Link to="/upgrade" className="bg-yellow-400 text-yellow-900 px-3 py-2 rounded">Upgrade</Link>
+                      ))
                     ) : (
                       <>
                         <span className="text-sm text-red-700 font-bold">Premium</span>
@@ -143,8 +140,8 @@ export default function CourseMaterials() {
                   </div>
                 </div>
 
-                {/* PDF Viewer - embedded for inline viewing */}
-                {isAccessible && isPDF && (
+                {/* Inline file preview - PDF and DOCX are both supported via the authenticated reader */}
+                {isAccessible && (
                   <div className="mt-3">
                     <PDFViewer fileUrl={f.fileUrl} fileName={f.title} downloadUrl={`/api/files/download/${f._id}`} canDownload={canDownload} materialId={f._id} />
                   </div>
