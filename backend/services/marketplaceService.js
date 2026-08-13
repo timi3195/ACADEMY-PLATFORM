@@ -660,8 +660,8 @@ const initializePurchase = async (materialId, user) => {
   // For paid materials, verify lecturer has payment account configured
   if (material.isPaid && material.price > 0) {
     const lecturer = material.lecturer;
-    if (!lecturer || !lecturer.paystackPayment || !lecturer.paystackPayment.subaccountCode) {
-      const error = new Error("Lecturer payment account is not configured");
+    if (!lecturer || !lecturer.paystackPayment?.verified || !lecturer.paystackPayment?.subaccountCode) {
+      const error = new Error("Lecturer payment account is not configured or verified");
       error.statusCode = 400;
       throw error;
     }

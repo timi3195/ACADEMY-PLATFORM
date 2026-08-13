@@ -48,8 +48,23 @@ export const normalizeSalesResponse = (payload = {}) => {
   };
 };
 
+export const normalizePaymentSettingsResponse = (payload = {}) => {
+  const settings = payload && typeof payload === 'object' && payload.settings && typeof payload.settings === 'object'
+    ? payload.settings
+    : {};
+
+  return {
+    bankCode: typeof settings.bankCode === 'string' ? settings.bankCode : '',
+    bankName: typeof settings.bankName === 'string' ? settings.bankName : '',
+    accountName: typeof settings.accountName === 'string' ? settings.accountName : '',
+    accountNumberMasked: typeof settings.accountNumberMasked === 'string' ? settings.accountNumberMasked : '',
+    verified: settings.verified === true
+  };
+};
+
 export const lecturerService = {
   normalizeSalesResponse,
+  normalizePaymentSettingsResponse,
 
   async getDashboard() {
     const { data } = await apiClient.get('/api/lecturer/dashboard');

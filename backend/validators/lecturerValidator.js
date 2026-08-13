@@ -184,8 +184,13 @@ exports.validatePaymentSettings = (body) => {
     errors.push({ field: "accountNumber", message: "Account number is required" });
   }
 
-  if (body.accountNumber && String(body.accountNumber).trim().length < 10) {
-    errors.push({ field: "accountNumber", message: "Account number must be at least 10 digits" });
+  if (body.accountNumber) {
+    const normalizedAccountNumber = String(body.accountNumber).replace(/\s+/g, '');
+    if (!/^\d{10}$/.test(normalizedAccountNumber)) {
+      errors.push({ field: "accountNumber", message: "Account number must be exactly 10 digits" });
+    } else {
+      body.accountNumber = normalizedAccountNumber;
+    }
   }
 
   if (!body.accountName || !String(body.accountName).trim()) {

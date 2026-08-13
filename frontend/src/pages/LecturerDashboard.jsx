@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import lecturerService, { normalizeSalesResponse } from '../services/lecturerService';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorState from '../components/ErrorState';
@@ -158,7 +159,10 @@ export default function LecturerDashboard() {
           <h2 style={{ marginBottom: '8px' }}>Course Material Studio</h2>
           <p style={{ margin: 0, color: '#64748b' }}>Publish lecture notes, guides, past questions, and other academic resources for your students.</p>
         </div>
-        <button type="button" onClick={openCreateModal}>Create New Material</button>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <Link to="/lecturer/payment-settings" style={{ padding: '8px 12px', border: '1px solid #2563eb', borderRadius: '6px', color: '#2563eb', textDecoration: 'none', fontWeight: 600 }}>Payment Settings</Link>
+          <button type="button" onClick={openCreateModal}>Create New Material</button>
+        </div>
       </div>
 
       {/* Tab Navigation */}

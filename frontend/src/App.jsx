@@ -26,6 +26,7 @@ import LecturerDashboard from './pages/LecturerDashboard'
 import LecturerRegister from './pages/LecturerRegister'
 import LecturerPending from './pages/LecturerPending'
 import LecturerRejected from './pages/LecturerRejected'
+import LecturerPaymentSettings from './pages/LecturerPaymentSettings'
 import AdminLecturerManagement from './pages/AdminLecturerManagement'
 import MainLayout from './layouts/MainLayout'
 import AuthLayout from './layouts/AuthLayout'
@@ -122,6 +123,7 @@ export default function App() {
         <Route path="/lecturer/pending" element={<Protected><LecturerPending /></Protected>} />
         <Route path="/lecturer/rejected" element={<Protected><LecturerRejected /></Protected>} />
         <Route path="/lecturer" element={<ApprovedLecturerOnly><LecturerDashboard /></ApprovedLecturerOnly>} />
+        <Route path="/lecturer/payment-settings" element={<ApprovedLecturerOnly><LecturerPaymentSettings /></ApprovedLecturerOnly>} />
         <Route path="/upgrade" element={<Protected><Upgrade /></Protected>} />
         <Route path="/admin" element={<AdminOnly><AdminPanel /></AdminOnly>} />
         <Route path="/admin/lecturers" element={<AdminOnly><AdminLecturerManagement /></AdminOnly>} />

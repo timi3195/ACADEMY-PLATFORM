@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import apiClient from './apiClient';
-import lecturerService, { normalizeSalesResponse } from './lecturerService';
+import lecturerService, { normalizePaymentSettingsResponse, normalizeSalesResponse } from './lecturerService';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -110,6 +110,24 @@ describe('lecturerService.getSales', () => {
       count: 1,
       page: 1,
       limit: 20
+    });
+  });
+});
+
+describe('normalizePaymentSettingsResponse', () => {
+  it('handles an empty or malformed payment settings response safely', () => {
+    expect(normalizePaymentSettingsResponse(null)).toEqual({
+      bankCode: '', bankName: '', accountName: '', accountNumberMasked: '', verified: false
+    });
+  });
+
+  it('retains only safe settings fields for a configured account', () => {
+    expect(normalizePaymentSettingsResponse({ settings: {
+      bankCode: '058', bankName: 'Guaranty Trust Bank', accountName: 'ADA OKAFOR',
+      accountNumberMasked: '******6789', verified: true, accountNumber: '0123456789'
+    } })).toEqual({
+      bankCode: '058', bankName: 'Guaranty Trust Bank', accountName: 'ADA OKAFOR',
+      accountNumberMasked: '******6789', verified: true
     });
   });
 });

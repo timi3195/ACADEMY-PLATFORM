@@ -4,6 +4,7 @@ const path = require("path");
 const fs = require("fs");
 const protect = require("../config/middleware/authMiddleware");
 const lecturerOnly = require("../config/middleware/lecturerOnly");
+const approvedLecturerOnly = require("../config/middleware/approvedLecturerOnly");
 const lecturerController = require("../controllers/lecturerController");
 const storageService = require("../services/storageService");
 
@@ -77,8 +78,8 @@ router.get("/withdrawals", protect, lecturerOnly, lecturerController.getWithdraw
 router.post("/withdraw", protect, lecturerOnly, lecturerController.requestWithdrawal);
 
 // Lecturer payment settings
-router.get("/payment/settings", protect, lecturerOnly, lecturerController.getPaymentSettings);
-router.post("/payment/settings", protect, lecturerOnly, lecturerController.updatePaymentSettings);
-router.get("/payment/banks", protect, lecturerOnly, lecturerController.getAvailableBanks);
+router.get("/payment/settings", protect, approvedLecturerOnly, lecturerController.getPaymentSettings);
+router.post("/payment/settings", protect, approvedLecturerOnly, lecturerController.updatePaymentSettings);
+router.get("/payment/banks", protect, approvedLecturerOnly, lecturerController.getAvailableBanks);
 
 module.exports = router;

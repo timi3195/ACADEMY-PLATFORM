@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import lecturerService from '../services/lecturerService';
+import lecturerService, { normalizePaymentSettingsResponse } from '../services/lecturerService';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorState from '../components/ErrorState';
 import NotificationBanner from '../components/NotificationBanner';
@@ -28,16 +28,17 @@ export default function LecturerPaymentSettings() {
         lecturerService.getAvailableBanks()
       ]);
 
-      setSettings(settingsRes.settings);
+      const normalizedSettings = normalizePaymentSettingsResponse(settingsRes);
+      setSettings(normalizedSettings);
       setBanks(banksRes.banks || []);
 
       // Populate form with current settings
-      if (settingsRes.settings) {
+      if (normalizedSettings.bankCode || normalizedSettings.bankName || normalizedSettings.accountName) {
         setFormData({
-          bankCode: settingsRes.settings.bankCode || '',
-          bankName: settingsRes.settings.bankName || '',
-          accountNumber: settingsRes.settings.accountNumberLast4 ? `****${settingsRes.settings.accountNumberLast4}` : '',
-          accountName: settingsRes.settings.accountName || ''
+          bankCode: normalizedSettings.bankCode,
+          bankName: normalizedSettings.bankName,
+          accountNumber: '',
+          accountName: normalizedSettings.accountName
         });
       }
     } catch (err) {
@@ -92,7 +93,7 @@ export default function LecturerPaymentSettings() {
     try {
       setSubmitting(true);
       const response = await lecturerService.updatePaymentSettings(formData);
-      setSettings(response.settings);
+      setSettings(normalizePaymentSettingsResponse(response));
       setSuccess(response.message || 'Payment settings updated successfully.');
       window.dispatchEvent(new Event('payment:updated'));
     } catch (err) {
@@ -181,6 +182,11 @@ export default function LecturerPaymentSettings() {
                 boxSizing: 'border-box'
               }}
             />
+            {settings?.accountNumberMasked && !formData.accountNumber && (
+              <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
+                Current account: {settings.accountNumberMasked}. Enter the full account number only to change it.
+              </div>
+            )}
             {formData.accountNumber && formData.accountNumber.length < 10 && (
               <div style={{ fontSize: '12px', color: '#dc2626', marginTop: '4px' }}>Account number must be at least 10 digits</div>
             )}

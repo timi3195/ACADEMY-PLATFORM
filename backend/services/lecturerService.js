@@ -566,8 +566,9 @@ const updatePaymentSettings = async (lecturerId, body) => {
     throw error;
   }
 
-  if (String(accountNumber).trim().length < 10) {
-    const error = new Error("Account number must be at least 10 digits");
+  const accountNumberStr = String(accountNumber).replace(/\s+/g, "");
+  if (!/^\d{10}$/.test(accountNumberStr)) {
+    const error = new Error("Account number must be exactly 10 digits");
     error.statusCode = 400;
     throw error;
   }
@@ -584,7 +585,7 @@ const updatePaymentSettings = async (lecturerId, body) => {
     throw error;
   }
 
-  // Verify bank name has a Paystack code
+  // Derive the bank code server-side; never trust a client-supplied mapping.
   const paystackBankCode = getPaystackBankCode(bankName);
   if (!paystackBankCode) {
     const error = new Error(`Bank "${bankName}" is not supported by Paystack`);
@@ -599,8 +600,13 @@ const updatePaymentSettings = async (lecturerId, body) => {
     throw error;
   }
 
-  // Prepare sanitized account number (only store last 4 digits for security)
-  const accountNumberStr = String(accountNumber).trim();
+  if (String(bankCode).trim() !== paystackBankCode) {
+    const error = new Error("Bank code does not match the selected bank");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  // Store only the last four digits; the full number is sent to Paystack only.
   const accountNumberLast4 = accountNumberStr.slice(-4);
 
   try {
@@ -687,10 +693,9 @@ const getPaymentSettings = async (lecturerId) => {
     businessName: settings.businessName || lecturer.name || "",
     bankCode: settings.bankCode || "",
     bankName: settings.bankName || "",
-    accountNumberLast4: settings.accountNumber || "",  // Already storing last 4 digits
+    accountNumberMasked: settings.accountNumber ? `******${settings.accountNumber}` : "",
     accountName: settings.accountName || "",
-    verified: settings.verified || false,
-    subaccountCode: settings.verified ? (settings.subaccountCode || null) : null,
+    verified: settings.verified === true,
     createdAt: settings.createdAt || null
   };
 };
