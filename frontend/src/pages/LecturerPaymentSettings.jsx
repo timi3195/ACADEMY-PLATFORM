@@ -36,7 +36,7 @@ export default function LecturerPaymentSettings() {
         setFormData({
           bankCode: settingsRes.settings.bankCode || '',
           bankName: settingsRes.settings.bankName || '',
-          accountNumber: settingsRes.settings.accountNumber || '',
+          accountNumber: settingsRes.settings.accountNumberLast4 ? `****${settingsRes.settings.accountNumberLast4}` : '',
           accountName: settingsRes.settings.accountName || ''
         });
       }
