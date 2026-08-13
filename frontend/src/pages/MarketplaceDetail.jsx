@@ -284,6 +284,7 @@ export default function MarketplaceDetail() {
   const isOwner = Boolean(user && (material?.lecturer?._id === user._id || material?.lecturer?.id === user._id || material?.lecturer === user._id));
   const hasAccess = Boolean(material?.isPurchased || material?.hasAccess || material?.accessGranted || material?.canAccess || access?.access || isFree || isOwner);
   const previewPages = Number(material?.previewPages || material?.pageCount || 0);
+  const previewLimitPages = hasAccess ? 0 : previewPages;
   const rating = Number(material?.ratingAverage || 0);
   const reviewCount = Number(material?.ratingCount || 0);
   const salesCount = Number(material?.sales || material?.purchases || 0);
@@ -417,7 +418,7 @@ export default function MarketplaceDetail() {
             ) : (
               <button type="button" onClick={handlePurchase} disabled={purchaseLoading}>{purchaseLoading ? 'Preparing...' : 'Buy now'}</button>
             )}
-            {previewPages > 0 && <button type="button" className="button-ghost" onClick={() => document.getElementById('preview-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Preview</button>}
+            {!hasAccess && previewPages > 0 && <button type="button" className="button-ghost" onClick={() => document.getElementById('preview-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Preview</button>}
             <button type="button" className="button-ghost" onClick={handleCopyLink}>{copied ? 'Link copied' : 'Share'}</button>
             <button type="button" className="button-ghost" onClick={handleWishlistToggle}>{wishlist ? '★ Saved' : '☆ Wishlist'}</button>
             {isOwner && (
@@ -517,7 +518,14 @@ export default function MarketplaceDetail() {
           <section id="preview-section" className="wp-section product-section">
             <h3>Preview</h3>
             {material.fileUrl ? (
-              <PDFViewer fileUrl={material.fileUrl} fileName={material.title} downloadUrl={material.downloadUrl || material.fileUrl} canDownload={hasAccess || isFree} maxPages={previewPages} />
+              <PDFViewer
+                fileUrl={material.fileUrl}
+                fileName={material.title}
+                downloadUrl={material.downloadUrl || material.fileUrl}
+                canDownload={hasAccess || isFree}
+                maxPages={previewLimitPages}
+                disablePreviewLimit={hasAccess}
+              />
             ) : (
               <EmptyState title="Preview unavailable" description="This material does not have a preview file attached yet." />
             )}
@@ -585,7 +593,7 @@ export default function MarketplaceDetail() {
               ) : (
                 <button type="button" onClick={handlePurchase} disabled={purchaseLoading}>{purchaseLoading ? 'Preparing...' : 'Buy now'}</button>
               )}
-              {previewPages > 0 && <button type="button" className="button-ghost" onClick={() => document.getElementById('preview-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Preview</button>}
+              {!hasAccess && previewPages > 0 && <button type="button" className="button-ghost" onClick={() => document.getElementById('preview-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Preview</button>}
               <button type="button" className="button-ghost" onClick={handleCopyLink}>{copied ? 'Link copied' : 'Share'}</button>
               <button type="button" className="button-ghost" onClick={handleWishlistToggle}>{wishlist ? 'Saved' : 'Wishlist'}</button>
             </div>

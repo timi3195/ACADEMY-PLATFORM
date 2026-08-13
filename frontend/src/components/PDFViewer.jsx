@@ -6,7 +6,7 @@ import { detectFileKind } from '../utils/fileType';
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
-export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload, maxPages, materialId }) {
+export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload, maxPages, materialId, disablePreviewLimit = false }) {
   const [numPages, setNumPages] = useState(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [scale, setScale] = useState(1);
@@ -18,6 +18,7 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload,
 
   const storageKey = useMemo(() => `pdf-page:${fileUrl || materialId || 'default'}`, [fileUrl, materialId]);
   const resolvedMaterialId = materialId || (typeof fileUrl === 'string' ? fileUrl.match(/\/api\/files\/(?:view|download)\/([^/?#]+)/)?.[1] : null);
+  const effectiveMaxPages = disablePreviewLimit ? 0 : Number(maxPages || 0);
 
   useEffect(() => {
     let objectUrl;
@@ -113,7 +114,6 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload,
   }, [pageNumber, storageKey]);
 
   const onDocumentLoadSuccess = ({ numPages }) => {
-    const effectiveMaxPages = Number(maxPages || 0);
     const safeMaxPages = effectiveMaxPages > 0 ? Math.min(numPages, effectiveMaxPages) : numPages;
     setNumPages(safeMaxPages);
     setPageNumber((current) => Math.min(current || 1, safeMaxPages || 1));
@@ -170,7 +170,6 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload,
     }
   };
 
-  const effectiveMaxPages = Number(maxPages || 0);
   const clampPage = (value) => {
     if (effectiveMaxPages > 0) {
       return Math.min(effectiveMaxPages, Math.max(1, value));
