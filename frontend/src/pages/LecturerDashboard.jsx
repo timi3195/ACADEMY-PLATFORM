@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import lecturerService from '../services/lecturerService';
+import lecturerService, { normalizeSalesResponse } from '../services/lecturerService';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorState from '../components/ErrorState';
 import EmptyState from '../components/EmptyState';
@@ -53,8 +53,10 @@ export default function LecturerDashboard() {
     try {
       setSalesLoading(true);
       const response = await lecturerService.getSales(salesFilters);
-      setSales(response.sales || []);
-      setSalesTotal(response.total || 0);
+      const normalizedSales = normalizeSalesResponse(response);
+
+      setSales(normalizedSales.sales);
+      setSalesTotal(normalizedSales.total);
     } catch (err) {
       setError(err.message || 'Unable to load sales data.');
     } finally {

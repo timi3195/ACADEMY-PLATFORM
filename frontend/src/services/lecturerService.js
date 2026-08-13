@@ -9,7 +9,48 @@ const appendFormValue = (formData, key, value) => {
   formData.append(key, value);
 };
 
+const toSafeNumber = (value, fallback) => {
+  if (value === null || value === undefined || value === '') {
+    return fallback;
+  }
+
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return fallback;
+  }
+
+  return numericValue;
+};
+
+export const normalizeSalesResponse = (payload = {}) => {
+  const normalizedPayload = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
+  const nestedPayload = normalizedPayload.sales && typeof normalizedPayload.sales === 'object' && !Array.isArray(normalizedPayload.sales)
+    ? normalizedPayload.sales
+    : {};
+
+  const sales = Array.isArray(normalizedPayload.sales)
+    ? normalizedPayload.sales
+    : Array.isArray(nestedPayload.sales)
+      ? nestedPayload.sales
+      : [];
+
+  const total = toSafeNumber(normalizedPayload.total, toSafeNumber(nestedPayload.total, sales.length));
+  const count = toSafeNumber(normalizedPayload.count, toSafeNumber(nestedPayload.count, sales.length));
+  const page = toSafeNumber(normalizedPayload.page, toSafeNumber(nestedPayload.page, 1));
+  const limit = toSafeNumber(normalizedPayload.limit, toSafeNumber(nestedPayload.limit, 20));
+
+  return {
+    sales,
+    total: Number(total) || 0,
+    count: Number(count) || 0,
+    page: Number(page) > 0 ? Number(page) : 1,
+    limit: Number(limit) > 0 ? Number(limit) : 20
+  };
+};
+
 export const lecturerService = {
+  normalizeSalesResponse,
+
   async getDashboard() {
     const { data } = await apiClient.get('/api/lecturer/dashboard');
     return data;
@@ -111,7 +152,7 @@ export const lecturerService = {
     if (filters.limit) params.append('limit', filters.limit);
 
     const { data } = await apiClient.get(`/api/lecturer/sales?${params.toString()}`);
-    return data;
+    return normalizeSalesResponse(data);
   },
 
   async exportSalesCSV(filters = {}) {
