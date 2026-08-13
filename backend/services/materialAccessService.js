@@ -254,6 +254,64 @@ const recordPurchase = async ({ user, material, reference, amount, discount = 0 
   return transaction;
 };
 
+/**
+ * Record a successful material purchase with payment split information.
+ */
+const recordPurchaseWithSplit = async ({ user, material, reference, amount, discount = 0, lecturer, platformFee, lecturerAmount, paystackTransactionId }) => {
+  if (!material) {
+    throw new Error("Material is required to record purchase");
+  }
+  if (!user || !user.id) {
+    throw new Error("User is required to record purchase");
+  }
+  if (!reference) {
+    throw new Error("Payment reference is required to record purchase");
+  }
+
+  const existing = await Transaction.findOne({ reference });
+  if (existing) {
+    if (
+      existing.user.toString() !== user.id.toString() ||
+      existing.material?.toString() !== material._id.toString()
+    ) {
+      const error = new Error("Payment reference already in use");
+      error.statusCode = 409;
+      throw error;
+    }
+    return existing;
+  }
+
+  const transaction = await Transaction.create({
+    user: user.id,
+    email: user.email,
+    amount,
+    reference,
+    status: "success",
+    plan: "material",
+    paymentType: "material",
+    semester: null,
+    expiresAt: null,
+    paidAt: new Date(),
+    material: material._id,
+    materialPrice: material.price,
+    discount,
+    lecturer: lecturer?._id || null,
+    platformFee: platformFee || 0,
+    lecturerAmount: lecturerAmount || 0,
+    currency: "NGN",
+    paymentProvider: "paystack",
+    studentNameAtPurchase: user.name || "",
+    studentMatricAtPurchase: user.matricNumber || "",
+    paystackTransactionId: paystackTransactionId || null
+  });
+
+  material.purchases = (material.purchases || 0) + 1;
+  material.sales = (material.sales || 0) + 1;
+  await material.save();
+
+  return transaction;
+};
+
 module.exports = {
   canViewMaterial,
   canDownloadMaterial,
@@ -262,5 +320,6 @@ module.exports = {
   canDeleteMaterial,
   recordView,
   recordDownload,
-  recordPurchase
+  recordPurchase,
+  recordPurchaseWithSplit
 };

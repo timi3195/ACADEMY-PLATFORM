@@ -608,12 +608,13 @@ const getDiscountedPrice = (material, user) => {
 };
 
 const initializePurchase = async (materialId, user) => {
-  const material = await File.findById(materialId);
+  const material = await File.findById(materialId).populate('lecturer', 'name email paystackPayment');
   if (!material) {
     const error = new Error("Material not found");
     error.statusCode = 404;
     throw error;
   }
+
   // Approval gating removed; newly created materials can be purchased if for sale.
   if (material.isFree) {
     const error = new Error("This material is free and does not require purchase");
@@ -633,8 +634,22 @@ const initializePurchase = async (materialId, user) => {
     throw error;
   }
 
+  // For paid materials, verify lecturer has payment account configured
+  if (material.isPaid && material.price > 0) {
+    const lecturer = material.lecturer;
+    if (!lecturer || !lecturer.paystackPayment || !lecturer.paystackPayment.subaccountCode) {
+      const error = new Error("Lecturer payment account is not configured");
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+
   const finalPrice = getDiscountedPrice(material, user);
   const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+
+  // Get lecturer's subaccount for payment split
+  const lecturerSubaccount = material.lecturer?.paystackPayment?.subaccountCode || null;
+
   const transport = await paystackService.initializePayment({
     email: user.email,
     amount: finalPrice,
@@ -643,8 +658,10 @@ const initializePurchase = async (materialId, user) => {
       materialId: material._id.toString(),
       paymentType: "material",
       discount: material.premiumDiscount || 0,
-      userId: user.id
-    }
+      userId: user.id,
+      lecturerId: material.lecturer?._id.toString() || null
+    },
+    subaccountCode: lecturerSubaccount
   });
 
   return {
@@ -656,7 +673,7 @@ const initializePurchase = async (materialId, user) => {
 };
 
 const verifyPurchase = async (materialId, reference, user) => {
-  const material = await File.findById(materialId);
+  const material = await File.findById(materialId).populate('lecturer', 'name email matricNumber');
   if (!material) {
     const error = new Error("Material not found");
     error.statusCode = 404;
@@ -693,13 +710,33 @@ const verifyPurchase = async (materialId, reference, user) => {
   }
 
   const amount = Number((verification.amount || 0) / 100);
+  const expectedAmount = getDiscountedPrice(material, user);
+  
+  // Verify amount matches expected (protect against misconfiguration or fraud)
+  if (Math.abs(amount - expectedAmount) > 0.01) {
+    const error = new Error(`Amount mismatch: expected ₦${expectedAmount.toFixed(2)} but Paystack received ₦${amount.toFixed(2)}`);
+    error.statusCode = 400;
+    throw error;
+  }
   const discount = Number(verification.metadata?.discount || material.premiumDiscount || 0);
-  const transaction = await materialAccessService.recordPurchase({
-    user,
+
+  // Calculate 90/10 split
+  const platformFee = Math.round(amount * 10) / 100; // 10% platform commission
+  const lecturerAmount = amount - platformFee; // 90% to lecturer
+
+  // Refresh user to get latest matric number
+  const updatedUser = await require("../models/User").findById(user.id).lean();
+
+  const transaction = await materialAccessService.recordPurchaseWithSplit({
+    user: updatedUser,
     material,
     reference,
     amount,
-    discount
+    discount,
+    lecturer: material.lecturer,
+    platformFee,
+    lecturerAmount,
+    paystackTransactionId: verification.id
   });
 
   return transaction;

@@ -99,11 +99,30 @@ const userSchema = new mongoose.Schema({
     accountName: { type: String, default: "" }
   },
 
+  // Paystack payment configuration for lecturers
+  paystackPayment: {
+    subaccountCode: { type: String, default: null },
+    businessName: { type: String, default: "" },
+    bankCode: { type: String, default: "" },
+    bankName: { type: String, default: "" },
+    accountNumber: { type: String, default: "" },
+    accountName: { type: String, default: "" },
+    percentageCharge: { type: Number, default: 0 },
+    verified: { type: Boolean, default: false },
+    createdAt: { type: Date, default: null },
+    integrationKey: { type: String, default: null }
+  },
+
   // Link to department (for lecturers/admins and students)
   department: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Department",
     default: null
+  },
+  matricNumber: {
+    type: String,
+    default: null,
+    sparse: true
   },
   yearOfStudy: {
     type: String,

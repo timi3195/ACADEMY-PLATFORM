@@ -145,3 +145,25 @@ exports.requestWithdrawal = async (req, res) => {
     res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 };
+
+exports.getSales = async (req, res) => {
+  try {
+    const sales = await lecturerService.getLecturerSales(req.user.id, req.query);
+    res.json({ success: true, sales });
+  } catch (error) {
+    console.error("Lecturer sales error:", error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+};
+
+exports.getSalesExport = async (req, res) => {
+  try {
+    const csvContent = await lecturerService.exportLecturerSalesAsCSV(req.user.id, req.query);
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", 'attachment; filename="sales.csv"');
+    res.send(csvContent);
+  } catch (error) {
+    console.error("Lecturer sales export error:", error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+};

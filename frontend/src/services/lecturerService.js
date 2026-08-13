@@ -99,6 +99,30 @@ export const lecturerService = {
   async requestWithdrawal(payload) {
     const { data } = await apiClient.post('/api/lecturer/withdraw', payload);
     return data;
+  },
+
+  async getSales(filters = {}) {
+    const params = new URLSearchParams();
+    if (filters.materialId) params.append('materialId', filters.materialId);
+    if (filters.studentName) params.append('studentName', filters.studentName);
+    if (filters.studentMatric) params.append('studentMatric', filters.studentMatric);
+    if (filters.status) params.append('status', filters.status);
+    if (filters.page) params.append('page', filters.page);
+    if (filters.limit) params.append('limit', filters.limit);
+
+    const { data } = await apiClient.get(`/api/lecturer/sales?${params.toString()}`);
+    return data;
+  },
+
+  async exportSalesCSV(filters = {}) {
+    const params = new URLSearchParams();
+    if (filters.materialId) params.append('materialId', filters.materialId);
+    if (filters.studentName) params.append('studentName', filters.studentName);
+    if (filters.studentMatric) params.append('studentMatric', filters.studentMatric);
+    if (filters.status) params.append('status', filters.status);
+
+    const { data } = await apiClient.get(`/api/lecturer/sales/export/csv?${params.toString()}`);
+    return data;
   }
 };
 

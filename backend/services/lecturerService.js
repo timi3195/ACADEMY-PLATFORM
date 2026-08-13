@@ -390,6 +390,161 @@ const requestLecturerWithdrawal = async (lecturerId, body) => {
   return withdrawal;
 };
 
+const getLecturerSales = async (lecturerId, query = {}) => {
+  // Verify lecturer owns the materials
+  const materials = await File.find({ lecturer: lecturerId, isDeleted: false }).select("_id");
+  const materialIds = materials.map((m) => m._id);
+
+  if (materialIds.length === 0) {
+    return { sales: [], total: 0, count: 0 };
+  }
+
+  // Build filters
+  const filters = {
+    lecturer: lecturerId,
+    material: { $in: materialIds },
+    plan: "material",
+    status: "success"
+  };
+
+  // Apply optional filters
+  if (query.materialId && mongoose.Types.ObjectId.isValid(query.materialId)) {
+    filters.material = query.materialId;
+  }
+
+  if (query.status) {
+    filters.status = query.status;
+  }
+
+  if (query.studentMatric) {
+    filters.studentMatricAtPurchase = { $regex: query.studentMatric, $options: "i" };
+  }
+
+  if (query.studentName) {
+    filters.studentNameAtPurchase = { $regex: query.studentName, $options: "i" };
+  }
+
+  if (query.startDate || query.endDate) {
+    filters.paidAt = {};
+    if (query.startDate) {
+      filters.paidAt.$gte = new Date(query.startDate);
+    }
+    if (query.endDate) {
+      filters.paidAt.$lte = new Date(query.endDate);
+    }
+  }
+
+  // Pagination
+  const limit = Math.min(Number(query.limit) || 20, 100);
+  const page = Math.max(Number(query.page) || 1, 1);
+  const skip = (page - 1) * limit;
+
+  // Get sales
+  const sales = await Transaction.find(filters)
+    .populate("material", "title price course")
+    .sort({ paidAt: -1 })
+    .skip(skip)
+    .limit(limit)
+    .lean();
+
+  const total = await Transaction.countDocuments(filters);
+
+  return {
+    sales: sales.map((sale) => ({
+      _id: sale._id,
+      studentName: sale.studentNameAtPurchase,
+      studentMatric: sale.studentMatricAtPurchase,
+      email: sale.email,
+      material: sale.material?.title || "Unknown",
+      materialPrice: sale.materialPrice,
+      discount: sale.discount,
+      amount: sale.amount,
+      platformFee: sale.platformFee,
+      lecturerAmount: sale.lecturerAmount,
+      reference: sale.reference,
+      paidAt: sale.paidAt,
+      status: sale.status
+    })),
+    total,
+    count: sales.length,
+    page,
+    limit
+  };
+};
+
+const exportLecturerSalesAsCSV = async (lecturerId, query = {}) => {
+  // Verify lecturer owns the materials
+  const materials = await File.find({ lecturer: lecturerId, isDeleted: false }).select("_id");
+  const materialIds = materials.map((m) => m._id);
+
+  if (materialIds.length === 0) {
+    return "No sales to export";
+  }
+
+  // Build filters (same as getSales)
+  const filters = {
+    lecturer: lecturerId,
+    material: { $in: materialIds },
+    plan: "material",
+    status: "success"
+  };
+
+  if (query.materialId && mongoose.Types.ObjectId.isValid(query.materialId)) {
+    filters.material = query.materialId;
+  }
+
+  if (query.status) {
+    filters.status = query.status;
+  }
+
+  if (query.studentMatric) {
+    filters.studentMatricAtPurchase = { $regex: query.studentMatric, $options: "i" };
+  }
+
+  if (query.studentName) {
+    filters.studentNameAtPurchase = { $regex: query.studentName, $options: "i" };
+  }
+
+  if (query.startDate || query.endDate) {
+    filters.paidAt = {};
+    if (query.startDate) {
+      filters.paidAt.$gte = new Date(query.startDate);
+    }
+    if (query.endDate) {
+      filters.paidAt.$lte = new Date(query.endDate);
+    }
+  }
+
+  // Get all sales (no pagination for export)
+  const sales = await Transaction.find(filters)
+    .populate("material", "title price course")
+    .sort({ paidAt: -1 })
+    .lean();
+
+  // CSV Header
+  const headers = ["Date", "Student Name", "Matric Number", "Email", "Material", "Material Price", "Discount", "Sale Amount", "Platform Fee", "Your Earnings", "Reference"];
+
+  // CSV Rows
+  const rows = sales.map((sale) => [
+    new Date(sale.paidAt).toLocaleString(),
+    `"${(sale.studentNameAtPurchase || "").replace(/"/g, '""')}"`,
+    `"${(sale.studentMatricAtPurchase || "").replace(/"/g, '""')}"`,
+    `"${(sale.email || "").replace(/"/g, '""')}"`,
+    `"${(sale.material?.title || "Unknown").replace(/"/g, '""')}"`,
+    sale.materialPrice,
+    sale.discount,
+    sale.amount,
+    sale.platformFee,
+    sale.lecturerAmount,
+    sale.reference
+  ]);
+
+  // Combine headers and rows
+  const csv = [headers.join(","), ...rows.map((row) => row.join(","))].join("\n");
+
+  return csv;
+};
+
 module.exports = {
   getLecturerDashboard,
   getLecturerMaterials,
@@ -399,5 +554,7 @@ module.exports = {
   getMaterialAnalytics,
   getLecturerEarnings,
   getLecturerWithdrawals,
-  requestLecturerWithdrawal
+  requestLecturerWithdrawal,
+  getLecturerSales,
+  exportLecturerSalesAsCSV
 };

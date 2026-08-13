@@ -57,6 +57,53 @@ const transactionSchema = new mongoose.Schema({
     default: 0
   },
 
+  // Payment split information (for material purchases)
+  lecturer: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    default: null
+  },
+
+  platformFee: {
+    type: Number,
+    default: 0,
+    description: "10% platform commission"
+  },
+
+  lecturerAmount: {
+    type: Number,
+    default: 0,
+    description: "90% lecturer earnings"
+  },
+
+  currency: {
+    type: String,
+    default: "NGN"
+  },
+
+  paymentProvider: {
+    type: String,
+    enum: ["paystack", "other"],
+    default: "paystack"
+  },
+
+  // Student information snapshot at purchase time
+  studentNameAtPurchase: {
+    type: String,
+    default: ""
+  },
+
+  studentMatricAtPurchase: {
+    type: String,
+    default: ""
+  },
+
+  // Additional audit fields
+  paystackTransactionId: {
+    type: Number,
+    default: null
+  },
+
   semester: {
     type: String,
     enum: ["2024-1", "2024-2", "2025-1", "2025-2", "2026-1", "2026-2"],

@@ -66,6 +66,12 @@ router.get(
 // Lecturer earnings summary
 router.get("/earnings", protect, lecturerOnly, lecturerController.getEarnings);
 
+// Lecturer sales list
+router.get("/sales", protect, lecturerOnly, lecturerController.getSales);
+
+// Lecturer sales export (CSV)
+router.get("/sales/export/csv", protect, lecturerOnly, lecturerController.getSalesExport);
+
 // Lecturer withdrawal history
 router.get("/withdrawals", protect, lecturerOnly, lecturerController.getWithdrawalHistory);
 
