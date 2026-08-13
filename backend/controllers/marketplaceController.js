@@ -114,7 +114,9 @@ exports.listMaterials = async (req, res) => {
 
 exports.getMaterial = async (req, res) => {
   try {
+    console.debug && console.debug('marketplace.getMaterial called', { materialId: req.params.id, userId: req.user?.id || null });
     const material = await marketplaceService.getMaterialById(req.params.id, req.user);
+    console.debug && console.debug('marketplace.getMaterial result', { materialId: req.params.id, hasAccess: !!material?.access, allowDownload: material?.allowDownload });
     if (!material) {
       return res.status(404).json({ success: false, message: "Material not found" });
     }

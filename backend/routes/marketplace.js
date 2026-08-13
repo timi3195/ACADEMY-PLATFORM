@@ -3,6 +3,7 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 const protect = require("../config/middleware/authMiddleware");
+const optionalAuth = require("../config/middleware/optionalAuth");
 const lecturerOnly = require("../config/middleware/lecturerOnly");
 const adminOnly = require("../config/middleware/adminOnly");
 const marketplaceController = require("../controllers/marketplaceController");
@@ -38,7 +39,7 @@ router.post(
 router.get("/materials", marketplaceController.listMaterials);
 router.get("/materials/featured", marketplaceController.getFeaturedMaterials);
 router.get("/materials/new", marketplaceController.getNewMaterials);
-router.get("/materials/:id", marketplaceController.getMaterial);
+router.get("/materials/:id", optionalAuth, marketplaceController.getMaterial);
 
 // Course / Department filters
 router.get("/course/:courseId/materials", marketplaceController.getCourseMaterials);
