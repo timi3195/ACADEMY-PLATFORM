@@ -10,6 +10,7 @@ import MaterialCard from '../components/MaterialCard';
 import CheckoutModal from '../components/CheckoutModal';
 import PurchaseReceipt from '../components/PurchaseReceipt';
 import PDFViewer from '../components/PDFViewer';
+import StudentProfileCompletionModal from '../components/StudentProfileCompletionModal';
 import { formatCurrency } from '../utils/formatters';
 import { useAuth } from '../utils/auth';
 import { useMarketplace } from '../context/MarketplaceContext';
@@ -45,6 +46,7 @@ export default function MarketplaceDetail() {
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [receipt, setReceipt] = useState(null);
   const [pendingPurchase, setPendingPurchase] = useState(null);
+  const [profileCompletionOpen, setProfileCompletionOpen] = useState(false);
 
   const location = useLocation();
   const initialMaterial = location?.state?.material || null;
@@ -266,9 +268,19 @@ export default function MarketplaceDetail() {
     } catch (err) {
       const message = err.message || 'Unable to start purchase.';
       setPurchaseMessage(message);
+      
+      // Check if error requires profile completion
+      if (message.includes('complete your student profile')) {
+        setProfileCompletionOpen(true);
+      }
     } finally {
       setPurchaseLoading(false);
     }
+  };
+
+  const handleProfileCompletion = async () => {
+    // After profile is completed, retry the purchase
+    await handlePurchase();
   };
 
   const handleWishlistToggle = () => {
@@ -489,6 +501,13 @@ export default function MarketplaceDetail() {
           setPurchaseMessage('You can return to this purchase anytime from the library.');
         }}
         onProceed={handlePurchase}
+      />
+
+      <StudentProfileCompletionModal
+        isOpen={profileCompletionOpen}
+        onClose={() => setProfileCompletionOpen(false)}
+        onSuccess={handleProfileCompletion}
+        materialId={material?._id}
       />
 
       <div className="product-layout">

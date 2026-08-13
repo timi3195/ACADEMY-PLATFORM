@@ -78,4 +78,9 @@ router.get("/withdrawals", protect, lecturerOnly, lecturerController.getWithdraw
 // Create withdrawal request
 router.post("/withdraw", protect, lecturerOnly, lecturerController.requestWithdrawal);
 
+// Lecturer payment settings
+router.get("/payment/settings", protect, lecturerOnly, lecturerController.getPaymentSettings);
+router.post("/payment/settings", protect, lecturerOnly, lecturerController.updatePaymentSettings);
+router.get("/payment/banks", protect, lecturerOnly, lecturerController.getAvailableBanks);
+
 module.exports = router;

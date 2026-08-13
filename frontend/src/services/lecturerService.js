@@ -164,6 +164,21 @@ export const lecturerService = {
 
     const { data } = await apiClient.get(`/api/lecturer/sales/export/csv?${params.toString()}`);
     return data;
+  },
+
+  async getPaymentSettings() {
+    const { data } = await apiClient.get('/api/lecturer/payment/settings');
+    return data;
+  },
+
+  async updatePaymentSettings(payload) {
+    const { data } = await apiClient.post('/api/lecturer/payment/settings', payload);
+    return data;
+  },
+
+  async getAvailableBanks() {
+    const { data } = await apiClient.get('/api/lecturer/payment/banks');
+    return data;
   }
 };
 

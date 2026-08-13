@@ -167,3 +167,38 @@ exports.getSalesExport = async (req, res) => {
     res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 };
+
+exports.getPaymentSettings = async (req, res) => {
+  try {
+    const settings = await lecturerService.getPaymentSettings(req.user.id);
+    res.json({ success: true, settings });
+  } catch (error) {
+    console.error("Lecturer payment settings error:", error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+};
+
+exports.updatePaymentSettings = async (req, res) => {
+  try {
+    const errors = lecturerValidator.validatePaymentSettings(req.body);
+    if (errors.length) {
+      return res.status(400).json({ success: false, errors });
+    }
+
+    const settings = await lecturerService.updatePaymentSettings(req.user.id, req.body);
+    res.json({ success: true, settings });
+  } catch (error) {
+    console.error("Lecturer payment settings update error:", error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+};
+
+exports.getAvailableBanks = async (req, res) => {
+  try {
+    const banks = await lecturerService.getAvailableBanks();
+    res.json({ success: true, banks });
+  } catch (error) {
+    console.error("Available banks error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};

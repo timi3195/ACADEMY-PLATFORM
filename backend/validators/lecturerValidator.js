@@ -165,3 +165,29 @@ exports.validateWithdrawalRequest = (body) => {
 
   return errors;
 };
+
+exports.validatePaymentSettings = (body) => {
+  const errors = [];
+
+  if (!body.bankCode || !String(body.bankCode).trim()) {
+    errors.push({ field: "bankCode", message: "Bank code is required" });
+  }
+
+  if (!body.accountNumber || !String(body.accountNumber).trim()) {
+    errors.push({ field: "accountNumber", message: "Account number is required" });
+  }
+
+  if (body.accountNumber && String(body.accountNumber).trim().length < 10) {
+    errors.push({ field: "accountNumber", message: "Account number must be at least 10 digits" });
+  }
+
+  if (!body.accountName || !String(body.accountName).trim()) {
+    errors.push({ field: "accountName", message: "Account name is required" });
+  }
+
+  if (body.bankName && !String(body.bankName).trim()) {
+    errors.push({ field: "bankName", message: "Bank name cannot be empty" });
+  }
+
+  return errors;
+};

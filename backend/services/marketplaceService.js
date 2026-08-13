@@ -634,6 +634,28 @@ const initializePurchase = async (materialId, user) => {
     throw error;
   }
 
+  // Validate student profile is complete before allowing purchase
+  if (!user.matricNumber || !String(user.matricNumber).trim()) {
+    const error = new Error("Please complete your student profile before purchasing this material. Matric number is required.");
+    error.statusCode = 400;
+    error.requiresProfileCompletion = true;
+    throw error;
+  }
+
+  if (!user.yearOfStudy) {
+    const error = new Error("Please complete your student profile before purchasing this material. Academic level is required.");
+    error.statusCode = 400;
+    error.requiresProfileCompletion = true;
+    throw error;
+  }
+
+  if (!user.department) {
+    const error = new Error("Please complete your student profile before purchasing this material. Department is required.");
+    error.statusCode = 400;
+    error.requiresProfileCompletion = true;
+    throw error;
+  }
+
   // For paid materials, verify lecturer has payment account configured
   if (material.isPaid && material.price > 0) {
     const lecturer = material.lecturer;

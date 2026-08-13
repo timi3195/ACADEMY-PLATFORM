@@ -545,6 +545,108 @@ const exportLecturerSalesAsCSV = async (lecturerId, query = {}) => {
   return csv;
 };
 
+/**
+ * Get lecturer's current payment account settings
+ */
+const getPaymentSettings = async (lecturerId) => {
+  const lecturer = await User.findById(lecturerId).select('paystackPayment name email').lean();
+  if (!lecturer) {
+    const error = new Error("Lecturer not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const settings = lecturer.paystackPayment || {};
+  return {
+    businessName: settings.businessName || lecturer.name || "",
+    bankCode: settings.bankCode || "",
+    bankName: settings.bankName || "",
+    accountNumber: settings.accountNumber || "",
+    accountName: settings.accountName || "",
+    verified: settings.verified || false,
+    subaccountCode: settings.verified ? settings.subaccountCode || null : null,
+    createdAt: settings.createdAt || null
+  };
+};
+
+/**
+ * Update lecturer's payment account settings and create/update Paystack subaccount
+ */
+const updatePaymentSettings = async (lecturerId, body) => {
+  const { bankCode, accountNumber, accountName } = body;
+
+  // Validation
+  if (!bankCode || !String(bankCode).trim()) {
+    const error = new Error("Bank code is required");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!accountNumber || !String(accountNumber).trim()) {
+    const error = new Error("Account number is required");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!accountName || !String(accountName).trim()) {
+    const error = new Error("Account name is required");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  // Find bank name from code (basic validation - could be extended with Paystack bank code mapping)
+  let bankName = "";
+  if (NIGERIAN_BANKS.includes(body.bankName)) {
+    bankName = body.bankName;
+  } else if (accountNumber.length >= 10) {
+    // If bank name not provided or invalid, accept for now
+    // In production, validate against Paystack's bank code API
+    bankName = body.bankName || "";
+  }
+
+  const lecturer = await User.findById(lecturerId);
+  if (!lecturer) {
+    const error = new Error("Lecturer not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  // Update paystack payment details (mark as unverified initially)
+  lecturer.paystackPayment = {
+    ...lecturer.paystackPayment,
+    businessName: lecturer.name || "",
+    bankCode: String(bankCode).trim(),
+    bankName: String(bankName).trim(),
+    accountNumber: String(accountNumber).trim(),
+    accountName: String(accountName).trim(),
+    verified: false,
+    createdAt: new Date()
+  };
+
+  await lecturer.save();
+
+  return {
+    businessName: lecturer.paystackPayment.businessName,
+    bankCode: lecturer.paystackPayment.bankCode,
+    bankName: lecturer.paystackPayment.bankName,
+    accountNumber: lecturer.paystackPayment.accountNumber,
+    accountName: lecturer.paystackPayment.accountName,
+    verified: lecturer.paystackPayment.verified,
+    message: "Payment settings updated. Your account will be verified with Paystack before you can sell paid materials."
+  };
+};
+
+/**
+ * Get list of available Nigerian banks
+ */
+const getAvailableBanks = async () => {
+  return NIGERIAN_BANKS.map((bankName) => ({
+    name: bankName,
+    // Bank codes would be mapped from Paystack API in production
+    code: bankName.toLowerCase().replace(/\s+/g, '_')
+  }));
+};
+
 module.exports = {
   getLecturerDashboard,
   getLecturerMaterials,
@@ -556,5 +658,8 @@ module.exports = {
   getLecturerWithdrawals,
   requestLecturerWithdrawal,
   getLecturerSales,
-  exportLecturerSalesAsCSV
+  exportLecturerSalesAsCSV,
+  getPaymentSettings,
+  updatePaymentSettings,
+  getAvailableBanks
 };
