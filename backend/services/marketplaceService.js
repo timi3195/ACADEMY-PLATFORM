@@ -7,6 +7,7 @@ const Department = require("../models/Department");
 const Transaction = require("../models/Transaction");
 const paystackService = require("./paystackService");
 const materialAccessService = require("./materialAccessService");
+const storageService = require("./storageService");
 
 const normalizeTags = (tags) => {
   if (!tags) return [];
@@ -369,8 +370,8 @@ const deleteMaterial = async (materialId, user) => {
     throw error;
   }
 
-  const storagePath = path.join(__dirname, "../uploads", material.storageFilename);
-  if (material.storageFilename && fs.existsSync(storagePath)) {
+  const storagePath = storageService.resolveStoragePath(material.storageFilename);
+  if (material.storageFilename && storagePath && fs.existsSync(storagePath)) {
     fs.unlinkSync(storagePath);
   }
 

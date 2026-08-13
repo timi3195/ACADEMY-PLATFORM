@@ -10,11 +10,9 @@ const User = require("../models/User");
 const protect = require("../config/middleware/authMiddleware");
 const adminOnly = require("../config/middleware/adminOnly");
 const materialAccessService = require("../services/materialAccessService");
+const storageService = require("../services/storageService");
 
-const uploadDir = path.join(__dirname, "../uploads");
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+const uploadDir = storageService.getUploadDir();
 
 // Storage config
 const storage = multer.diskStorage({
@@ -169,8 +167,14 @@ router.get("/past-questions", protect, async (req, res) => {
 router.get("/past-questions/:id", protect, async (req, res) => {
   const paper = await PastQuestionPaper.findById(req.params.id);
   if (!paper) return res.status(404).json({ success: false, message: "Past question paper not found." });
-  const filePath = path.join(uploadDir, paper.storageFilename);
-  if (!fs.existsSync(filePath)) return res.status(404).json({ success: false, message: "Past question file is unavailable." });
+const filePath = storageService.resolveStoragePath(paper.storageFilename);
+    if (!filePath || !fs.existsSync(filePath)) {
+      return res.status(404).json({
+        success: false,
+        message: "Past question file is unavailable.",
+        diagnostics: storageService.getStorageDiagnostics({ fileId: paper._id, storageFilename: paper.storageFilename })
+      });
+    }
   res.type(paper.mimeType).sendFile(filePath);
 });
 
@@ -229,8 +233,15 @@ router.get('/view/:id', protect, async (req, res) => {
     await materialAccessService.recordView({ material: file });
 
     const storageName = file.storageFilename;
-    const filePath = path.join(uploadDir, storageName);
-    if (!fs.existsSync(filePath)) return res.status(404).json({ success: false, message: 'File missing on server' });
+    const filePath = storageService.resolveStoragePath(storageName);
+    if (!filePath || !fs.existsSync(filePath)) {
+      return res.status(404).json({
+        success: false,
+        message: 'File missing on server',
+        diagnostics: storageService.getStorageDiagnostics({ fileId: file._id, storageFilename: storageName }),
+        hint: 'Set FILE_STORAGE_DIR to a persistent volume or object storage in production.'
+      });
+    }
 
     const mimeType = getMimeType(storageName || file.originalName || file.title);
     res.setHeader('Content-Type', mimeType);
@@ -273,8 +284,15 @@ router.get('/download/:id', protect, async (req, res) => {
     await materialAccessService.recordDownload({ material: file });
 
     const storageName = file.storageFilename;
-    const filePath = path.join(uploadDir, storageName);
-    if (!fs.existsSync(filePath)) return res.status(404).json({ success: false, message: 'File missing on server' });
+    const filePath = storageService.resolveStoragePath(storageName);
+    if (!filePath || !fs.existsSync(filePath)) {
+      return res.status(404).json({
+        success: false,
+        message: 'File missing on server',
+        diagnostics: storageService.getStorageDiagnostics({ fileId: file._id, storageFilename: storageName }),
+        hint: 'Set FILE_STORAGE_DIR to a persistent volume or object storage in production.'
+      });
+    }
 
     const isPDF = (storageName || file.originalName || file.title).toLowerCase().endsWith('.pdf');
     if (isPDF) {

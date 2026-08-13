@@ -5,13 +5,11 @@ const fs = require("fs");
 const protect = require("../config/middleware/authMiddleware");
 const lecturerOnly = require("../config/middleware/lecturerOnly");
 const lecturerController = require("../controllers/lecturerController");
+const storageService = require("../services/storageService");
 
 const router = express.Router();
 
-const uploadDir = path.join(__dirname, "../uploads");
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+const uploadDir = storageService.getUploadDir();
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),

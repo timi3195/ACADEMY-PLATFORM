@@ -7,13 +7,11 @@ const optionalAuth = require("../config/middleware/optionalAuth");
 const lecturerOnly = require("../config/middleware/lecturerOnly");
 const adminOnly = require("../config/middleware/adminOnly");
 const marketplaceController = require("../controllers/marketplaceController");
+const storageService = require("../services/storageService");
 
 const router = express.Router();
 
-const uploadDir = path.join(__dirname, "../uploads");
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+const uploadDir = storageService.getUploadDir();
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),

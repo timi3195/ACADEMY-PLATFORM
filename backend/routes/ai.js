@@ -2,6 +2,7 @@ const express = require("express");
 const mongoose = require("mongoose");
 const multer = require("multer");
 const path = require("path");
+const storageService = require("../services/storageService");
 const router = express.Router();
 
 // Middleware
@@ -26,7 +27,7 @@ const geminiService = require("../utils/gemini");
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, path.join(__dirname, "../uploads"));
+    cb(null, storageService.getUploadDir());
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
