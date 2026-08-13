@@ -301,6 +301,7 @@ const recordPurchaseWithSplit = async ({ user, material, reference, amount, disc
     currency: "NGN",
     paymentProvider: "paystack",
     studentNameAtPurchase: user.name || "",
+    studentEmailAtPurchase: user.email || "",
     studentMatricAtPurchase: user.matricNumber || "",
     paystackTransactionId: paystackTransactionId || null
   });

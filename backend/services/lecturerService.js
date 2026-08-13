@@ -15,6 +15,8 @@ const Withdrawal = require("../models/Withdrawal");
 const materialAccessService = require("../services/materialAccessService");
 const { normalizeAcademicLevel } = require('../utils/academicLevels');
 const NIGERIAN_BANKS = require("../utils/bankList");
+const paystackService = require("../services/paystackService");
+const { getPaystackBankCode, getAllBanksWithCodes } = require("../utils/paystackBankCodes");
 
 const buildLecturerMaterialFilters = (lecturerId, query) => {
   const filters = {
@@ -546,6 +548,130 @@ const exportLecturerSalesAsCSV = async (lecturerId, query = {}) => {
 };
 
 /**
+ * Update lecturer's payment account settings and create/update Paystack subaccount
+ */
+const updatePaymentSettings = async (lecturerId, body) => {
+  const { bankCode, accountNumber, accountName, bankName } = body;
+
+  // Validation
+  if (!bankCode || !String(bankCode).trim()) {
+    const error = new Error("Bank code is required");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!accountNumber || !String(accountNumber).trim()) {
+    const error = new Error("Account number is required");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (String(accountNumber).trim().length < 10) {
+    const error = new Error("Account number must be at least 10 digits");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!accountName || !String(accountName).trim()) {
+    const error = new Error("Account name is required");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!bankName || !NIGERIAN_BANKS.includes(bankName)) {
+    const error = new Error("Valid bank name is required");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  // Verify bank name has a Paystack code
+  const paystackBankCode = getPaystackBankCode(bankName);
+  if (!paystackBankCode) {
+    const error = new Error(`Bank "${bankName}" is not supported by Paystack`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const lecturer = await User.findById(lecturerId);
+  if (!lecturer) {
+    const error = new Error("Lecturer not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  // Prepare sanitized account number (only store last 4 digits for security)
+  const accountNumberStr = String(accountNumber).trim();
+  const accountNumberLast4 = accountNumberStr.slice(-4);
+
+  try {
+    // Create or update Paystack subaccount
+    // First, prepare the payload for Paystack
+    const subaccountPayload = {
+      business_name: lecturer.name || "Lecturer Account",
+      settlement_bank: paystackBankCode,  // Use Paystack's bank code
+      account_number: accountNumberStr,   // Full account number sent to Paystack only
+      account_name: String(accountName).trim(),
+      percentage_charge: 10  // Platform commission percentage
+    };
+
+    // Create subaccount with Paystack
+    const paystackResponse = await paystackService.createSubaccount(lecturer, subaccountPayload);
+
+    if (!paystackResponse || !paystackResponse.subaccount_code) {
+      const error = new Error("Failed to create Paystack subaccount. Please check your account details.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Update lecturer record with verified account details
+    lecturer.paystackPayment = {
+      subaccountCode: paystackResponse.subaccount_code,
+      businessName: lecturer.name || "",
+      bankCode: paystackBankCode,  // Store Paystack bank code
+      bankName: String(bankName).trim(),
+      accountNumber: accountNumberLast4,  // Store only last 4 digits for security
+      accountName: String(accountName).trim(),
+      percentageCharge: 10,
+      verified: true,  // Mark as verified after successful Paystack creation
+      createdAt: new Date(),
+      paystackSubaccountId: paystackResponse.id || null
+    };
+
+    await lecturer.save();
+
+    // Log successful subaccount creation (safe info only)
+    console.log(`[Paystack] Subaccount created for lecturer ${lecturer._id}. Subaccount code: ${paystackResponse.subaccount_code.substring(0, 10)}...`);
+
+    return {
+      success: true,
+      businessName: lecturer.paystackPayment.businessName,
+      bankCode: paystackBankCode,
+      bankName: lecturer.paystackPayment.bankName,
+      accountNumberLast4: accountNumberLast4,
+      accountName: lecturer.paystackPayment.accountName,
+      verified: lecturer.paystackPayment.verified,
+      message: "Payment account verified successfully! You can now publish paid materials."
+    };
+  } catch (err) {
+    // Log detailed error for debugging (without exposing credentials)
+    console.error(`[Paystack] Subaccount creation failed for lecturer ${lecturerId}:`, {
+      error: err.message,
+      status: err.response?.status,
+      paystackError: err.response?.data?.message
+    });
+
+    // Return specific Paystack error if available
+    if (err.response?.data?.message) {
+      const error = new Error(`Paystack error: ${err.response.data.message}`);
+      error.statusCode = err.response.status || 400;
+      throw error;
+    }
+
+    throw err;
+  }
+};
+
+/**
  * Get lecturer's current payment account settings
  */
 const getPaymentSettings = async (lecturerId) => {
@@ -561,90 +687,19 @@ const getPaymentSettings = async (lecturerId) => {
     businessName: settings.businessName || lecturer.name || "",
     bankCode: settings.bankCode || "",
     bankName: settings.bankName || "",
-    accountNumber: settings.accountNumber || "",
+    accountNumberLast4: settings.accountNumber || "",  // Already storing last 4 digits
     accountName: settings.accountName || "",
     verified: settings.verified || false,
-    subaccountCode: settings.verified ? settings.subaccountCode || null : null,
+    subaccountCode: settings.verified ? (settings.subaccountCode || null) : null,
     createdAt: settings.createdAt || null
   };
 };
 
 /**
- * Update lecturer's payment account settings and create/update Paystack subaccount
- */
-const updatePaymentSettings = async (lecturerId, body) => {
-  const { bankCode, accountNumber, accountName } = body;
-
-  // Validation
-  if (!bankCode || !String(bankCode).trim()) {
-    const error = new Error("Bank code is required");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  if (!accountNumber || !String(accountNumber).trim()) {
-    const error = new Error("Account number is required");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  if (!accountName || !String(accountName).trim()) {
-    const error = new Error("Account name is required");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  // Find bank name from code (basic validation - could be extended with Paystack bank code mapping)
-  let bankName = "";
-  if (NIGERIAN_BANKS.includes(body.bankName)) {
-    bankName = body.bankName;
-  } else if (accountNumber.length >= 10) {
-    // If bank name not provided or invalid, accept for now
-    // In production, validate against Paystack's bank code API
-    bankName = body.bankName || "";
-  }
-
-  const lecturer = await User.findById(lecturerId);
-  if (!lecturer) {
-    const error = new Error("Lecturer not found");
-    error.statusCode = 404;
-    throw error;
-  }
-
-  // Update paystack payment details (mark as unverified initially)
-  lecturer.paystackPayment = {
-    ...lecturer.paystackPayment,
-    businessName: lecturer.name || "",
-    bankCode: String(bankCode).trim(),
-    bankName: String(bankName).trim(),
-    accountNumber: String(accountNumber).trim(),
-    accountName: String(accountName).trim(),
-    verified: false,
-    createdAt: new Date()
-  };
-
-  await lecturer.save();
-
-  return {
-    businessName: lecturer.paystackPayment.businessName,
-    bankCode: lecturer.paystackPayment.bankCode,
-    bankName: lecturer.paystackPayment.bankName,
-    accountNumber: lecturer.paystackPayment.accountNumber,
-    accountName: lecturer.paystackPayment.accountName,
-    verified: lecturer.paystackPayment.verified,
-    message: "Payment settings updated. Your account will be verified with Paystack before you can sell paid materials."
-  };
-};
-
-/**
- * Get list of available Nigerian banks
+ * Get list of available Nigerian banks with Paystack codes
  */
 const getAvailableBanks = async () => {
-  return NIGERIAN_BANKS.map((bankName) => ({
-    name: bankName,
-    // Bank codes would be mapped from Paystack API in production
-    code: bankName.toLowerCase().replace(/\s+/g, '_')
-  }));
+  return getAllBanksWithCodes();
 };
 
 module.exports = {

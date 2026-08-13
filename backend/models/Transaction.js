@@ -93,6 +93,11 @@ const transactionSchema = new mongoose.Schema({
     default: ""
   },
 
+  studentEmailAtPurchase: {
+    type: String,
+    default: ""
+  },
+
   studentMatricAtPurchase: {
     type: String,
     default: ""

@@ -77,24 +77,25 @@ const verifyPayment = async (reference) => {
 };
 
 // Create a subaccount for a lecturer
-const createSubaccount = async (lecturer) => {
+const createSubaccount = async (lecturer, payload) => {
   if (!PAYSTACK_SECRET_KEY) {
     const error = new Error("Paystack configuration missing");
     error.statusCode = 500;
     throw error;
   }
 
-  const payload = {
+  // Use provided payload or build from lecturer data (for backward compatibility)
+  const subaccountPayload = payload || {
     business_name: lecturer.name || "Lecturer Account",
     settlement_bank: lecturer.paystackPayment?.bankCode,
     account_number: lecturer.paystackPayment?.accountNumber,
-    percentage_charge: PLATFORM_COMMISSION_PERCENTAGE // Platform keeps this percentage
+    percentage_charge: PLATFORM_COMMISSION_PERCENTAGE
   };
 
   try {
     const response = await axios.post(
       "https://api.paystack.co/subaccount",
-      payload,
+      subaccountPayload,
       {
         headers: {
           Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
@@ -111,7 +112,12 @@ const createSubaccount = async (lecturer) => {
 
     return response.data.data;
   } catch (err) {
-    console.error("Subaccount creation error:", err.response?.data || err.message);
+    console.error("Subaccount creation error:", {
+      message: err.message,
+      status: err.response?.status,
+      paystackMessage: err.response?.data?.message,
+      paystackErrors: err.response?.data?.errors
+    });
     throw err;
   }
 };

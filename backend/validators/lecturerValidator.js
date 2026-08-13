@@ -168,6 +168,13 @@ exports.validateWithdrawalRequest = (body) => {
 
 exports.validatePaymentSettings = (body) => {
   const errors = [];
+  const NIGERIAN_BANKS = require('../utils/bankList');
+
+  if (!body.bankName || !String(body.bankName).trim()) {
+    errors.push({ field: "bankName", message: "Bank name is required" });
+  } else if (!NIGERIAN_BANKS.includes(String(body.bankName).trim())) {
+    errors.push({ field: "bankName", message: "Invalid bank name" });
+  }
 
   if (!body.bankCode || !String(body.bankCode).trim()) {
     errors.push({ field: "bankCode", message: "Bank code is required" });
@@ -183,10 +190,6 @@ exports.validatePaymentSettings = (body) => {
 
   if (!body.accountName || !String(body.accountName).trim()) {
     errors.push({ field: "accountName", message: "Account name is required" });
-  }
-
-  if (body.bankName && !String(body.bankName).trim()) {
-    errors.push({ field: "bankName", message: "Bank name cannot be empty" });
   }
 
   return errors;
