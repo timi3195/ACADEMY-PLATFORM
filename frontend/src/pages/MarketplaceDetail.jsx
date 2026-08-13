@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link, useLocation } from 'react-router-dom';
 import marketplaceService from '../services/marketplaceService';
 import purchaseService from '../services/purchaseService';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -46,13 +46,21 @@ export default function MarketplaceDetail() {
   const [receipt, setReceipt] = useState(null);
   const [pendingPurchase, setPendingPurchase] = useState(null);
 
+  const location = useLocation();
+  const initialMaterial = location?.state?.material || null;
+
   const loadMaterial = async () => {
     try {
       setLoading(true);
       setError('');
+      // If we have an initial material passed via Link state (e.g., from Library), use it immediately
+      if (initialMaterial) {
+        setMaterial(initialMaterial);
+      }
+
       const response = await marketplaceService.getMaterialById(id);
       const nextMaterial = response.material || response;
-      setMaterial(nextMaterial);
+      setMaterial(nextMaterial || initialMaterial);
       if (user) {
         setAccessLoading(true);
         try {

@@ -208,23 +208,23 @@ function MaterialCard({ material, onPurchase, onPreview, searchTerm = '', progre
               </button>
             )}
             {isPurchased && detailHref && (
-              <Link className="product-card__button" to={detailHref}>
+              <Link className="product-card__button" to={detailHref} state={{ material }}>
                 Read now
               </Link>
             )}
             {isOwner && detailHref && (
-              <Link className="product-card__button" to={detailHref}>
+              <Link className="product-card__button" to={detailHref} state={{ material }}>
                 Continue reading
               </Link>
             )}
             {!isPurchased && !isOwner && detailHref && !onPurchase && (
-              <Link className="product-card__button" to={detailHref}>
+              <Link className="product-card__button" to={detailHref} state={{ material }}>
                 View details
               </Link>
             )}
           </div>
           {detailHref && (
-            <Link className="product-card__link" to={detailHref}>
+            <Link className="product-card__link" to={detailHref} state={{ material }}>
               Open
             </Link>
           )}
