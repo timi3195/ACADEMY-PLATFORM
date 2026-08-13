@@ -57,8 +57,9 @@ export function LibraryProvider({ children }) {
     items,
     loading,
     error,
+    pagination,
     loadLibrary
-  }), [items, loading, error]);
+  }), [items, loading, error, pagination, loadLibrary]);
 
   return <LibraryContext.Provider value={value}>{children}</LibraryContext.Provider>;
 }

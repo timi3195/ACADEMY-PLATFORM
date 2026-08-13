@@ -12,7 +12,7 @@ import useDebounce from '../hooks/useDebounce';
 import { getProgressEntry, getProgressPercent, loadWishlistEntries, toggleWishlistEntry, isWishlisted } from '../utils/libraryState';
 
 export default function Library() {
-  const { items, loading, error, loadLibrary, pagination } = useLibrary();
+  const { items, loading, error, loadLibrary, pagination = { page: 1, limit: 8, total: 0, totalPages: 1 } } = useLibrary();
   const { materials, loadMaterials } = useMarketplace();
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('newest');
@@ -54,7 +54,12 @@ export default function Library() {
 
   const filteredItems = sourceItems;
 
-  const totalPages = useMemo(() => Math.max(1, pagination.totalPages || Math.ceil((pagination.total || sourceItems.length) / pageSize)), [pagination.totalPages, pagination.total, sourceItems.length]);
+  const totalPages = useMemo(() => {
+    const safePagination = pagination || { page: 1, limit: pageSize, total: 0, totalPages: 1 };
+    const derivedTotal = Number(safePagination.total || sourceItems.length || 0);
+    const derivedTotalPages = Number(safePagination.totalPages || 0);
+    return Math.max(1, derivedTotalPages || Math.ceil(derivedTotal / pageSize));
+  }, [pagination, pageSize, sourceItems.length]);
 
   const departmentOptions = useMemo(() => Array.from(new Set(sourceItems.map((item) => item.material?.department?.name || item.material?.department).filter(Boolean))).sort(), [sourceItems]);
   const courseOptions = useMemo(() => Array.from(new Set(sourceItems.map((item) => item.material?.course?.title || item.material?.course?.code || item.material?.course).filter(Boolean))).sort(), [sourceItems]);
