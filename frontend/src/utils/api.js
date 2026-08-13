@@ -94,5 +94,6 @@ async function request(path, options = {}) {
 export async function apiGet(path) { return request(path, { method: 'GET' }) }
 export async function apiPost(path, body) { return request(path, { method: 'POST', body: body instanceof FormData ? body : JSON.stringify(body) }) }
 export async function apiPut(path, body) { return request(path, { method: 'PUT', body: body instanceof FormData ? body : JSON.stringify(body) }) }
+export async function apiPatch(path, body) { return request(path, { method: 'PATCH', body: body instanceof FormData ? body : JSON.stringify(body) }) }
 export async function apiDelete(path) { return request(path, { method: 'DELETE' }) }
 export { API_BASE, getAccessToken, setAccessToken }

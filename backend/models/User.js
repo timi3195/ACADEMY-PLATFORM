@@ -87,6 +87,29 @@ const userSchema = new mongoose.Schema({
     default: "student"
   },
 
+  // Lecturer approval and profile details
+  lecturerStatus: {
+    type: String,
+    enum: ["not_requested", "pending", "approved", "rejected"],
+    default: "not_requested"
+  },
+  lecturerProfile: {
+    specialty: { type: String, default: "" },
+    bio: { type: String, default: "" },
+    institution: { type: String, default: "" },
+    experience: { type: String, default: "" }
+  },
+  lecturerApplication: {
+    submittedAt: { type: Date, default: null },
+    reviewedAt: { type: Date, default: null },
+    reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    rejectionReason: { type: String, default: "" },
+    approvedAt: { type: Date, default: null },
+    approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    rejectedAt: { type: Date, default: null },
+    rejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null }
+  },
+
   // Lecturer marketplace suspension flag
   marketplaceSuspended: {
     type: Boolean,

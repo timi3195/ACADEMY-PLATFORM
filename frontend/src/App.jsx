@@ -23,6 +23,10 @@ import MarketplaceDetail from './pages/MarketplaceDetail'
 import Library from './pages/Library'
 import Reader from './pages/Reader'
 import LecturerDashboard from './pages/LecturerDashboard'
+import LecturerRegister from './pages/LecturerRegister'
+import LecturerPending from './pages/LecturerPending'
+import LecturerRejected from './pages/LecturerRejected'
+import AdminLecturerManagement from './pages/AdminLecturerManagement'
 import MainLayout from './layouts/MainLayout'
 import AuthLayout from './layouts/AuthLayout'
 
@@ -60,6 +64,34 @@ function AdminOnly({ children }) {
   return <MainLayout>{children}</MainLayout>
 }
 
+function ApprovedLecturerOnly({ children }) {
+  const { user, loading } = useAuth()
+  if (loading) return <div className="flex items-center justify-center h-screen">Loading...</div>
+  if (!user) return <Navigate to="/login" replace />
+
+  if (user.role?.toLowerCase() === 'admin') {
+    return <MainLayout>{children}</MainLayout>
+  }
+
+  if (user.role?.toLowerCase() !== 'lecturer') {
+    return <Navigate to="/lecturer/register" replace />
+  }
+
+  if (user.lecturerStatus === 'pending') {
+    return <Navigate to="/lecturer/pending" replace />
+  }
+
+  if (user.lecturerStatus === 'rejected') {
+    return <Navigate to="/lecturer/rejected" replace />
+  }
+
+  if (user.lecturerStatus !== 'approved') {
+    return <Navigate to="/lecturer/register" replace />
+  }
+
+  return <MainLayout>{children}</MainLayout>
+}
+
 export default function App() {
   return (
     <AuthProvider>
@@ -86,9 +118,13 @@ export default function App() {
         <Route path="/marketplace/:id" element={<Protected><MarketplaceDetail /></Protected>} />
         <Route path="/reader/:materialId" element={<Protected><Reader /></Protected>} />
         <Route path="/library" element={<Protected><Library /></Protected>} />
-        <Route path="/lecturer" element={<Protected><LecturerDashboard /></Protected>} />
+        <Route path="/lecturer/register" element={<Protected><LecturerRegister /></Protected>} />
+        <Route path="/lecturer/pending" element={<Protected><LecturerPending /></Protected>} />
+        <Route path="/lecturer/rejected" element={<Protected><LecturerRejected /></Protected>} />
+        <Route path="/lecturer" element={<ApprovedLecturerOnly><LecturerDashboard /></ApprovedLecturerOnly>} />
         <Route path="/upgrade" element={<Protected><Upgrade /></Protected>} />
         <Route path="/admin" element={<AdminOnly><AdminPanel /></AdminOnly>} />
+        <Route path="/admin/lecturers" element={<AdminOnly><AdminLecturerManagement /></AdminOnly>} />
 
         {/* Catch all */}
         <Route path="*" element={<Navigate to="/" replace />} />

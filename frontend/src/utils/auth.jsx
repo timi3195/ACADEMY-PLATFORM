@@ -50,6 +50,11 @@ export function AuthProvider({ children }) {
     return res
   }
 
+  const registerLecturer = async (payload) => {
+    const res = await apiPost('/api/auth/lecturer/register', payload)
+    return res
+  }
+
   /**
    * Login with email and password
    */
@@ -205,6 +210,7 @@ export function AuthProvider({ children }) {
       user, 
       loading,
       register,
+      registerLecturer,
       login, 
       logout,
       logoutAll,

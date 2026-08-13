@@ -177,6 +177,114 @@ router.get("/users", protect, adminOnly, async (req, res) => {
   }
 });
 
+// Get all lecturer applications
+router.get("/lecturers", protect, adminOnly, async (req, res) => {
+  try {
+    const { status } = req.query;
+    const filter = { role: "lecturer" };
+
+    if (status) {
+      filter.lecturerStatus = status;
+    }
+
+    const lecturers = await User.find(filter)
+      .populate("department", "name code")
+      .sort({ createdAt: -1 })
+      .select("-password -refreshTokens -emailVerificationToken -resetPasswordToken");
+
+    res.json({
+      success: true,
+      count: lecturers.length,
+      lecturers
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
+});
+
+// Approve lecturer application
+router.patch("/lecturers/:userId/approve", protect, adminOnly, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "Lecturer not found"
+      });
+    }
+
+    user.role = "lecturer";
+    user.lecturerStatus = "approved";
+    user.lecturerApplication = {
+      ...user.lecturerApplication,
+      reviewedAt: new Date(),
+      reviewedBy: req.user.id,
+      approvedAt: new Date(),
+      approvedBy: req.user.id,
+      rejectedAt: null,
+      rejectedBy: null,
+      rejectionReason: ""
+    };
+
+    await user.save();
+
+    res.json({
+      success: true,
+      message: "Lecturer approved successfully",
+      user
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
+});
+
+// Reject lecturer application
+router.patch("/lecturers/:userId/reject", protect, adminOnly, async (req, res) => {
+  try {
+    const { reason } = req.body || {};
+    const user = await User.findById(req.params.userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "Lecturer not found"
+      });
+    }
+
+    user.lecturerStatus = "rejected";
+    user.role = "lecturer";
+    user.lecturerApplication = {
+      ...user.lecturerApplication,
+      reviewedAt: new Date(),
+      reviewedBy: req.user.id,
+      rejectedAt: new Date(),
+      rejectedBy: req.user.id,
+      rejectionReason: reason || "Application did not meet the platform requirements.",
+      approvedAt: null,
+      approvedBy: null
+    };
+
+    await user.save();
+
+    res.json({
+      success: true,
+      message: "Lecturer application rejected",
+      user
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
+});
+
 /**
  * ANALYTICS (Admin only)
  */

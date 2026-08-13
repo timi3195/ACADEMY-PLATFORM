@@ -20,9 +20,12 @@ export default function Sidebar() {
 
   if (user?.role === 'lecturer' || user?.role === 'admin') {
     links.splice(8, 0, { to: '/lecturer', label: 'Lecturer', icon: '▣' });
+  } else if (user?.role === 'student') {
+    links.splice(8, 0, { to: '/lecturer/register', label: 'Become Lecturer', icon: '▣' });
   }
 
   if (user?.role === 'admin') {
+    links.push({ to: '/admin/lecturers', label: 'Lecturer Review', icon: '✓' });
     links.push({ to: '/admin', label: 'Admin', icon: '⚑' });
   }
 

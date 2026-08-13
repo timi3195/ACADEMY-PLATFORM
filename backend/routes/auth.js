@@ -175,6 +175,86 @@ router.post("/register", async (req, res) => {
 });
 
 /**
+ * POST /api/auth/lecturer/register
+ * Submit a lecturer application that must be approved by an admin.
+ */
+router.post("/lecturer/register", protect, async (req, res) => {
+  try {
+    const { specialty, bio, institution, experience } = req.body;
+
+    if (!specialty || !bio || !institution || !experience) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide specialty, bio, institution, and experience."
+      });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    if (user.role === "lecturer" && user.lecturerStatus === "approved") {
+      return res.status(400).json({
+        success: false,
+        message: "You are already an approved lecturer."
+      });
+    }
+
+    if (user.lecturerStatus === "pending") {
+      return res.status(400).json({
+        success: false,
+        message: "Your lecturer application is already pending admin review."
+      });
+    }
+
+    user.role = "lecturer";
+    user.lecturerStatus = "pending";
+    user.lecturerProfile = {
+      specialty: String(specialty).trim(),
+      bio: String(bio).trim(),
+      institution: String(institution).trim(),
+      experience: String(experience).trim()
+    };
+    user.lecturerApplication = {
+      ...user.lecturerApplication,
+      submittedAt: new Date(),
+      reviewedAt: null,
+      reviewedBy: null,
+      rejectionReason: "",
+      approvedAt: null,
+      approvedBy: null,
+      rejectedAt: null,
+      rejectedBy: null
+    };
+
+    await user.save();
+
+    return res.status(201).json({
+      success: true,
+      message: "Lecturer application submitted successfully. Your account is pending approval.",
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        lecturerStatus: user.lecturerStatus,
+        lecturerProfile: user.lecturerProfile
+      }
+    });
+  } catch (error) {
+    console.error("Lecturer registration error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
+/**
  * POST /api/auth/login
  * Login with email and password
  */
@@ -267,6 +347,7 @@ router.post("/login", rateLimitLogin, async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
+        lecturerStatus: user.lecturerStatus,
         plan: user.plan,
         subscriptionType: user.subscriptionType,
         subscriptionExpiresAt: user.subscriptionExpiresAt,
