@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const protect = require("../config/middleware/authMiddleware");
 const adminOnly = require("../config/middleware/adminOnly");
+const { getAdminLecturerList } = require("../services/adminService");
 
 const User = require("../models/User");
 const Course = require("../models/course");
@@ -181,22 +182,9 @@ router.get("/users", protect, adminOnly, async (req, res) => {
 router.get("/lecturers", protect, adminOnly, async (req, res) => {
   try {
     const { status } = req.query;
-    const filter = { role: "lecturer" };
+    const result = await getAdminLecturerList({ status });
 
-    if (status) {
-      filter.lecturerStatus = status;
-    }
-
-    const lecturers = await User.find(filter)
-      .populate("department", "name code")
-      .sort({ createdAt: -1 })
-      .select("-password -refreshTokens -emailVerificationToken -resetPasswordToken");
-
-    res.json({
-      success: true,
-      count: lecturers.length,
-      lecturers
-    });
+    res.json(result);
   } catch (err) {
     res.status(500).json({
       success: false,
