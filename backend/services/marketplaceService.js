@@ -255,7 +255,19 @@ const getMaterialById = async (id, user = null) => {
   const isOwner = Boolean(material.lecturer && userId && material.lecturer._id?.toString() === userId.toString());
   const isAdmin = Boolean(user && user.role === "admin");
 
+  // Base allowed for owner/admin
   if (isOwner || isAdmin) {
+    // Attach full access metadata for owners/admins if a user context is present
+    if (userId) {
+      const downloadAccess = await materialAccessService.canDownloadMaterial({ user: { id: userId }, material, restrictByCourse: false });
+      return {
+        ...normalizedMaterial,
+        access: { hasAccess: true, canView: true, canRead: true, canDownload: downloadAccess.allowed, reason: 'admin_or_owner', isPurchased: false },
+        allowDownload: Boolean(downloadAccess.allowed),
+        canDownload: Boolean(downloadAccess.allowed)
+      };
+    }
+
     return normalizedMaterial;
   }
 
@@ -263,8 +275,29 @@ const getMaterialById = async (id, user = null) => {
     return null;
   }
 
+  // Publicly visible materials are returned; for authenticated users, include access metadata
   if ((normalizedMaterial.productStatus === "published" || normalizedMaterial.status === "approved") && ["public", "unlisted"].includes(normalizedMaterial.visibility)) {
-    return normalizedMaterial;
+    if (!userId) {
+      return normalizedMaterial;
+    }
+
+    // Determine access using the existing access-control service (do not duplicate transaction queries)
+    const viewAccess = await materialAccessService.canViewMaterial({ user: { id: userId }, material, restrictByCourse: false });
+    const downloadAccess = await materialAccessService.canDownloadMaterial({ user: { id: userId }, material, restrictByCourse: false });
+
+    return {
+      ...normalizedMaterial,
+      access: {
+        hasAccess: Boolean(viewAccess.allowed),
+        canView: Boolean(viewAccess.allowed),
+        canRead: Boolean(viewAccess.allowed),
+        canDownload: Boolean(downloadAccess.allowed),
+        isPurchased: viewAccess.reason === 'purchased' || downloadAccess.allowed,
+        reason: viewAccess.reason || null
+      },
+      allowDownload: Boolean(downloadAccess.allowed),
+      canDownload: Boolean(downloadAccess.allowed)
+    };
   }
 
   return null;
