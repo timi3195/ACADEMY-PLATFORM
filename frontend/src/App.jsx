@@ -21,6 +21,7 @@ import AnalyticsDashboard from './pages/AnalyticsDashboard'
 import Marketplace from './pages/Marketplace'
 import MarketplaceDetail from './pages/MarketplaceDetail'
 import Library from './pages/Library'
+import Reader from './pages/Reader'
 import LecturerDashboard from './pages/LecturerDashboard'
 import MainLayout from './layouts/MainLayout'
 import AuthLayout from './layouts/AuthLayout'
@@ -83,6 +84,7 @@ export default function App() {
         <Route path="/analytics" element={<Protected><AnalyticsDashboard /></Protected>} />
         <Route path="/marketplace" element={<Protected><Marketplace /></Protected>} />
         <Route path="/marketplace/:id" element={<Protected><MarketplaceDetail /></Protected>} />
+        <Route path="/reader/:materialId" element={<Protected><Reader /></Protected>} />
         <Route path="/library" element={<Protected><Library /></Protected>} />
         <Route path="/lecturer" element={<Protected><LecturerDashboard /></Protected>} />
         <Route path="/upgrade" element={<Protected><Upgrade /></Protected>} />

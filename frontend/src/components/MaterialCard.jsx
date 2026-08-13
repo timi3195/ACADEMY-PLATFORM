@@ -81,6 +81,7 @@ function MaterialCard({ material, onPurchase, onPreview, searchTerm = '', progre
   const isAdminPreview = Boolean(user && (user.role === 'admin' || user.isAdmin) && material?.status && material.status !== 'approved');
   const isUnavailable = Boolean(material?.hidden || material?.visibility === 'private' || material?.status === 'rejected' || (material?.status === 'draft' && !isOwner));
   const detailHref = material?._id ? `/marketplace/${material._id}` : undefined;
+  const readerHref = material?._id ? `/reader/${material._id}` : undefined;
   const rating = Number(material?.ratingAverage || 0);
   const reviewCount = Number(material?.ratingCount || 0);
   const salesCount = Number(material?.sales || material?.purchases || 0);
@@ -207,13 +208,13 @@ function MaterialCard({ material, onPurchase, onPreview, searchTerm = '', progre
                 {isFree ? 'Get now' : 'Buy now'}
               </button>
             )}
-            {isPurchased && detailHref && (
-              <Link className="product-card__button" to={detailHref} state={{ material }}>
+            {isPurchased && readerHref && (
+              <Link className="product-card__button" to={readerHref} state={{ material }}>
                 Read now
               </Link>
             )}
-            {isOwner && detailHref && (
-              <Link className="product-card__button" to={detailHref} state={{ material }}>
+            {isOwner && readerHref && (
+              <Link className="product-card__button" to={readerHref} state={{ material }}>
                 Continue reading
               </Link>
             )}
