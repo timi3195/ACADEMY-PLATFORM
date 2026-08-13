@@ -24,6 +24,10 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload,
     let objectUrl;
     let active = true;
 
+    if (disablePreviewLimit) {
+      setPageNumber(1);
+    }
+
     const loadAuthorizedFile = async () => {
       if (!resolvedMaterialId && !fileUrl) return;
 
@@ -105,7 +109,7 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload,
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [fileUrl, resolvedMaterialId, storageKey, fileName]);
+  }, [fileUrl, resolvedMaterialId, storageKey, fileName, disablePreviewLimit]);
 
   useEffect(() => {
     if (pageNumber > 1) {
@@ -183,6 +187,17 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload,
   const resetZoom = () => setScale(1);
 
   const isUnsupported = fileKind === 'unsupported' || (!fileKind && !loading && !fileWithAuth && !docHtml);
+
+  if (process.env.NODE_ENV !== 'production') {
+    console.info('[PDFViewer]', {
+      materialId: resolvedMaterialId,
+      fileKind,
+      hasAccess: disablePreviewLimit,
+      maxPages: effectiveMaxPages,
+      canDownload: Boolean(canDownload),
+      pageCount: numPages
+    });
+  }
 
   if (error) {
     const isAuthError = error.message && (error.message.includes('403') || error.message.includes('unauthorized') || error.message.includes('premium') || error.message.includes('subscription'));

@@ -3,9 +3,17 @@ export function normalizeMaterialAccess(response) {
     ? response.access
     : response || {};
 
-  const access = typeof payload.access === 'boolean' ? payload.access : Boolean(payload.access);
+  const accessValue = payload.access ?? payload.hasAccess ?? payload.canView ?? payload.canRead ?? payload.isPurchased ?? payload.purchased ?? payload.granted ?? false;
+  const access = Boolean(accessValue);
+  const canDownload = Boolean(payload.canDownload ?? payload.allowDownload ?? accessValue);
+
   return {
     access,
+    hasAccess: access,
+    canView: access,
+    canRead: access,
+    canDownload,
+    isPurchased: access,
     reason: payload.reason || 'No access yet'
   };
 }

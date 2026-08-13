@@ -31,7 +31,7 @@ export default function MarketplaceDetail() {
   const navigate = useNavigate();
   const { user, refreshUser } = useAuth();
   const { materials, loadMaterials } = useMarketplace();
-  const { loadLibrary } = useLibrary();
+  const { items: libraryItems = [], loadLibrary } = useLibrary();
   const [material, setMaterial] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -59,7 +59,14 @@ export default function MarketplaceDetail() {
           const accessResponse = await purchaseService.getMaterialAccess(id);
           setAccess(normalizeMaterialAccess(accessResponse));
         } catch (accessErr) {
-          setAccess({ access: false, reason: accessErr.message || 'Unable to verify access' });
+          const libraryOwned = Array.isArray(libraryItems) && libraryItems.some((item) => {
+            const ownedId = item?.material?._id || item?.materialId || item?._id;
+            return Boolean(ownedId && ownedId === id);
+          });
+
+          setAccess(libraryOwned
+            ? { access: true, hasAccess: true, canView: true, canRead: true, canDownload: true, isPurchased: true, reason: 'Library purchase confirmed' }
+            : { access: false, hasAccess: false, canView: false, canRead: false, canDownload: false, isPurchased: false, reason: accessErr.message || 'Unable to verify access' });
         } finally {
           setAccessLoading(false);
         }
@@ -282,7 +289,11 @@ export default function MarketplaceDetail() {
   const wishlistState = isWishlisted(material);
   const isFree = material?.isFree || price === 0;
   const isOwner = Boolean(user && (material?.lecturer?._id === user._id || material?.lecturer?.id === user._id || material?.lecturer === user._id));
-  const hasAccess = Boolean(material?.isPurchased || material?.hasAccess || material?.accessGranted || material?.canAccess || access?.access || isFree || isOwner);
+  const libraryOwned = Array.isArray(libraryItems) && libraryItems.some((item) => {
+    const ownedId = item?.material?._id || item?.materialId || item?._id;
+    return Boolean(ownedId && ownedId === material?._id);
+  });
+  const hasAccess = Boolean(material?.isPurchased || material?.hasAccess || material?.accessGranted || material?.canAccess || access?.access || access?.hasAccess || access?.canView || access?.canRead || libraryOwned || isFree || isOwner);
   const previewPages = Number(material?.previewPages || material?.pageCount || 0);
   const previewLimitPages = hasAccess ? 0 : previewPages;
   const rating = Number(material?.ratingAverage || 0);
