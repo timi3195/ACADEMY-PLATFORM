@@ -216,6 +216,7 @@ export default function Marketplace() {
               key={material._id}
               material={material}
               searchTerm={search}
+              variant="compact"
               onPreview={() => handlePreview(material)}
               onPurchase={() => handlePurchase(material)}
             />

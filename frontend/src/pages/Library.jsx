@@ -194,17 +194,20 @@ export default function Library() {
                 <MaterialCard
                   material={item.material}
                   searchTerm={search}
+                  variant={viewMode === 'list' ? 'full' : 'compact'}
                   progressPercent={percent}
                   showWishlist
                   isWishlisted={wishlistIds.includes(item.material?._id)}
                   onWishlistToggle={handleWishlistToggle}
                 />
-                <div style={{ marginTop: '12px', color: '#64748b', fontSize: '13px' }}>
-                  <div>Purchased: {item.purchasedAt ? new Date(item.purchasedAt).toLocaleDateString() : '—'}</div>
-                  <div>Lecturer: {item.material?.lecturer?.name || '—'}</div>
-                  <div>Course: {item.material?.course?.title || '—'}</div>
-                  <div>Last opened: {progress?.lastOpened ? new Date(progress.lastOpened).toLocaleDateString() : 'Not yet opened'}</div>
-                </div>
+                {viewMode === 'list' && (
+                  <div style={{ marginTop: '12px', color: '#64748b', fontSize: '13px' }}>
+                    <div>Purchased: {item.purchasedAt ? new Date(item.purchasedAt).toLocaleDateString() : '—'}</div>
+                    <div>Lecturer: {item.material?.lecturer?.name || '—'}</div>
+                    <div>Course: {item.material?.course?.title || '—'}</div>
+                    <div>Last opened: {progress?.lastOpened ? new Date(progress.lastOpened).toLocaleDateString() : 'Not yet opened'}</div>
+                  </div>
+                )}
               </article>
             );
           })}

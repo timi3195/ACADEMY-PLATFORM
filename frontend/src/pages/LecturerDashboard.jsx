@@ -150,13 +150,13 @@ export default function LecturerDashboard() {
       )}
 
       {!loading && !error && materials?.length > 0 && (
-        <div style={{ display: 'grid', gap: '16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '12px' }}>
           {materials.map((material) => (
-            <div key={material._id} style={{ background: '#fff', borderRadius: '12px', padding: '16px', border: '1px solid #e2e8f0' }}>
-              <MaterialCard material={material} />
-              <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-                <button type="button" onClick={() => openEditModal(material)}>Edit</button>
-                <button type="button" onClick={() => handleDelete(material)}>Delete</button>
+            <div key={material._id} style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+              <MaterialCard material={material} variant="compact" />
+              <div style={{ display: 'flex', gap: '6px', padding: '10px', borderTop: '1px solid #e2e8f0' }}>
+                <button type="button" onClick={() => openEditModal(material)} style={{ flex: 1, padding: '6px 10px', fontSize: '.85rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Edit</button>
+                <button type="button" onClick={() => handleDelete(material)} style={{ flex: 1, padding: '6px 10px', fontSize: '.85rem', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Delete</button>
               </div>
             </div>
           ))}

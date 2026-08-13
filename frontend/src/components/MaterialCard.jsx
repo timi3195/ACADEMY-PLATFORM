@@ -54,7 +54,7 @@ const buildBadges = (material) => {
   return badges.slice(0, 4);
 };
 
-function MaterialCard({ material, onPurchase, onPreview, searchTerm = '', progressPercent, showWishlist = false, isWishlisted = false, onWishlistToggle }) {
+function MaterialCard({ material, onPurchase, onPreview, searchTerm = '', progressPercent, showWishlist = false, isWishlisted = false, onWishlistToggle, variant = 'full' }) {
   const { user } = useAuth();
   const { items: libraryItems = [] } = useLibrary();
   const [imageLoading, setImageLoading] = useState(Boolean(material?.coverImageUrl));
@@ -97,6 +97,90 @@ function MaterialCard({ material, onPurchase, onPreview, searchTerm = '', progre
     setImageError(false);
   }, [imageSrc]);
 
+  // Compact variant - minimal grid card
+  if (variant === 'compact') {
+    return (
+      <article className="product-card product-card--compact" title={title}>
+        <div className="product-card__media">
+          {imageSrc && !imageError ? (
+            <img
+              src={imageSrc}
+              alt={title}
+              loading="lazy"
+              decoding="async"
+              onLoad={() => setImageLoading(false)}
+              onError={() => {
+                setImageLoading(false);
+                setImageError(true);
+              }}
+            />
+          ) : (
+            <div className="product-card__placeholder" style={{ background: `linear-gradient(135deg, ${fallbackCover.accentA}, ${fallbackCover.accentB})`, color: '#fff' }}>
+              <span>{fallbackCover.label}</span>
+            </div>
+          )}
+          {imageLoading && !imageError && <div className="product-card__skeleton" />}
+          {badges.length > 0 && (
+            <div className="product-card__media-badges">
+              {badges.slice(0, 2).map((badge) => (
+                <span key={badge} className="product-card__badge">{badge}</span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="product-card__content product-card__content--compact">
+          <div className="product-card__compact-title" title={title}>
+            {wrapHighlight(title, searchTerm)}
+          </div>
+
+          <div className="product-card__compact-meta">
+            <div className="product-card__compact-course">{courseCode}</div>
+            {!isFree && <span className="product-card__compact-price">{material?.price ? `₦${Number(material.price).toLocaleString()}` : 'Free'}</span>}
+            {isFree && <span className="product-card__compact-price">FREE</span>}
+          </div>
+
+          <div className="product-card__compact-status">
+            {material?.status === 'draft' && <span className="product-card__status">Draft</span>}
+            {material?.status === 'rejected' && <span className="product-card__status">Rejected</span>}
+            {isUnavailable && !isOwner && !isPurchased && <span className="product-card__status">Unavailable</span>}
+            {isOwner && <span className="product-card__status">Your material</span>}
+            {isAdminPreview && <span className="product-card__status">Admin preview</span>}
+          </div>
+
+          <div className="product-card__compact-actions">
+            {isPurchased && readerHref && (
+              <Link className="product-card__button product-card__button--compact" to={readerHref} state={{ material }}>
+                Read
+              </Link>
+            )}
+            {isOwner && readerHref && (
+              <Link className="product-card__button product-card__button--compact" to={readerHref} state={{ material }}>
+                Read
+              </Link>
+            )}
+            {onPurchase && !isPurchased && !isOwner && !isUnavailable && (
+              <button type="button" className="product-card__button product-card__button--compact" onClick={() => onPurchase(material)}>
+                {isFree ? 'Get' : 'Buy'}
+              </button>
+            )}
+            {!isPurchased && !isOwner && detailHref && !onPurchase && (
+              <Link className="product-card__button product-card__button--compact" to={detailHref} state={{ material }}>
+                View
+              </Link>
+            )}
+            {showWishlist && onWishlistToggle && (
+              <button type="button" className="product-card__button--wishlist" onClick={() => onWishlistToggle(material)} title={isWishlisted ? 'Remove from wishlist' : 'Save to wishlist'}>
+                {isWishlisted ? '★' : '☆'}
+              </button>
+            )}
+          </div>
+        </div>
+      </article>
+    );
+  }
+
+  // Full variant - detailed card
   return (
     <article className="product-card">
       <div className="product-card__media">
