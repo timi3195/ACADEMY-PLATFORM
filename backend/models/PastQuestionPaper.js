@@ -9,6 +9,10 @@ const pastQuestionPaperSchema = new mongoose.Schema({
   examinationYear: { type: String, required: true },
   fileUrl: { type: String, required: true },
   storageFilename: { type: String, required: true },
+  storageProvider: { type: String, enum: ["local-disk", "object-storage"], default: "local-disk" },
+  storageKey: { type: String, default: "" },
+  storageStatus: { type: String, enum: ["pending", "migrated", "failed", "missing"], default: "pending" },
+  size: { type: Number, default: 0 },
   originalName: { type: String, required: true },
   mimeType: { type: String, required: true },
   uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true }

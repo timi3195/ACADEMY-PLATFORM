@@ -63,8 +63,11 @@ router.post("/upload", protect, adminOnly, upload.single("file"), async (req, re
       });
     }
 
-    // Persist metadata (store server-side filename separately)
+    const fileId = new mongoose.Types.ObjectId();
+    const storageData = await storageService.uploadUploadedFile({ file: req.file, materialId: fileId });
+    // Persist metadata only after persistent storage confirms the upload.
     const created = await File.create({
+      _id: fileId,
       title,
       description: req.body.description || "",
       course: course.title,
@@ -81,7 +84,8 @@ router.post("/upload", protect, adminOnly, upload.single("file"), async (req, re
       isDeleted: false,
       isPremium: false,
       fileUrl: '',
-      storageFilename: req.file.filename,
+      ...storageData,
+      originalFilename: req.file.originalname,
       originalName: req.file.originalname,
       uploadedAt: new Date()
     });
@@ -120,7 +124,10 @@ router.post("/past-questions/upload", protect, adminOnly, upload.single("file"),
     const courseDoc = await require("../models/course").findById(course).lean();
     if (!courseDoc) return res.status(404).json({ success: false, message: "Course not found." });
 
+    const paperId = new mongoose.Types.ObjectId();
+    const storageData = await storageService.uploadUploadedFile({ file: req.file, materialId: paperId, kind: 'past-questions' });
     const paper = await PastQuestionPaper.create({
+      _id: paperId,
       title: title.trim(),
       course: courseDoc._id,
       department: courseDoc.department,
@@ -128,7 +135,7 @@ router.post("/past-questions/upload", protect, adminOnly, upload.single("file"),
       semester,
       examinationYear: String(examinationYear),
       fileUrl: `/api/files/past-questions/${Date.now()}`,
-      storageFilename: req.file.filename,
+      ...storageData,
       originalName: req.file.originalname,
       mimeType: req.file.mimetype,
       uploadedBy: req.user.id
@@ -167,15 +174,8 @@ router.get("/past-questions", protect, async (req, res) => {
 router.get("/past-questions/:id", protect, async (req, res) => {
   const paper = await PastQuestionPaper.findById(req.params.id);
   if (!paper) return res.status(404).json({ success: false, message: "Past question paper not found." });
-const filePath = storageService.resolveStoragePath(paper.storageFilename);
-    if (!filePath || !fs.existsSync(filePath)) {
-      return res.status(404).json({
-        success: false,
-        message: "Past question file is unavailable.",
-        diagnostics: storageService.getStorageDiagnostics({ fileId: paper._id, storageFilename: paper.storageFilename })
-      });
-    }
-  res.type(paper.mimeType).sendFile(filePath);
+  try { const stream = await storageService.getObjectReadStream(paper); res.type(paper.mimeType); stream.pipe(res); }
+  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.statusCode === 404 ? 'Past question file is unavailable.' : 'Storage unavailable.' }); }
 });
 
 // Helper: simple mime lookup for common types
@@ -233,15 +233,6 @@ router.get('/view/:id', protect, async (req, res) => {
     await materialAccessService.recordView({ material: file });
 
     const storageName = file.storageFilename;
-    const filePath = storageService.resolveStoragePath(storageName);
-    if (!filePath || !fs.existsSync(filePath)) {
-      return res.status(404).json({
-        success: false,
-        message: 'File missing on server',
-        diagnostics: storageService.getStorageDiagnostics({ fileId: file._id, storageFilename: storageName }),
-        hint: 'Set FILE_STORAGE_DIR to a persistent volume or object storage in production.'
-      });
-    }
 
     const mimeType = getMimeType(storageName || file.originalName || file.title);
     res.setHeader('Content-Type', mimeType);
@@ -252,7 +243,7 @@ router.get('/view/:id', protect, async (req, res) => {
     }
     res.setHeader('Cache-Control', 'public, max-age=3600');
 
-    const stream = fs.createReadStream(filePath);
+    const stream = await storageService.getObjectReadStream(file);
     stream.on('error', (err) => {
       console.error('Stream error', err);
       res.status(500).end('Server error streaming file');
@@ -284,25 +275,18 @@ router.get('/download/:id', protect, async (req, res) => {
     await materialAccessService.recordDownload({ material: file });
 
     const storageName = file.storageFilename;
-    const filePath = storageService.resolveStoragePath(storageName);
-    if (!filePath || !fs.existsSync(filePath)) {
-      return res.status(404).json({
-        success: false,
-        message: 'File missing on server',
-        diagnostics: storageService.getStorageDiagnostics({ fileId: file._id, storageFilename: storageName }),
-        hint: 'Set FILE_STORAGE_DIR to a persistent volume or object storage in production.'
-      });
-    }
 
     const isPDF = (storageName || file.originalName || file.title).toLowerCase().endsWith('.pdf');
     if (isPDF) {
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `inline; filename="${file.originalName || file.title}"`);
       res.setHeader('Cache-Control', 'public, max-age=3600');
-      return res.sendFile(filePath);
+      const stream = await storageService.getObjectReadStream(file); return stream.pipe(res);
     }
 
-    return res.download(filePath, file.originalName || file.title);
+    res.setHeader('Content-Type', file.mimeType || getMimeType(storageName || file.originalName || file.title));
+    res.setHeader('Content-Disposition', `attachment; filename="${file.originalName || file.originalFilename || file.title}"`);
+    return (await storageService.getObjectReadStream(file)).pipe(res);
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

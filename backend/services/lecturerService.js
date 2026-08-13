@@ -16,6 +16,7 @@ const materialAccessService = require("../services/materialAccessService");
 const { normalizeAcademicLevel } = require('../utils/academicLevels');
 const NIGERIAN_BANKS = require("../utils/bankList");
 const paystackService = require("../services/paystackService");
+const storageService = require("../services/storageService");
 const { getPaystackBankCode, getAllBanksWithCodes } = require("../utils/paystackBankCodes");
 
 const buildLecturerMaterialFilters = (lecturerId, query) => {
@@ -131,14 +132,18 @@ const createLecturerMaterial = async ({ user, body, file, coverImage }) => {
   const lecturer = await User.findById(user.id).select("name email").lean();
   const isDraft = body.status === "draft" || body.productStatus === "draft";
 
+  const materialId = new mongoose.Types.ObjectId();
+  const storageData = await storageService.uploadUploadedFile({ file, materialId });
   return await File.create({
+    _id: materialId,
     title: body.title,
     description: body.description || "",
     coverImageUrl,
     coverImageFilename: coverImage?.filename || "",
     coverImageOriginalName: coverImage?.originalname || "",
     fileUrl: `/api/files/view/${body.title ? 'placeholder' : 'placeholder'}`,
-    storageFilename: file.filename,
+    ...storageData,
+    originalFilename: file.originalname,
     originalName: file.originalname,
     course: normalizedCourse,
     department: normalizedDepartment,
@@ -236,8 +241,11 @@ const updateLecturerMaterial = async ({ user, materialId, body, file, coverImage
     updates.coverImageOriginalName = coverImage.originalname;
   }
 
+  const oldStorage = file ? { storageProvider: material.storageProvider, storageKey: material.storageKey, storageFilename: material.storageFilename } : null;
   if (file) {
-    updates.storageFilename = file.filename;
+    const storageData = await storageService.uploadUploadedFile({ file, materialId: material._id });
+    Object.assign(updates, storageData);
+    updates.originalFilename = file.originalname;
     updates.originalName = file.originalname;
     updates.fileUrl = `/api/files/view/${material._id}`;
     updates.downloadUrl = `/api/files/download/${material._id}`;
@@ -245,6 +253,7 @@ const updateLecturerMaterial = async ({ user, materialId, body, file, coverImage
 
   Object.assign(material, updates);
   await material.save();
+  if (oldStorage) await storageService.deleteObject(oldStorage).catch(() => {});
   return material;
 };
 

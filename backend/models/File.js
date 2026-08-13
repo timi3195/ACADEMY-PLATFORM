@@ -35,6 +35,12 @@ const fileSchema = new mongoose.Schema({
   storageFilename: {
     type: String
   },
+  storageProvider: { type: String, enum: ["local-disk", "object-storage"], default: "local-disk" },
+  storageKey: { type: String, default: "" },
+  originalFilename: { type: String, default: "" },
+  mimeType: { type: String, default: "application/octet-stream" },
+  size: { type: Number, default: 0 },
+  storageStatus: { type: String, enum: ["pending", "migrated", "failed", "missing"], default: "pending" },
 
   // Original uploaded filename
   originalName: {

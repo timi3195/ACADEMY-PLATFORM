@@ -140,12 +140,16 @@ const createMaterial = async ({ user, body, file }) => {
   const isPaid = body.isPaid === "true" || body.isPaid === true;
   const lecturerName = String(user?.name || user?.email || "").trim();
 
+  const materialId = new mongoose.Types.ObjectId();
+  const storageData = await storageService.uploadUploadedFile({ file, materialId });
   const created = await File.create({
+    _id: materialId,
     title: body.title,
     description: body.description || "",
     coverImageUrl: body.coverImageUrl || "",
     fileUrl: "",
-    storageFilename: file.filename,
+    ...storageData,
+    originalFilename: file.originalname,
     originalName: file.originalname,
     course: body.course,
     department: body.department || null,
@@ -347,8 +351,11 @@ const updateMaterial = async ({ user, materialId, body, file }) => {
     tags: body.tags !== undefined ? normalizeTags(body.tags) : material.tags
   };
 
+  const oldStorage = file ? { storageProvider: material.storageProvider, storageKey: material.storageKey, storageFilename: material.storageFilename } : null;
   if (file) {
-    updates.storageFilename = file.filename;
+    const storageData = await storageService.uploadUploadedFile({ file, materialId: material._id });
+    Object.assign(updates, storageData);
+    updates.originalFilename = file.originalname;
     updates.originalName = file.originalname;
     updates.fileUrl = `/api/files/view/${material._id}`;
     updates.downloadUrl = `/api/files/download/${material._id}`;
@@ -356,6 +363,7 @@ const updateMaterial = async ({ user, materialId, body, file }) => {
 
   Object.assign(material, updates);
   await material.save();
+  if (oldStorage) await storageService.deleteObject(oldStorage).catch(() => {});
   return material;
 };
 
@@ -370,10 +378,7 @@ const deleteMaterial = async (materialId, user) => {
     throw error;
   }
 
-  const storagePath = storageService.resolveStoragePath(material.storageFilename);
-  if (material.storageFilename && storagePath && fs.existsSync(storagePath)) {
-    fs.unlinkSync(storagePath);
-  }
+  await storageService.deleteObject(material);
 
   await material.remove();
   return true;
