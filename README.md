@@ -519,3 +519,19 @@ The Academic Success Suite implementation is COMPLETE and READY for testing.
 
 For detailed instructions, refer to the documentation files above.  
 For support, check [PRODUCTION_DEPLOYMENT_GUIDE.md](./PRODUCTION_DEPLOYMENT_GUIDE.md).
+
+## Image-Based Past-Question Extraction
+
+The lecturer workspace at `/lecturer/question-extractions` accepts JPG/JPEG/PNG images and creates private, persisted extraction batches through `/api/question-extractions`. OCR uses the provider-independent `ocrService` interface with the local `tesseract.js` English model; no paid OCR service or native Tesseract executable is required. The first OCR run downloads the open-source language data unless `TESSERACT_LANG_PATH` points to a local directory containing `eng.traineddata.gz`. For offline deployment, install the backend dependencies, provision that exact language file, and point `TESSERACT_LANG_PATH` to its directory; alternatively, seed `TESSERACT_CACHE_PATH` with the uncompressed `eng.traineddata` file. The Tesseract worker and WASM core are supplied by the installed package. Without a local language file or a populated cache, OCR initialization fails with a configuration error and the persisted batch can be retried after correcting the deployment.
+
+Gemini is used only for structuring saved OCR text. It uses the existing server-side Gemini key and user quota. If Gemini is unavailable, the OCR text remains saved and the batch can retry its structuring stage without rerunning OCR. Extracted drafts stay pending and are never inserted into the approved question bank by this feature.
+
+Processing runs synchronously in the API request rather than in an in-memory queue. Upload metadata and original images are persisted before OCR starts, so a server restart leaves an inspectable batch; unfinished work can be retried after its persisted processing lease expires. Configure the image, pixel, and daily batch limits in `backend/.env.example`. Production storage should use the existing private object-storage configuration; local development uses the private local storage provider.
+
+Credentialed CORS accepts only the configured exact origins (`FRONTEND_URL`, `VERCEL_FRONTEND_URL`, and comma-separated `FRONTEND_ORIGINS`), the production frontend origins, and localhost development origins. Add each deployed preview origin explicitly; wildcard `vercel.app` and `netlify.app` origins are intentionally rejected.
+
+## CBT examination timing and recovery
+
+CBT attempt duration is controlled by the backend `QUIZ_DURATION_MINUTES` setting (whole minutes from 1 to 180; default 30). The server records each attempt's start and expiry timestamps; student requests cannot set or extend them. Answer selections are saved against the attempt snapshot and can be restored by reopening the CBT page. MongoDB remains the source of truth for answers and expiry.
+
+After MongoDB connects, every backend instance sweeps expired attempts at startup and then polls every 30 seconds. The same expiry checks run when attempts are retrieved, saved, or submitted, so results are recovered after server downtime; no separate worker process or in-memory per-attempt timer is required. Multiple instances are safe because answer writes and finalization use conditional version/status updates. Existing legacy attempts without expiry fields are not retroactively assigned a timer.

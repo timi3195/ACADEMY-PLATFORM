@@ -20,12 +20,22 @@ const questionSchema = new mongoose.Schema({
     required: true
   },
 
+  questionNumber: {
+    type: String,
+    default: ""
+  },
+
   question: {
     type: String,
     required: true
   },
 
   options: {
+    type: [String],
+    default: []
+  },
+
+  optionIds: {
     type: [String],
     default: []
   },
@@ -88,6 +98,38 @@ const questionSchema = new mongoose.Schema({
     default: false
   },
 
+  approvalStatus: {
+    type: String,
+    enum: ["draft", "approved", "rejected"],
+    default: "draft"
+  },
+
+  approvedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    default: null
+  },
+
+  approvedAt: {
+    type: Date,
+    default: null
+  },
+
+  extractionKey: {
+    type: String,
+    default: undefined
+  },
+
+  extractionBatchId: {
+    type: String,
+    default: ""
+  },
+
+  extractionDraftId: {
+    type: String,
+    default: ""
+  },
+
   // Track how many times this question was answered
   timesAnswered: {
     type: Number,
@@ -113,6 +155,7 @@ questionSchema.index({ isPremium: 1 });
 // Compound indexes for common queries
 questionSchema.index({ course: 1, year: 1, session: 1 });
 questionSchema.index({ department: 1, year: 1 });
+questionSchema.index({ extractionKey: 1 }, { unique: true, sparse: true });
 // TEXT INDEX for full-text search
 questionSchema.index({ question: "text", topic: "text", explanation: "text" });
 

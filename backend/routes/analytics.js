@@ -11,9 +11,38 @@ const StudentPerformance = require("../models/StudentPerformance");
 const AIConversation = require("../models/AIConversation");
 const StudentNote = require("../models/StudentNote");
 const LearningPath = require("../models/LearningPath");
-const Question = require("../models/Question");
 const Course = require("../models/course");
 const User = require("../models/User");
+const studentAnalytics = require("../services/studentAnalyticsService");
+
+router.get("/student", protect, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    if (!mongoose.Types.ObjectId.isValid(String(userId || ""))) {
+      return res.status(401).json({ success: false, message: "Authenticated user ID is invalid." });
+    }
+
+    const user = await User.findById(userId).select("role");
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+    if (!["student", "admin"].includes(user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: "Student performance analytics are available only to students and administrators."
+      });
+    }
+
+    const analytics = await studentAnalytics.getStudentAnalytics(userId);
+    return res.json({ success: true, analytics });
+  } catch (error) {
+    console.error("Student performance analytics failed:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to load student performance analytics."
+    });
+  }
+});
 
 /**
  * GET /api/analytics/performance/:courseId
@@ -23,12 +52,13 @@ router.get("/performance/:courseId", protect, requirePremium, async (req, res) =
   try {
     const { courseId } = req.params;
 
-    if (!mongoose.Types.ObjectId.isValid(courseId)) {
+    if (!mongoose.Types.ObjectId.isValid(String(courseId || ""))) {
       return res.status(400).json({ success: false, message: "Invalid course ID" });
     }
 
+    const actingUserId = req.user?.id || req.user?._id;
     let performance = await StudentPerformance.findOne({
-      user: req.user._id,
+      user: actingUserId,
       course: courseId
     }).populate("course");
 
@@ -58,9 +88,9 @@ router.get("/performance/:courseId", protect, requirePremium, async (req, res) =
 const getDashboardHandler = async (req, res) => {
   try {
     const requestedUserId = req.params.userId || req.user.id;
+    const actingUserId = req.user?.id || req.user?._id;
 
-    // Can only view own dashboard unless admin
-    if (req.params.userId && req.user._id.toString() !== req.params.userId && req.user.role !== "admin") {
+    if (req.params.userId && String(actingUserId) !== String(req.params.userId) && req.user.role !== "admin") {
       return res.status(403).json({ success: false, message: "Unauthorized" });
     }
 
@@ -360,134 +390,9 @@ router.get("/prediction/:courseId", protect, async (req, res) => {
   }
 });
 
-/**
- * POST /api/analytics/record-attempt
- * Record a question attempt and update performance
- */
-router.post("/record-attempt", protect, async (req, res) => {
-  try {
-    const { courseId, questionId, topic, isCorrect } = req.body;
-
-    if (!courseId || !questionId || !topic === undefined || isCorrect === undefined) {
-      return res.status(400).json({
-        success: false,
-        message: "courseId, questionId, topic, and isCorrect are required"
-      });
-    }
-
-    // Get or create performance record
-    let performance = await StudentPerformance.findOne({
-      user: req.user._id,
-      course: courseId
-    });
-
-    if (!performance) {
-      performance = new StudentPerformance({
-        user: req.user._id,
-        course: courseId
-      });
-    }
-
-    // Find or create topic metric
-    let topicMetric = performance.topicMetrics.find(tm => tm.topic === topic);
-    if (!topicMetric) {
-      topicMetric = {
-        topic,
-        correctAttempts: 0,
-        totalAttempts: 0,
-        accuracy: 0,
-        masteryLevel: "beginner",
-        estimatedReadiness: 0
-      };
-      performance.topicMetrics.push(topicMetric);
-    }
-
-    // Update metrics
-    topicMetric.totalAttempts += 1;
-    if (isCorrect) {
-      topicMetric.correctAttempts += 1;
-    }
-    topicMetric.accuracy = (topicMetric.correctAttempts / topicMetric.totalAttempts) * 100;
-    topicMetric.lastAttemptDate = new Date();
-
-    // Determine mastery level
-    if (topicMetric.accuracy >= 80) {
-      topicMetric.masteryLevel = "advanced";
-      topicMetric.estimatedReadiness = 85;
-    } else if (topicMetric.accuracy >= 60) {
-      topicMetric.masteryLevel = "intermediate";
-      topicMetric.estimatedReadiness = 65;
-    } else if (topicMetric.accuracy >= 40) {
-      topicMetric.masteryLevel = "beginner";
-      topicMetric.estimatedReadiness = 40;
-    } else {
-      topicMetric.masteryLevel = "beginner";
-      topicMetric.estimatedReadiness = 20;
-    }
-
-    // Add to performance trend
-    const today = new Date().toDateString();
-    let trendEntry = performance.performanceTrend.find(
-      t => new Date(t.date).toDateString() === today
-    );
-    if (!trendEntry) {
-      trendEntry = {
-        date: new Date(),
-        accuracy: 0,
-        questionsAnswered: 0
-      };
-      performance.performanceTrend.push(trendEntry);
-    }
-    trendEntry.questionsAnswered += 1;
-    trendEntry.accuracy = (performance.topicMetrics.reduce((sum, t) => sum + (t.correctAttempts / t.totalAttempts) * 100, 0) / performance.topicMetrics.length) || 0;
-
-    // Update overall metrics
-    const totalCorrect = performance.topicMetrics.reduce((sum, t) => sum + t.correctAttempts, 0);
-    const totalAttempts = performance.topicMetrics.reduce((sum, t) => sum + t.totalAttempts, 0);
-    performance.overallAccuracy = (totalCorrect / totalAttempts) * 100;
-    performance.estimatedExamScore = performance.overallAccuracy * 0.9; // Slightly conservative estimate
-
-    performance.topStrengths = performance.topicMetrics
-      .filter(t => t.accuracy >= 70)
-      .sort((a, b) => b.accuracy - a.accuracy)
-      .slice(0, 3)
-      .map(t => t.topic);
-
-    performance.areasToImprove = performance.topicMetrics
-      .filter(t => t.accuracy < 60 && t.totalAttempts > 0)
-      .sort((a, b) => a.accuracy - b.accuracy)
-      .slice(0, 3)
-      .map(t => t.topic);
-
-    // Determine improvement trend
-    if (performance.performanceTrend.length > 1) {
-      const recent = performance.performanceTrend.slice(-3);
-      const averageRecent = recent.reduce((sum, t) => sum + t.accuracy, 0) / recent.length;
-      const previous = performance.performanceTrend.slice(-6, -3);
-      const averagePrevious = previous.length > 0
-        ? previous.reduce((sum, t) => sum + t.accuracy, 0) / previous.length
-        : averageRecent;
-
-      if (averageRecent > averagePrevious + 5) {
-        performance.improvementTrend = "improving";
-      } else if (averageRecent < averagePrevious - 5) {
-        performance.improvementTrend = "declining";
-      } else {
-        performance.improvementTrend = "stable";
-      }
-    }
-
-    performance.lastUpdatedAt = new Date();
-    await performance.save();
-
-    res.json({
-      success: true,
-      message: "Performance updated",
-      performance
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
+router.post("/record-attempt", protect, (req, res) => res.status(410).json({
+  success: false,
+  message: "Per-question analytics are no longer recorded. Complete a CBT attempt to update performance analytics."
+}));
 
 module.exports = router;

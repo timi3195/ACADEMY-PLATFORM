@@ -6,6 +6,7 @@ const fs = require("fs");
 const mongoose = require("mongoose");
 const File = require("../models/File");
 const PastQuestionPaper = require("../models/PastQuestionPaper");
+const StudentNote = require("../models/StudentNote");
 const User = require("../models/User");
 const protect = require("../config/middleware/authMiddleware");
 const adminOnly = require("../config/middleware/adminOnly");
@@ -13,6 +14,107 @@ const materialAccessService = require("../services/materialAccessService");
 const storageService = require("../services/storageService");
 
 const uploadDir = storageService.getUploadDir();
+const legacyUploadsRouter = express.Router();
+
+const isSafeUploadFilename = (filename) =>
+  typeof filename === "string" &&
+  filename.length > 0 &&
+  filename.length <= 255 &&
+  filename !== "." &&
+  filename !== ".." &&
+  !filename.includes("..") &&
+  !/[\0-\x1f<>:"|?*]/.test(filename) &&
+  !filename.includes("/") &&
+  !filename.includes("\\") &&
+  path.basename(filename) === filename &&
+  path.win32.basename(filename) === filename;
+
+const getUploadMimeType = (filename) => {
+  const extension = path.extname(filename).toLowerCase();
+  return ({
+    ".gif": "image/gif",
+    ".jpeg": "image/jpeg",
+    ".jpg": "image/jpeg",
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".txt": "text/plain"
+  })[extension] || "application/octet-stream";
+};
+
+const streamLegacyUpload = (req, res, filename, isPublic) => {
+  const localPath = storageService.resolveStoragePath(filename);
+  if (!localPath) return res.status(404).json({ success: false, message: "File not found" });
+
+  try {
+    if (!fs.statSync(localPath).isFile()) {
+      return res.status(404).json({ success: false, message: "File not found" });
+    }
+  } catch {
+    return res.status(404).json({ success: false, message: "File not found" });
+  }
+
+  const safeDownloadName = filename.replace(/["\r\n]/g, "_");
+  res.setHeader("Content-Type", getUploadMimeType(filename));
+  res.setHeader("Content-Disposition", `inline; filename="${safeDownloadName}"`);
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Cache-Control", isPublic ? "public, max-age=3600" : "private, no-store");
+
+  const stream = fs.createReadStream(localPath);
+  stream.on("error", () => {
+    if (res.headersSent) return res.destroy();
+    return res.status(404).json({ success: false, message: "File not found" });
+  });
+  return stream.pipe(res);
+};
+
+legacyUploadsRouter.get("/:filename", async (req, res) => {
+  const { filename } = req.params;
+  if (!isSafeUploadFilename(filename)) {
+    return res.status(404).json({ success: false, message: "File not found" });
+  }
+
+  try {
+    const [materialReference, legacyMaterialReference, pastQuestionReference, noteReference] = await Promise.all([
+      File.exists({ storageFilename: filename }),
+      File.exists({ fileUrl: `/uploads/${filename}` }),
+      PastQuestionPaper.exists({ storageFilename: filename }),
+      StudentNote.exists({ fileName: filename })
+    ]);
+
+    const extension = path.extname(filename).toLowerCase();
+    const isImage = [".gif", ".jpeg", ".jpg", ".png"].includes(extension);
+    if (!materialReference && !legacyMaterialReference && !pastQuestionReference && !noteReference && isImage) {
+      const publicCover = await File.findOne({
+        coverImageFilename: filename,
+        visibility: "public",
+        productStatus: "published",
+        status: "published",
+        approved: true,
+        hidden: { $ne: true },
+        isDeleted: { $ne: true }
+      });
+      if (publicCover) return streamLegacyUpload(req, res, filename, true);
+    }
+
+    return protect(req, res, async () => {
+      try {
+        const note = await StudentNote.findOne({ fileName: filename, user: req.user.id });
+        if (!note) return res.status(404).json({ success: false, message: "File not found" });
+        return streamLegacyUpload(req, res, filename, false);
+      } catch (error) {
+        console.error("Legacy upload access failed:", error.message);
+        return res.status(500).json({ success: false, message: "Unable to access file" });
+      }
+    });
+  } catch (error) {
+    console.error("Legacy upload lookup failed:", error.message);
+    return res.status(500).json({ success: false, message: "Unable to access file" });
+  }
+});
+
+legacyUploadsRouter.use((req, res) =>
+  res.status(404).json({ success: false, message: "File not found" })
+);
 
 // Storage config
 const storage = multer.diskStorage({
@@ -108,7 +210,7 @@ router.post("/upload", protect, adminOnly, upload.single("file"), async (req, re
     console.error('❌ File upload error:', err.message);
     res.status(500).json({
       success: false,
-      message: err.message
+      message: 'Unable to upload file.'
     });
   }
 });
@@ -146,7 +248,7 @@ router.post("/past-questions/upload", protect, adminOnly, upload.single("file"),
     res.status(201).json({ success: true, paper });
   } catch (error) {
     console.error("Past question paper upload error:", error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: "Unable to upload past question paper." });
   }
 });
 
@@ -172,10 +274,33 @@ router.get("/past-questions", protect, async (req, res) => {
 });
 
 router.get("/past-questions/:id", protect, async (req, res) => {
-  const paper = await PastQuestionPaper.findById(req.params.id);
-  if (!paper) return res.status(404).json({ success: false, message: "Past question paper not found." });
-  try { const stream = await storageService.getObjectReadStream(paper); res.type(paper.mimeType); stream.pipe(res); }
-  catch (error) { res.status(error.statusCode || 500).json({ success: false, message: error.statusCode === 404 ? 'Past question file is unavailable.' : 'Storage unavailable.' }); }
+  try {
+    const paper = await PastQuestionPaper.findById(req.params.id);
+    if (!paper) return res.status(404).json({ success: false, message: "Past question paper not found." });
+
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(401).json({ success: false, message: "Not authorized." });
+
+    if (user.role !== "admin") {
+      const { normalizeAcademicLevel } = require("../utils/academicLevels");
+      const normalizeSemester = (semester) => String(semester || "").toLowerCase().replace(/\s*semester\s*/g, "").trim();
+      const userDepartment = user.department?._id || user.department;
+      if (!userDepartment ||
+          String(userDepartment) !== String(paper.department) ||
+          normalizeAcademicLevel(user.yearOfStudy) !== normalizeAcademicLevel(paper.level) ||
+          normalizeSemester(user.semester) !== normalizeSemester(paper.semester)) {
+        return res.status(403).json({ success: false, message: "You do not have access to this past question paper." });
+      }
+    }
+
+    const stream = await storageService.getObjectReadStream(paper);
+    res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.type(paper.mimeType);
+    stream.pipe(res);
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ success: false, message: error.statusCode === 404 ? "Past question file is unavailable." : "Storage unavailable." });
+  }
 });
 
 // Helper: simple mime lookup for common types
@@ -196,20 +321,42 @@ const getMimeType = (filename) => {
 
 const loadMaterial = async (identifier) => {
   if (mongoose.Types.ObjectId.isValid(identifier)) {
-    const material = await File.findById(identifier).populate('course');
-    if (material) return material;
+    const material = await File.findById(identifier);
+    if (material) {
+      if (typeof material.populate === 'function') {
+        await material.populate('course');
+      }
+      return material;
+    }
   }
 
-  const fileByUrl = await File.findOne({ fileUrl: `/api/files/download/${identifier}` }).populate('course');
-  if (fileByUrl) return fileByUrl;
+  const fileByUrlRecord = await File.findOne({ fileUrl: `/api/files/download/${identifier}` });
+  if (fileByUrlRecord) {
+    if (typeof fileByUrlRecord.populate === 'function') {
+      await fileByUrlRecord.populate('course');
+    }
+    return fileByUrlRecord;
+  }
 
-  const allFiles = await File.find().populate('course');
+  const allFiles = await File.find();
+  await Promise.all(allFiles.map(async (file) => {
+    if (file && typeof file.populate === 'function' && file.course) {
+      await file.populate('course').catch(() => {});
+    }
+  }));
   return allFiles.find((f) => f.fileUrl?.endsWith(identifier) || f.fileUrl?.endsWith(`-${identifier}`));
 };
 
 const resolveUser = async (req) => {
   if (!req.user || !req.user.id) return null;
-  return await User.findById(req.user.id).populate('department');
+  const rawUserId = String(req.user.id);
+  if (!mongoose.Types.ObjectId.isValid(rawUserId)) return null;
+  const userRecord = await User.findById(rawUserId);
+  if (!userRecord) return null;
+  if (typeof userRecord.populate === 'function') {
+    return await userRecord.populate('department');
+  }
+  return userRecord;
 };
 
 // New view route - streams file inline after permission checks
@@ -241,16 +388,21 @@ router.get('/view/:id', protect, async (req, res) => {
     } else {
       res.setHeader('Content-Disposition', `inline; filename="${file.originalName || file.title}"`);
     }
-    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
 
     const stream = await storageService.getObjectReadStream(file);
     stream.on('error', (err) => {
       console.error('Stream error', err);
-      res.status(500).end('Server error streaming file');
+      if (res.headersSent) return res.destroy();
+      return res.status(500).json({ success: false, message: 'Unable to stream file.' });
     });
     stream.pipe(res);
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(err.statusCode || 500).json({
+      success: false,
+      message: err.statusCode === 404 ? 'File not found' : 'Unable to access file'
+    });
   }
 });
 
@@ -280,15 +432,21 @@ router.get('/download/:id', protect, async (req, res) => {
     if (isPDF) {
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `inline; filename="${file.originalName || file.title}"`);
-      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
       const stream = await storageService.getObjectReadStream(file); return stream.pipe(res);
     }
 
     res.setHeader('Content-Type', file.mimeType || getMimeType(storageName || file.originalName || file.title));
     res.setHeader('Content-Disposition', `attachment; filename="${file.originalName || file.originalFilename || file.title}"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     return (await storageService.getObjectReadStream(file)).pipe(res);
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(err.statusCode || 500).json({
+      success: false,
+      message: err.statusCode === 404 ? 'File not found' : 'Unable to access file'
+    });
   }
 });
 
@@ -454,7 +612,25 @@ router.get("/admin/all", protect, adminOnly, async (req, res) => {
   }
 });
 
-module.exports = {
-  router,
-  getFilesHandler
-};
+router.use((error, req, res, next) => {
+  if (error instanceof multer.MulterError) {
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({ success: false, message: 'File exceeds the maximum allowed size.' });
+    }
+    if (error.code === 'LIMIT_UNEXPECTED_FILE') {
+      return res.status(400).json({ success: false, message: 'Unexpected file field.' });
+    }
+    return res.status(400).json({ success: false, message: error.message || 'Upload failed.' });
+  }
+
+  if (error && error.message) {
+    return res.status(400).json({ success: false, message: error.message });
+  }
+
+  return next(error);
+});
+
+module.exports = router;
+module.exports.router = router;
+module.exports.legacyUploadsRouter = legacyUploadsRouter;
+module.exports.getFilesHandler = getFilesHandler;

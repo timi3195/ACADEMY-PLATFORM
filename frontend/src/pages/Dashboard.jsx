@@ -18,7 +18,7 @@ export default function Dashboard() {
         const [coursesRes, libraryRes, analyticsRes] = await Promise.all([
           apiGet('/api/courses'),
           apiGet('/api/library'),
-          apiGet('/api/analytics/dashboard').catch(() => null)
+          apiGet('/api/analytics/student').catch(() => null)
         ])
 
         setCourses(Array.isArray(coursesRes?.courses) ? coursesRes.courses : [])
@@ -46,23 +46,31 @@ export default function Dashboard() {
   )
 
   const statCards = useMemo(() => {
-    const dashboard = analytics?.dashboard || {}
-    const topicMetrics = Array.isArray(dashboard.topicMetrics) ? dashboard.topicMetrics : []
-    const avgAccuracy = Number(dashboard.totalAccuracy || 0)
+    const overview = analytics?.analytics?.overview
 
     return [
       { date: `${courses.length || 0}`, time: 'Courses', label: 'Your active course list', tone: 'soft' },
       { date: `${libraryItems.length || 0}`, time: 'Library', label: 'Purchased materials', tone: 'muted' },
-      { date: `${Math.round(avgAccuracy)}%`, time: 'Accuracy', label: 'Overall performance', tone: 'soft' },
-      { date: topicMetrics.length ? `${topicMetrics.length}` : '0', time: 'Topics', label: 'Tracked learning areas', tone: 'muted' },
+      {
+        date: overview ? `${overview.totalCompletedAttempts}` : '—',
+        time: 'Examinations',
+        label: 'Completed CBT attempts',
+        tone: 'muted'
+      },
+      {
+        date: Number.isFinite(overview?.overallAccuracy) ? `${Math.round(overview.overallAccuracy)}%` : '—',
+        time: 'Accuracy',
+        label: 'Correct answers / answered questions',
+        tone: 'soft'
+      },
     ]
   }, [analytics, courses.length, libraryItems.length])
 
   const progressData = useMemo(() => {
-    const topicMetrics = Array.isArray(analytics?.dashboard?.topicMetrics) ? analytics.dashboard.topicMetrics : []
-    return topicMetrics.slice(0, 3).map((topic, index) => ({
-      label: topic.topic || `Topic ${index + 1}`,
-      value: Number(topic.accuracy || 0),
+    const topics = Array.isArray(analytics?.analytics?.topics) ? analytics.analytics.topics : []
+    return topics.filter((topic) => Number.isFinite(topic.accuracy)).slice(0, 3).map((topic, index) => ({
+      label: `${topic.topic} · ${topic.courseTitle}`,
+      value: topic.accuracy,
       color: index % 2 === 0 ? 'blue' : index % 3 === 0 ? 'purple' : 'pink'
     }))
   }, [analytics])
@@ -148,13 +156,11 @@ export default function Dashboard() {
             </div>
 
             <div className="mini-chart-wrap">
-              <div className="mini-chart">
-                <span className="chart-bar chart-bar-one" />
-                <span className="chart-bar chart-bar-two" />
-                <span className="chart-bar chart-bar-three" />
-                <span className="chart-bar chart-bar-four" />
-                <span className="chart-bar chart-bar-five" />
-              </div>
+              <p>{analytics?.analytics?.trend?.direction === 'insufficient_data'
+                ? 'Complete more examinations to establish a performance trend.'
+                : analytics?.analytics?.trend?.direction
+                  ? `Performance trend: ${analytics.analytics.trend.direction}.`
+                  : 'Performance trend is unavailable.'}</p>
             </div>
 
             <div className="progress-list">
@@ -171,15 +177,7 @@ export default function Dashboard() {
                   </div>
                 ))
               ) : (
-                <div className="progress-item">
-                  <div className="progress-label-row">
-                    <span>No progress data yet</span>
-                    <strong>0%</strong>
-                  </div>
-                  <div className="progress-track">
-                    <span className="progress-fill blue" style={{ width: '0%' }} />
-                  </div>
-                </div>
+                <p>No topic performance data is available yet.</p>
               )}
             </div>
           </div>

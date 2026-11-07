@@ -27,7 +27,9 @@ import LecturerRegister from './pages/LecturerRegister'
 import LecturerPending from './pages/LecturerPending'
 import LecturerRejected from './pages/LecturerRejected'
 import LecturerPaymentSettings from './pages/LecturerPaymentSettings'
+import LecturerQuestionExtractions from './pages/LecturerQuestionExtractions'
 import AdminLecturerManagement from './pages/AdminLecturerManagement'
+import CBTQuiz from './pages/CBTQuiz'
 import MainLayout from './layouts/MainLayout'
 import AuthLayout from './layouts/AuthLayout'
 
@@ -112,6 +114,7 @@ export default function App() {
         <Route path="/courses/:courseId/materials" element={<Protected><CourseMaterials /></Protected>} />
         <Route path="/notes" element={<Protected><Notes /></Protected>} />
         <Route path="/past-questions" element={<Protected><PastQuestions /></Protected>} />
+        <Route path="/cbt" element={<Protected><CBTQuiz /></Protected>} />
         <Route path="/ai" element={<Protected><AI /></Protected>} />
         <Route path="/ai-chat" element={<Protected><AIChatPage /></Protected>} />
         <Route path="/analytics" element={<Protected><AnalyticsDashboard /></Protected>} />
@@ -124,9 +127,11 @@ export default function App() {
         <Route path="/lecturer/rejected" element={<Protected><LecturerRejected /></Protected>} />
         <Route path="/lecturer" element={<ApprovedLecturerOnly><LecturerDashboard /></ApprovedLecturerOnly>} />
         <Route path="/lecturer/payment-settings" element={<ApprovedLecturerOnly><LecturerPaymentSettings /></ApprovedLecturerOnly>} />
+        <Route path="/lecturer/question-extractions" element={<ApprovedLecturerOnly><LecturerQuestionExtractions /></ApprovedLecturerOnly>} />
         <Route path="/upgrade" element={<Protected><Upgrade /></Protected>} />
         <Route path="/admin" element={<AdminOnly><AdminPanel /></AdminOnly>} />
         <Route path="/admin/lecturers" element={<AdminOnly><AdminLecturerManagement /></AdminOnly>} />
+        <Route path="/admin/question-extractions" element={<AdminOnly><LecturerQuestionExtractions /></AdminOnly>} />
 
         {/* Catch all */}
         <Route path="*" element={<Navigate to="/" replace />} />

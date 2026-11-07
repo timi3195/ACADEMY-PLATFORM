@@ -30,8 +30,36 @@ const generateStorageKey = ({ materialId, originalFilename }) => {
 };
 const resolveStoragePath = (filename) => {
   if (!filename || path.isAbsolute(filename) || filename.includes('..')) return null;
-  const resolved = path.resolve(getUploadDir(), filename);
-  return resolved.startsWith(getUploadDir()) ? resolved : null;
+  const baseDir = path.resolve(getUploadDir());
+  const resolved = path.resolve(baseDir, filename);
+  const relative = path.relative(baseDir, resolved);
+  return relative && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+    ? resolved
+    : null;
+};
+const getLegacyUploadFilename = (fileUrl) => {
+  if (typeof fileUrl !== 'string') return null;
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(fileUrl, 'http://localhost');
+  } catch {
+    return null;
+  }
+  if (parsedUrl.origin !== 'http://localhost') return null;
+
+  const match = parsedUrl.pathname.match(/^\/uploads\/([^/]+)$/);
+  if (!match) return null;
+  let filename;
+  try {
+    filename = decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
+  if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\') ||
+      filename.includes(':') || path.basename(filename) !== filename || path.win32.basename(filename) !== filename) {
+    return null;
+  }
+  return filename;
 };
 const removeLocalUpload = (file) => { if (file?.path) fs.promises.unlink(file.path).catch(() => {}); };
 
@@ -45,9 +73,60 @@ const uploadUploadedFile = async ({ file, materialId, kind = 'materials' }) => {
     return { storageProvider: OBJECT_PROVIDER, storageKey: key, originalName: file.originalname, mimeType: file.mimetype, size: file.size, storageStatus: 'migrated', storageFilename: file.filename };
   } finally { removeLocalUpload(file); }
 };
+const storePrivateQuestionImage = async ({ buffer, batchId, imageId, extension, mimeType, originalName }) => {
+  if (!Buffer.isBuffer(buffer) || !buffer.length) throw new Error('Image content is unavailable');
+  if (!/^[a-f0-9]{24}$/i.test(String(batchId)) || !/^[a-f0-9]{24}$/i.test(String(imageId))) {
+    throw new Error('Invalid private image identifier');
+  }
+  const normalizedExtension = String(extension || '').toLowerCase().replace(/^\./, '');
+  if (!['jpg', 'jpeg', 'png'].includes(normalizedExtension)) throw new Error('Unsupported private image type');
+
+  const storageKey = `question-extractions/${batchId}/${imageId}.${normalizedExtension}`;
+  if (getStorageProvider() === OBJECT_PROVIDER) {
+    try {
+      await client().send(new PutObjectCommand({
+        Bucket: process.env.STORAGE_BUCKET,
+        Key: storageKey,
+        Body: buffer,
+        ContentType: mimeType
+      }));
+      await client().send(new HeadObjectCommand({ Bucket: process.env.STORAGE_BUCKET, Key: storageKey }));
+    } catch (error) {
+      try {
+        await client().send(new DeleteObjectCommand({ Bucket: process.env.STORAGE_BUCKET, Key: storageKey }));
+      } catch (cleanupError) {
+        console.error('Failed to clean up incomplete private image storage:', cleanupError.message);
+      }
+      throw error;
+    }
+    return {
+      storageProvider: OBJECT_PROVIDER,
+      storageKey,
+      originalName: safeFilename(originalName),
+      mimeType,
+      size: buffer.length,
+      storageStatus: 'migrated'
+    };
+  }
+
+  const storageFilename = storageKey;
+  const localPath = resolveStoragePath(storageFilename);
+  if (!localPath) throw new Error('Invalid private image storage path');
+  await fs.promises.mkdir(path.dirname(localPath), { recursive: true, mode: 0o700 });
+  await fs.promises.writeFile(localPath, buffer, { flag: 'wx', mode: 0o600 });
+  return {
+    storageProvider: LOCAL_PROVIDER,
+    storageFilename,
+    originalName: safeFilename(originalName),
+    mimeType,
+    size: buffer.length,
+    storageStatus: 'pending'
+  };
+};
 const getObjectReadStream = async (record) => {
   if (record.storageProvider !== OBJECT_PROVIDER) {
-    const local = resolveStoragePath(record.storageFilename);
+    const storageFilename = record.storageFilename || getLegacyUploadFilename(record.fileUrl);
+    const local = resolveStoragePath(storageFilename);
     if (!local || !fs.existsSync(local)) { const e = new Error('File missing from local storage'); e.statusCode = 404; throw e; }
     return fs.createReadStream(local);
   }
@@ -61,4 +140,4 @@ const deleteObject = async (record) => {
 };
 const getStorageDiagnostics = ({ fileId, storageFilename, storageKey, storageProvider }) => ({ provider: storageProvider || getStorageProvider(), fileId, storageFilename, storageKey: storageKey || null, configured: getStorageProvider() !== OBJECT_PROVIDER || isObjectStorageConfigured() });
 
-module.exports = { LOCAL_PROVIDER, OBJECT_PROVIDER, getUploadDir, getStorageProvider, isObjectStorageConfigured, resolveStoragePath, generateStorageKey, uploadUploadedFile, getObjectReadStream, deleteObject, getStorageDiagnostics, safeFilename };
+module.exports = { LOCAL_PROVIDER, OBJECT_PROVIDER, getUploadDir, getStorageProvider, isObjectStorageConfigured, resolveStoragePath, generateStorageKey, uploadUploadedFile, storePrivateQuestionImage, getObjectReadStream, deleteObject, getStorageDiagnostics, safeFilename };

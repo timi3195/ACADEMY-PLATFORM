@@ -160,6 +160,7 @@ export default function LecturerDashboard() {
           <p style={{ margin: 0, color: '#64748b' }}>Publish lecture notes, guides, past questions, and other academic resources for your students.</p>
         </div>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <Link to="/lecturer/question-extractions" style={{ padding: '8px 12px', border: '1px solid #2563eb', borderRadius: '6px', color: '#2563eb', textDecoration: 'none', fontWeight: 600 }}>Extract Past Questions</Link>
           <Link to="/lecturer/payment-settings" style={{ padding: '8px 12px', border: '1px solid #2563eb', borderRadius: '6px', color: '#2563eb', textDecoration: 'none', fontWeight: 600 }}>Payment Settings</Link>
           <button type="button" onClick={openCreateModal}>Create New Material</button>
         </div>

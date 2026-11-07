@@ -12,3 +12,9 @@ test('local storage path resolver rejects traversal and absolute paths', () => {
   assert.equal(storage.resolveStoragePath('../secrets.txt'), null);
   assert.equal(storage.resolveStoragePath('C:\\Windows\\system.ini'), null);
 });
+
+test('local storage path resolver supports confined private subdirectories', () => {
+  const resolved = storage.resolveStoragePath('question-extractions\\507f1f77bcf86cd799439011\\image.png');
+  assert.ok(resolved);
+  assert.match(resolved, /question-extractions/);
+});

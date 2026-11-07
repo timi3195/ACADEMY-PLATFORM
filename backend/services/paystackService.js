@@ -8,7 +8,7 @@ if (!PAYSTACK_SECRET_KEY) {
   console.error("PAYSTACK_SECRET_KEY is not configured");
 }
 
-const initializePayment = async ({ email, amount, metadata, callbackUrl, subaccountCode = null }) => {
+const initializePayment = async ({ email, amount, metadata, callbackUrl, subaccountCode = null, reference, currency = "NGN" }) => {
   if (!PAYSTACK_SECRET_KEY) {
     const error = new Error("Paystack configuration missing");
     error.statusCode = 500;
@@ -18,7 +18,9 @@ const initializePayment = async ({ email, amount, metadata, callbackUrl, subacco
   const payload = {
     email,
     amount: Math.round(amount * 100),
-    metadata
+    metadata,
+    reference,
+    currency
   };
 
   if (callbackUrl) {
@@ -37,13 +39,13 @@ const initializePayment = async ({ email, amount, metadata, callbackUrl, subacco
     payload,
     {
       headers: {
-        Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+        Authorization: "Bearer " + PAYSTACK_SECRET_KEY,
         "Content-Type": "application/json"
       }
     }
   );
 
-  if (!response.data || !response.data.data) {
+  if (response.data?.status !== true || !response.data?.data) {
     const error = new Error("Unable to initialize payment");
     error.statusCode = 500;
     throw error;
@@ -62,12 +64,12 @@ const verifyPayment = async (reference) => {
     `https://api.paystack.co/transaction/verify/${reference}`,
     {
       headers: {
-        Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`
+        Authorization: "Bearer " + PAYSTACK_SECRET_KEY
       }
     }
   );
 
-  if (!response.data || !response.data.data) {
+  if (response.data?.status !== true || !response.data?.data) {
     const error = new Error("Unable to verify payment");
     error.statusCode = 500;
     throw error;
@@ -98,7 +100,7 @@ const createSubaccount = async (lecturer, payload) => {
       subaccountPayload,
       {
         headers: {
-          Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+          Authorization: "Bearer " + PAYSTACK_SECRET_KEY,
           "Content-Type": "application/json"
         }
       }

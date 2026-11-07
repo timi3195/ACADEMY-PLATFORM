@@ -29,6 +29,21 @@ const transactionSchema = new mongoose.Schema({
     default: "pending"
   },
 
+  processingStartedAt: {
+    type: Date,
+    default: null
+  },
+
+  processingToken: {
+    type: String,
+    default: null
+  },
+
+  failureReason: {
+    type: String,
+    default: ""
+  },
+
   plan: {
     type: String,
     enum: ["basic", "premium", "material"],
@@ -128,6 +143,8 @@ const transactionSchema = new mongoose.Schema({
   }
 
 });
+
+transactionSchema.index({ status: 1, processingStartedAt: 1 });
 
 module.exports = mongoose.models.Transaction || mongoose.model(
   "Transaction",

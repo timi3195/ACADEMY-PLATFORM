@@ -1,4 +1,3 @@
-const jwt = require("jsonwebtoken");
 const { extractTokenFromHeader, verifyAccessToken } = require("../../utils/token");
 
 /**
@@ -11,7 +10,7 @@ const protect = (req, res, next) => {
   let token;
 
   // Priority 1: Check Authorization header (Bearer token)
-  if (req.headers.authorization) {
+  if (req.headers && req.headers.authorization) {
     token = extractTokenFromHeader(req.headers.authorization);
   }
 
@@ -38,10 +37,21 @@ const protect = (req, res, next) => {
       });
     }
 
-    // Attach user to request
-    req.user = decoded;
+    const normalizedUserId = decoded.id || decoded._id || decoded.userId;
+    if (!normalizedUserId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication payload is invalid"
+      });
+    }
+
+    req.user = {
+      ...decoded,
+      id: String(normalizedUserId),
+      _id: String(normalizedUserId)
+    };
     req.token = token;
-    next();
+    return next();
 
   } catch (error) {
     return res.status(401).json({

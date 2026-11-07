@@ -4,10 +4,13 @@ const mongoose = require("mongoose");
 const File = require("../models/File");
 const Course = require("../models/course");
 const Department = require("../models/Department");
+const User = require("../models/User");
 const Transaction = require("../models/Transaction");
 const paystackService = require("./paystackService");
 const materialAccessService = require("./materialAccessService");
 const storageService = require("./storageService");
+const paymentIntegrity = require("./paymentIntegrityService");
+const crypto = require("crypto");
 
 const normalizeTags = (tags) => {
   if (!tags) return [];
@@ -55,8 +58,8 @@ const normalizeMaterialFileUrl = (material, req = null) => {
   const viewUrl = `/api/files/view/${fileId}`;
   const downloadUrl = `/api/files/download/${fileId}`;
 
-  const resolvedFileUrl = material.fileUrl && material.fileUrl.startsWith('/api/marketplace/materials/') ? viewUrl : (material.fileUrl || viewUrl);
-  const resolvedDownloadUrl = material.downloadUrl && material.downloadUrl.startsWith('/api/marketplace/materials/') ? downloadUrl : (material.downloadUrl || downloadUrl);
+  const resolvedFileUrl = viewUrl;
+  const resolvedDownloadUrl = downloadUrl;
 
   return {
     ...material,
@@ -614,6 +617,13 @@ const getDiscountedPrice = (material, user) => {
 };
 
 const initializePurchase = async (materialId, user) => {
+  const purchaseUser = user?.id ? await User.findById(user.id).lean() : null;
+  if (!purchaseUser) {
+    const error = new Error("Authenticated user not found");
+    error.statusCode = 401;
+    throw error;
+  }
+
   const material = await File.findById(materialId).populate('lecturer', 'name email paystackPayment');
   if (!material) {
     const error = new Error("Material not found");
@@ -633,7 +643,7 @@ const initializePurchase = async (materialId, user) => {
     throw error;
   }
 
-  const purchasePermission = await materialAccessService.canPurchaseMaterial({ user, material });
+  const purchasePermission = await materialAccessService.canPurchaseMaterial({ user: purchaseUser, material });
   if (!purchasePermission.allowed) {
     const error = new Error(purchasePermission.reason || "Purchase not allowed");
     error.statusCode = 403;
@@ -641,21 +651,21 @@ const initializePurchase = async (materialId, user) => {
   }
 
   // Validate student profile is complete before allowing purchase
-  if (!user.matricNumber || !String(user.matricNumber).trim()) {
+  if (!purchaseUser.matricNumber || !String(purchaseUser.matricNumber).trim()) {
     const error = new Error("Please complete your student profile before purchasing this material. Matric number is required.");
     error.statusCode = 400;
     error.requiresProfileCompletion = true;
     throw error;
   }
 
-  if (!user.yearOfStudy) {
+  if (!purchaseUser.yearOfStudy) {
     const error = new Error("Please complete your student profile before purchasing this material. Academic level is required.");
     error.statusCode = 400;
     error.requiresProfileCompletion = true;
     throw error;
   }
 
-  if (!user.department) {
+  if (!purchaseUser.department) {
     const error = new Error("Please complete your student profile before purchasing this material. Department is required.");
     error.statusCode = 400;
     error.requiresProfileCompletion = true;
@@ -672,102 +682,166 @@ const initializePurchase = async (materialId, user) => {
     }
   }
 
-  const finalPrice = getDiscountedPrice(material, user);
+  const finalPrice = getDiscountedPrice(material, purchaseUser);
+  const expectedAmount = Math.round(finalPrice * 100) / 100;
+  if (!Number.isFinite(expectedAmount) || expectedAmount <= 0) {
+    const error = new Error("This material has an invalid purchase price");
+    error.statusCode = 400;
+    throw error;
+  }
   const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+  const currency = (process.env.PAYSTACK_CURRENCY || "NGN").toUpperCase();
+  const reference = `academy_mat_${crypto.randomUUID()}`;
 
   // Get lecturer's subaccount for payment split
   const lecturerSubaccount = material.lecturer?.paystackPayment?.subaccountCode || null;
 
-  const transport = await paystackService.initializePayment({
-    email: user.email,
-    amount: finalPrice,
-    callbackUrl: `${frontendUrl}/marketplace/${material._id}`,
-    metadata: {
-      materialId: material._id.toString(),
-      paymentType: "material",
-      discount: material.premiumDiscount || 0,
-      userId: user.id,
-      lecturerId: material.lecturer?._id.toString() || null
-    },
-    subaccountCode: lecturerSubaccount
+  const platformFee = Math.round(expectedAmount * 10) / 100;
+  const pendingTransaction = await Transaction.create({
+    user: purchaseUser._id,
+    email: purchaseUser.email,
+    amount: expectedAmount,
+    currency,
+    reference,
+    status: "pending",
+    plan: "material",
+    paymentType: "material",
+    material: material._id,
+    materialPrice: material.price,
+    discount: Number(material.premiumDiscount || 0),
+    lecturer: material.lecturer?._id || null,
+    platformFee,
+    lecturerAmount: finalPrice - platformFee,
+    paymentProvider: "paystack",
+    studentNameAtPurchase: purchaseUser.name || "",
+    studentEmailAtPurchase: purchaseUser.email || "",
+    studentMatricAtPurchase: purchaseUser.matricNumber || ""
   });
 
-  return {
-    authorizationUrl: transport.authorization_url,
-    reference: transport.reference,
-    amount: finalPrice,
-    currency: transport.currency || "NGN"
-  };
+  try {
+    const transport = await paystackService.initializePayment({
+      email: purchaseUser.email,
+      amount: expectedAmount,
+      currency,
+      reference,
+      callbackUrl: `${frontendUrl}/marketplace/${material._id}`,
+      metadata: {
+        materialId: material._id.toString(),
+        paymentType: "material",
+        userId: String(purchaseUser._id)
+      },
+      subaccountCode: lecturerSubaccount
+    });
+
+    if (!transport?.authorization_url || transport.reference !== reference) {
+      const error = new Error("Paystack returned an invalid initialization response");
+      error.statusCode = 502;
+      throw error;
+    }
+
+    return {
+      authorizationUrl: transport.authorization_url,
+      reference,
+      amount: expectedAmount,
+      currency
+    };
+  } catch (error) {
+    await Transaction.findOneAndUpdate(
+      { _id: pendingTransaction._id, status: "pending" },
+      { $set: { status: "failed", failureReason: "Payment initialization failed" } }
+    );
+    throw error;
+  }
 };
 
 const verifyPurchase = async (materialId, reference, user) => {
-  const material = await File.findById(materialId).populate('lecturer', 'name email matricNumber');
+  let transaction;
+  let paymentVerified = false;
+  try {
+    const claim = await paymentIntegrity.claimPendingTransaction(reference, user.id);
+    transaction = claim.transaction;
+    if (transaction.paymentType !== "material" ||
+        String(transaction.material) !== String(materialId)) {
+      const error = new Error("Payment reference does not match this material");
+      error.statusCode = 403;
+      throw error;
+    }
+    if (claim.alreadyProcessed) {
+      await reconcilePurchaseMetrics(transaction);
+      return transaction;
+    }
+
+    let verification;
+    try {
+      verification = await paystackService.verifyPayment(reference);
+    } catch (error) {
+      error.retryablePaymentError = true;
+      throw error;
+    }
+    paymentIntegrity.validatePaystackPayment(transaction, verification, reference);
+    paymentVerified = true;
+    return await completeWebhookPurchase(transaction, verification);
+  } catch (error) {
+    if (transaction?.status === "processing") {
+      if (error.retryablePaymentError || paymentVerified) {
+        await paymentIntegrity.releaseTransactionForRetry(transaction, error.message);
+      } else {
+        await paymentIntegrity.markTransactionFailed(transaction, error.message);
+      }
+    }
+    throw error;
+  }
+};
+
+const reconcilePurchaseMetrics = async (transaction) => {
+  if (!transaction || transaction.status !== "success" ||
+      transaction.paymentType !== "material" || !transaction.material) {
+    const error = new Error("Successful material transaction is invalid");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const [material, purchaseCount] = await Promise.all([
+    File.findById(transaction.material),
+    Transaction.countDocuments({
+      material: transaction.material,
+      paymentType: "material",
+      status: "success"
+    })
+  ]);
   if (!material) {
-    const error = new Error("Material not found");
+    const error = new Error("Purchased material was not found");
     error.statusCode = 404;
     throw error;
   }
 
-  const verification = await paystackService.verifyPayment(reference);
-  if (!verification || verification.status !== "success") {
-    const error = new Error("Payment verification failed");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  if (verification.metadata?.materialId && verification.metadata.materialId.toString() !== material._id.toString()) {
-    const error = new Error("Payment reference does not match the requested material");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  const existingTransaction = await Transaction.findOne({ reference }).lean();
-  if (existingTransaction) {
-    if (
-      existingTransaction.material && existingTransaction.material.toString() !== material._id.toString() ||
-      existingTransaction.user && existingTransaction.user.toString() !== user.id.toString()
-    ) {
-      const error = new Error("Payment reference already used");
-      error.statusCode = 409;
-      throw error;
-    }
-
-    if (existingTransaction.status === "success") {
-      return existingTransaction;
-    }
-  }
-
-  const amount = Number((verification.amount || 0) / 100);
-  const expectedAmount = getDiscountedPrice(material, user);
-  
-  // Verify amount matches expected (protect against misconfiguration or fraud)
-  if (Math.abs(amount - expectedAmount) > 0.01) {
-    const error = new Error(`Amount mismatch: expected ₦${expectedAmount.toFixed(2)} but Paystack received ₦${amount.toFixed(2)}`);
-    error.statusCode = 400;
-    throw error;
-  }
-  const discount = Number(verification.metadata?.discount || material.premiumDiscount || 0);
-
-  // Calculate 90/10 split
-  const platformFee = Math.round(amount * 10) / 100; // 10% platform commission
-  const lecturerAmount = amount - platformFee; // 90% to lecturer
-
-  // Refresh user to get latest matric number
-  const updatedUser = await require("../models/User").findById(user.id).lean();
-
-  const transaction = await materialAccessService.recordPurchaseWithSplit({
-    user: updatedUser,
-    material,
-    reference,
-    amount,
-    discount,
-    lecturer: material.lecturer,
-    platformFee,
-    lecturerAmount,
-    paystackTransactionId: verification.id
+  await File.findByIdAndUpdate(material._id, {
+    $set: { purchases: purchaseCount, sales: purchaseCount }
   });
+};
 
-  return transaction;
+const completeWebhookPurchase = async (transaction, paymentData) => {
+  paymentIntegrity.validatePaystackPayment(transaction, paymentData, transaction.reference);
+  if (transaction.status !== "processing" ||
+      transaction.paymentType !== "material" ||
+      !transaction.material) {
+    const error = new Error("Pending material transaction is invalid");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const material = await File.findById(transaction.material);
+  const purchaseUser = await User.findById(transaction.user).lean();
+  if (!material || !purchaseUser ||
+      String(purchaseUser.email).trim().toLowerCase() !== String(transaction.email).trim().toLowerCase()) {
+    const error = new Error("Pending material transaction data is inconsistent");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const completed = await paymentIntegrity.markTransactionSuccessful(transaction, paymentData);
+  await reconcilePurchaseMetrics(completed);
+  return completed;
 };
 
 module.exports = {
@@ -783,5 +857,7 @@ module.exports = {
   initializePurchase,
   initializeMarketplacePurchase: initializePurchase,
   verifyPurchase,
-  verifyMarketplacePurchase: verifyPurchase
+  verifyMarketplacePurchase: verifyPurchase,
+  completeWebhookPurchase,
+  reconcilePurchaseMetrics
 };

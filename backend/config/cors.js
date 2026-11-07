@@ -1,9 +1,14 @@
 const cors = require('cors');
 
 const getAllowedOrigins = () => {
+  const configuredOrigins = String(process.env.FRONTEND_ORIGINS || "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
   const origins = [
     process.env.FRONTEND_URL,
     process.env.VERCEL_FRONTEND_URL,
+    ...configuredOrigins,
     'https://academy-platform-lac-five.vercel.app',
     'https://academy-platform.vercel.app',
     'http://localhost:5173',
@@ -24,11 +29,6 @@ const configureCors = (app) => {
       }
 
       if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-
-      const isVercelPattern = /vercel\.app$/i.test(origin) || /netlify\.app$/i.test(origin);
-      if (isVercelPattern) {
         return callback(null, true);
       }
 

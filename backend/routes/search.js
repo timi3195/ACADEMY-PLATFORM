@@ -5,6 +5,31 @@ const protect = require("../config/middleware/authMiddleware");
 const Course = require("../models/course");
 const Question = require("../models/Question");
 const Note = require("../models/note");
+const User = require("../models/User");
+const { normalizeAcademicLevel } = require("../utils/academicLevels");
+
+const getSearchableQuestionFilter = async (userId) => {
+  const user = await User.findById(userId);
+  if (!user) return { approvalStatus: "approved", course: { $in: [] } };
+
+  if (user.role === "admin") return { approvalStatus: "approved" };
+
+  let courses = [];
+  if (user.role === "student" && user.department && user.yearOfStudy) {
+    courses = await Course.find({
+      department: user.department,
+      level: normalizeAcademicLevel(user.yearOfStudy),
+      ...(user.semester ? { semester: user.semester } : {})
+    }).select("_id");
+  } else if (user.role === "lecturer" && user.lecturerStatus === "approved") {
+    courses = await Course.find({ lecturers: user._id }).select("_id");
+  }
+
+  return {
+    approvalStatus: "approved",
+    course: { $in: courses.map((course) => course._id) }
+  };
+};
 
 /**
  * GLOBAL SEARCH
@@ -50,13 +75,14 @@ router.get("/", protect, async (req, res) => {
 
     // Search questions by question text, topic
     if (type === "all" || type === "questions") {
+      const questionScope = await getSearchableQuestionFilter(req.user.id);
       results.questions = await Question.find(
-        { $text: { $search: searchQuery } },
+        { ...questionScope, $text: { $search: searchQuery } },
         { score: { $meta: "textScore" } }
       )
         .sort({ score: { $meta: "textScore" } })
         .limit(resultsLimit)
-        .select("question topic course year difficulty")
+        .select("question topic course year difficulty options")
         .populate("course", "title code")
         .lean();
     }
@@ -111,17 +137,20 @@ router.get("/advanced", protect, async (req, res) => {
     if (department) filter.department = department;
     if (level) filter.level = level;
 
+    const questionScope = await getSearchableQuestionFilter(req.user.id);
     const results = {
       courses: await Course.find(filter)
         .limit(20)
         .populate("department", "name code")
         .lean(),
       questions: await Question.find({
+        ...questionScope,
         ...filter,
         ...(year && { year }),
         ...(session && { session })
       })
         .limit(20)
+        .select("question topic course year session difficulty options")
         .populate("course", "title code")
         .lean()
     };

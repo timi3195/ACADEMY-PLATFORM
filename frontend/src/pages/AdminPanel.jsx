@@ -408,6 +408,12 @@ export default function AdminPanel() {
         <div className="max-w-6xl mx-auto">
           <h1 className="text-4xl font-bold mb-2">🛡️ Admin Panel</h1>
           <p className="text-red-100">Manage courses, CBT sets, materials, and past questions</p>
+          <button type="button" onClick={() => navigate('/lecturer/question-extractions')} className="mt-4 rounded-lg bg-white px-4 py-2 font-semibold text-red-700">
+            Upload past-question images
+          </button>
+          <button type="button" onClick={() => navigate('/admin/question-extractions')} className="mt-4 ml-2 rounded-lg bg-white px-4 py-2 font-semibold text-red-700">
+            Review extracted questions
+          </button>
         </div>
       </div>
 

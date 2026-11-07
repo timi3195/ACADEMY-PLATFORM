@@ -17,6 +17,9 @@ const passport = require("./config/middleware/passport");
 const { logger } = require("./utils/logger");
 const app = express();
 const questionRoutes = require("./routes/question");
+const quizSessionRoutes = require("./routes/quizSession");
+const quizSessionService = require("./services/quizSessionService");
+const questionExtractionRoutes = require("./routes/questionExtraction");
 const protect = require("./config/middleware/authMiddleware");
 const courseRoutes = require("./routes/course");
 const noteRoutes = require("./routes/note");
@@ -36,7 +39,14 @@ app.use(
 
 app.use(passport.initialize());
 app.use(passport.session());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({
+  limit: '10mb',
+  verify: (req, res, buffer) => {
+    if (req.originalUrl.split("?")[0] === "/api/payments/webhook") {
+      req.rawBody = Buffer.from(buffer);
+    }
+  }
+}));
 
 app.use(logger.requestLogger);
 
@@ -50,9 +60,9 @@ app.use((req, res, next) => {
   next();
 });
 
-// Serve uploads for backward compatibility with existing files
-// New files use protected endpoint: /api/files/download/:filename
-app.use("/uploads", express.static("uploads"));
+// Keep legacy cover-image URLs working while protecting private upload files.
+const fileRoutes = require("./routes/file");
+app.use("/uploads", fileRoutes.legacyUploadsRouter);
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // handle malformed JSON body errors gracefully
@@ -66,11 +76,12 @@ app.use("/api/courses", courseRoutes);
 app.use("/api/notes", noteRoutes);
 // Ensure question routes are mounted after body-parsing middleware
 app.use("/api/questions", questionRoutes);
+app.use("/api/quiz", quizSessionRoutes);
+app.use("/api/question-extractions", questionExtractionRoutes);
 
 // Mount search routes
 app.use("/api/search", searchRoutes);
 
-const fileRoutes = require("./routes/file");
 app.use("/api/files", fileRoutes.router);
 
 const marketplaceRoutes = require("./routes/marketplace");
@@ -110,12 +121,15 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/departments", departmentRoutes);
 
-// Connect MongoDB
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => {
-    autoSeedDepartments()
-  })
-  .catch((err) => console.error("MongoDB connection error:", err));
+// Keep importing the app side-effect-free for isolated automated tests.
+if (process.env.NODE_ENV !== "test" && process.env.MONGO_URI) {
+  mongoose.connect(process.env.MONGO_URI)
+    .then(async () => {
+      await autoSeedDepartments();
+      quizSessionService.startExpiryWorker();
+    })
+    .catch((err) => console.error("MongoDB connection error:", err));
+}
 
 /**
  * Auto-seed departments if database is empty

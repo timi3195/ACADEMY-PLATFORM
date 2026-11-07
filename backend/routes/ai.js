@@ -20,9 +20,11 @@ const Course = require("../models/course");
 const File = require("../models/File");
 const PastQuestionPaper = require("../models/PastQuestionPaper");
 const User = require("../models/User");
+const QuizSession = require("../models/QuizSession");
 
 // Services
 const geminiService = require("../utils/gemini");
+const questionAccess = require("../services/questionAccessService");
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -78,7 +80,10 @@ router.post("/chat", protect, async (req, res) => {
     }
 
     // Validate course exists
-    const course = await Course.findById(courseId).populate("department");
+    const courseRecord = await Course.findById(courseId);
+    const course = courseRecord && typeof courseRecord.populate === "function"
+      ? await courseRecord.populate("department")
+      : courseRecord;
     if (!course) {
       return res.status(404).json({ success: false, message: "Course not found" });
     }
@@ -124,10 +129,14 @@ router.post("/chat", protect, async (req, res) => {
       course: courseId
     });
 
-    const [materials, papers] = await Promise.all([
-      File.find({ course: course.title, productStatus: "published", hidden: false, isDeleted: false }).select("title description materialType").lean(),
-      PastQuestionPaper.find({ course: courseId }).select("title examinationYear level semester").lean()
+    const fileQuery = File.find({ course: course.title, productStatus: "published", hidden: false, isDeleted: false });
+    const paperQuery = PastQuestionPaper.find({ course: courseId });
+    const [materialsResult, papersResult] = await Promise.all([
+      typeof fileQuery?.select === "function" ? fileQuery.select("title description materialType").lean() : (Array.isArray(fileQuery) ? fileQuery : []),
+      typeof paperQuery?.select === "function" ? paperQuery.select("title examinationYear level semester").lean() : (Array.isArray(paperQuery) ? paperQuery : [])
     ]);
+    const materials = Array.isArray(materialsResult) ? materialsResult : [];
+    const papers = Array.isArray(papersResult) ? papersResult : [];
 
     const courseContext = {
       courseName: course.title,
@@ -218,10 +227,13 @@ router.get("/chat/conversation/:conversationId", protect, async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid conversation ID" });
     }
 
-    const conversation = await AIConversation.findOne({
+    const conversationRecord = await AIConversation.findOne({
       _id: conversationId,
       user: req.user.id
-    }).populate("course");
+    });
+    const conversation = conversationRecord && typeof conversationRecord.populate === "function"
+      ? await conversationRecord.populate("course")
+      : conversationRecord;
 
     if (!conversation) {
       return res.status(404).json({ success: false, message: "Conversation not found" });
@@ -376,10 +388,13 @@ router.get("/notes/detail/:noteId", protect, async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid note ID" });
     }
 
-    const note = await StudentNote.findOne({
+    const noteRecord = await StudentNote.findOne({
       _id: noteId,
       user: req.user.id
-    }).populate("course");
+    });
+    const note = noteRecord && typeof noteRecord.populate === "function"
+      ? await noteRecord.populate("course")
+      : noteRecord;
 
     if (!note) {
       return res.status(404).json({ success: false, message: "Note not found" });
@@ -442,7 +457,38 @@ router.post("/explain-question", protect, async (req, res) => {
       });
     }
 
-    // Check cache first
+    // Load and authorize the question before looking up cached answer-bearing explanations.
+    const question = await Question.findById(questionId).populate("course");
+    if (!question) {
+      return res.status(404).json({ success: false, message: "Question not found" });
+    }
+
+    const access = await questionAccess.getCourseAccess(
+      req.user.id,
+      question.course?._id || question.course
+    );
+    if (!access.allowed || (access.user.role === "student" && question.approvalStatus !== "approved")) {
+      return res.status(access.allowed ? 404 : access.statusCode).json({
+        success: false,
+        message: access.allowed ? "Question not found" : access.message
+      });
+    }
+
+    if (access.user.role === "student") {
+      const activeAttempt = await QuizSession.exists({
+        user: req.user.id,
+        status: "in_progress",
+        "questions.questionId": questionId
+      });
+      if (activeAttempt) {
+        return res.status(403).json({
+          success: false,
+          message: "Question explanations are unavailable while an examination attempt is in progress."
+        });
+      }
+    }
+
+    // Check cache only after the question's access and examination status are verified.
     const cachedExplanation = await PastQuestionExplanation.findOne({ question: questionId });
     if (cachedExplanation) {
       cachedExplanation.viewCount += 1;
@@ -459,14 +505,8 @@ router.post("/explain-question", protect, async (req, res) => {
       });
     }
 
-    // Get question
-    const question = await Question.findById(questionId).populate("course");
-    if (!question) {
-      return res.status(404).json({ success: false, message: "Question not found" });
-    }
-
     // Get course context
-    const course = await Course.findById(question.course);
+    const course = await Course.findById(question.course?._id || question.course);
     const courseContext = {
       courseName: course.title,
       courseCode: course.code,
@@ -532,6 +572,32 @@ router.get("/question/:questionId/explanation", protect, async (req, res) => {
       return res.status(404).json({ success: false, message: "Explanation not found" });
     }
 
+    const question = explanation.question;
+    const access = await questionAccess.getCourseAccess(
+      req.user.id,
+      question?.course?._id || question?.course
+    );
+    if (!question || !access.allowed ||
+        (access.user.role === "student" && question.approvalStatus !== "approved")) {
+      return res.status(!question || access.allowed ? 404 : access.statusCode).json({
+        success: false,
+        message: !question || access.allowed ? "Explanation not found" : access.message
+      });
+    }
+    if (access.user.role === "student") {
+      const activeAttempt = await QuizSession.exists({
+        user: req.user.id,
+        status: "in_progress",
+        "questions.questionId": questionId
+      });
+      if (activeAttempt) {
+        return res.status(403).json({
+          success: false,
+          message: "Question explanations are unavailable while an examination attempt is in progress."
+        });
+      }
+    }
+
     explanation.viewCount += 1;
     await explanation.save();
 
@@ -570,7 +636,7 @@ router.post("/question/:questionId/feedback", protect, async (req, res) => {
       return res.status(404).json({ success: false, message: "Explanation not found" });
     }
 
-    res.json({ success: true, message: "Feedback recorded", explanation });
+    res.json({ success: true, message: "Feedback recorded" });
   } catch (error) {
     res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }

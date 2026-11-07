@@ -3,6 +3,8 @@ import { Link, useParams } from 'react-router-dom'
 import { apiGet } from '../utils/api'
 import { useAuth } from '../utils/auth'
 import PDFViewer from '../components/PDFViewer'
+import CBTPracticeLink from '../components/CBTPracticeLink'
+import { canAccessCbtPractice } from '../utils/cbt'
 
 export default function CourseDetail() {
   const { courseId } = useParams()
@@ -134,11 +136,14 @@ export default function CourseDetail() {
         <div className="max-w-6xl mx-auto">
           <Link to="/" className="text-blue-100 hover:text-white mb-4 inline-block">← Back to Dashboard</Link>
           <h1 className="text-4xl font-bold mb-2">{course.title}</h1>
-          <div className="flex items-center gap-4 text-blue-100">
+          <div className="flex flex-wrap items-center gap-4 text-blue-100">
             <span>📌 {course.code}</span>
             <span>🏢 {course.department?.name || 'Department'}</span>
             <span>📚 {course.level}</span>
             {course.isPremium && <span className="bg-yellow-400 text-yellow-900 px-2 py-1 rounded text-sm font-bold">⭐ Premium</span>}
+            {canAccessCbtPractice(user) && (
+              <CBTPracticeLink courseId={course._id} />
+            )}
           </div>
         </div>
       </div>
@@ -329,7 +334,7 @@ export default function CourseDetail() {
                                       {sub.options.map((opt, optIdx) => (
                                         <label key={optIdx} className="flex items-center gap-3 cursor-pointer">
                                           <input type="radio" name={`q-${q._id}-sub-${subIdx}`} className="w-4 h-4" />
-                                          <span className="text-gray-700">{opt}</span>
+                                          <span className="text-gray-700">{opt.text || opt}</span>
                                         </label>
                                       ))}
                                     </div>
@@ -345,7 +350,7 @@ export default function CourseDetail() {
                                 q.options.map((opt, idx) => (
                                   <label key={idx} className="flex items-center gap-3 cursor-pointer">
                                     <input type="radio" name={`q-${q._id}`} className="w-4 h-4" />
-                                    <span className="text-gray-700">{opt}</span>
+                                    <span className="text-gray-700">{opt.text || opt}</span>
                                   </label>
                                 ))
                               ) : (
