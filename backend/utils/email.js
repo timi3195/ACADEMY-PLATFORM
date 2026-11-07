@@ -5,7 +5,7 @@ const nodemailer = require("nodemailer");
  * Configure email transporter
  * Uses SendGrid Web API when SENDGRID_API_KEY is present (preferred - uses HTTPS).
  * Uses standard SMTP when SMTP_HOST is set.
- * Uses ethereal for local development otherwise.
+ * Uses Ethereal only for non-production environments without a configured provider.
  */
 let transporter;
 let usesSendGridAPI = false;
@@ -30,6 +30,10 @@ const initializeMailer = async () => {
     });
     console.log("📧 Email transporter initialized using SMTP host", process.env.SMTP_HOST);
   } else {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("Email delivery is not configured. Set SENDGRID_API_KEY or SMTP_HOST.");
+    }
+
     const testAccount = await nodemailer.createTestAccount();
     transporter = nodemailer.createTransport({
       host: "smtp.ethereal.email",
@@ -59,16 +63,21 @@ const sendVerificationEmail = async (email, token, userName) => {
     return { success: true, messageId: "dev-mode", skipped: true };
   }
 
-  await initializeMailer();
+  try {
+    if (process.env.NODE_ENV === "production" && !process.env.FRONTEND_URL) {
+      throw new Error("FRONTEND_URL must be configured to send verification links.");
+    }
 
-  const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${token}`;
-  const fromEmail = process.env.EMAIL_FROM || "noreply@academyplatform.com";
+    await initializeMailer();
 
-  const mailOptions = {
-    from: fromEmail,
-    to: email,
-    subject: "Verify Your Email - Academy Platform",
-    html: `
+    const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${token}`;
+    const fromEmail = process.env.EMAIL_FROM || "noreply@academyplatform.com";
+
+    const mailOptions = {
+      from: fromEmail,
+      to: email,
+      subject: "Verify Your Email - Academy Platform",
+      html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2>Welcome to Academy Platform, ${userName}!</h2>
         <p>Thank you for signing up. Please verify your email address to activate your account.</p>
@@ -87,9 +96,8 @@ const sendVerificationEmail = async (email, token, userName) => {
         </p>
       </div>
     `
-  };
+    };
 
-  try {
     if (usesSendGridAPI) {
       console.log(`📧 Sending verification email via SendGrid API to ${email}...`);
       const result = await sgMail.send(mailOptions);

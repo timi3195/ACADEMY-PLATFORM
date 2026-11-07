@@ -139,24 +139,27 @@ router.post("/register", async (req, res) => {
 
     await user.save();
 
-    // Send verification email only in production, but do not block registration response
+    let emailSent = user.emailVerified;
     if (process.env.NODE_ENV !== "development") {
-      sendVerificationEmail(user.email, user.emailVerificationToken, user.name)
-        .then((result) => {
-          if (!result.success) {
-            console.error("Verification email dispatch failed:", result.error);
-          }
-        })
-        .catch((error) => {
-          console.error("Verification email dispatch error:", error);
-        });
+      const emailResult = await sendVerificationEmail(
+        user.email,
+        user.emailVerificationToken,
+        user.name
+      );
+      emailSent = emailResult.success;
+      if (!emailSent) {
+        console.error("Verification email dispatch failed:", emailResult.error);
+      }
     }
 
     return res.status(201).json({
       success: true,
-      message: process.env.NODE_ENV === "development" 
+      emailSent,
+      message: user.emailVerified
         ? "Registration successful! Your email is auto-verified in development mode."
-        : "Registration successful! Please check your email to verify your account.",
+        : emailSent
+          ? "Registration successful! Please check your email to verify your account."
+          : "Your account was created, but the verification email could not be sent. Please use Resend Email to try again.",
       user: {
         id: user._id,
         name: user.name,
@@ -451,7 +454,14 @@ router.post("/send-verification-email", async (req, res) => {
     await user.save();
 
     // Send email
-    await sendVerificationEmail(user.email, verificationToken, user.name);
+    const emailResult = await sendVerificationEmail(user.email, verificationToken, user.name);
+    if (!emailResult.success) {
+      console.error("Verification email resend failed:", emailResult.error);
+      return res.status(503).json({
+        success: false,
+        message: "Your account exists, but the verification email could not be sent. Please try again later."
+      });
+    }
 
     return res.json({
       success: true,

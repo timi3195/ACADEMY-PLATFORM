@@ -22,6 +22,7 @@ const Register = () => {
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const navigate = useNavigate();
@@ -94,8 +95,11 @@ const Register = () => {
       const response = await apiPost('/api/auth/register', formData);
       if (response?.success) {
         setSuccess(true);
+        setSuccessMessage(response.message || 'Registration complete. Please verify your email.');
         setFormData(initialForm);
-        setTimeout(() => navigate('/verify-email', { state: { email: formData.email } }), 1500);
+        setTimeout(() => navigate('/verify-email', {
+          state: { email: formData.email, emailSent: response.emailSent }
+        }), 1500);
       }
     } catch (error) {
       setErrors({ submit: getErrorMessage(error, 'Registration failed. Please try again.') });
@@ -123,7 +127,7 @@ const Register = () => {
 
       {success && (
         <div className="auth-notice auth-notice--success" role="status">
-          Registration successful. Please check your email to verify your account before logging in.
+          {successMessage}
         </div>
       )}
 

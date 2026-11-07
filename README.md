@@ -530,6 +530,10 @@ Processing runs synchronously in the API request rather than in an in-memory que
 
 Credentialed CORS accepts only the configured exact origins (`FRONTEND_URL`, `VERCEL_FRONTEND_URL`, and comma-separated `FRONTEND_ORIGINS`), the production frontend origins, and localhost development origins. Add each deployed preview origin explicitly; wildcard `vercel.app` and `netlify.app` origins are intentionally rejected.
 
+### Production email verification
+
+Set `FRONTEND_URL` to the deployed frontend origin and configure a real provider using either `SENDGRID_API_KEY` or `SMTP_HOST` (with the provider's SMTP settings). Set `EMAIL_FROM` to a sender address accepted by that provider. Production email delivery does not use Ethereal; if the provider or frontend URL is missing, registration reports that the account was created but email could not be sent, and the resend endpoint returns an error instead of reporting success. Configure these values in the deployment platform's environment settings; do not commit credentials.
+
 ## CBT examination timing and recovery
 
 CBT attempt duration is controlled by the backend `QUIZ_DURATION_MINUTES` setting (whole minutes from 1 to 180; default 30). The server records each attempt's start and expiry timestamps; student requests cannot set or extend them. Answer selections are saved against the attempt snapshot and can be restored by reopening the CBT page. MongoDB remains the source of truth for answers and expiry.

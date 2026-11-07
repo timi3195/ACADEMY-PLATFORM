@@ -8,6 +8,7 @@ export default function VerifyEmail() {
   const location = useLocation()
   const [token, setToken] = useState(searchParams.get('token') || '')
   const [email, setEmail] = useState(location.state?.email || '')
+  const [emailDeliveryFailed, setEmailDeliveryFailed] = useState(location.state?.emailSent === false)
   const [verificationCode, setVerificationCode] = useState('')
   const [loading, setLoading] = useState(false)
   const [resending, setResending] = useState(false)
@@ -74,6 +75,7 @@ export default function VerifyEmail() {
     try {
       const res = await resendVerificationEmail(email)
       setMessage(res.message || 'Verification email sent!')
+      setEmailDeliveryFailed(false)
       setResendCooldown(60) // 60 second cooldown
     } catch (err) {
       setError(err.message || 'Failed to resend email')
@@ -90,7 +92,11 @@ export default function VerifyEmail() {
           <div className="text-center mb-8">
             <div className="text-4xl mb-2">✉️</div>
             <h1 className="text-3xl font-bold text-gray-900">Verify Your Email</h1>
-            <p className="text-gray-600 mt-2">We've sent a verification link to your email</p>
+            <p className="text-gray-600 mt-2">
+              {emailDeliveryFailed
+                ? 'Your account was created, but the verification message was not delivered. Try resending below.'
+                : "We've sent a verification link to your email"}
+            </p>
           </div>
 
           {/* Success Message */}
