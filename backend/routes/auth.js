@@ -6,6 +6,7 @@ const protect = require("../config/middleware/authMiddleware");
 const { generateTokenPair, generateAccessToken, verifyRefreshToken } = require("../utils/token");
 const { sendVerificationEmail, sendPasswordResetEmail, sendSubscriptionConfirmation } = require("../utils/email");
 const crypto = require("crypto");
+const { logger } = require("../utils/logger");
 
 const router = express.Router();
 
@@ -493,6 +494,10 @@ router.post("/forgot-password", async (req, res) => {
     }
 
     const user = await User.findOne({ email: email.toLowerCase() });
+    logger.info("password_reset_account_lookup", {
+      requestId: req.id,
+      outcome: user ? "matched" : "not_found"
+    });
 
     if (!user) {
       // Don't reveal whether email exists (security best practice)
@@ -506,15 +511,21 @@ router.post("/forgot-password", async (req, res) => {
     const resetToken = user.generatePasswordResetToken();
     await user.save();
 
-    // Send email in the background so the API response is not blocked by email latency
-    sendPasswordResetEmail(user.email, resetToken, user.name)
+    // Keep the public response generic and independent of provider/account state.
+    sendPasswordResetEmail(user.email, resetToken, user.name, req.id)
       .then((result) => {
         if (!result.success) {
-          console.error("Password reset email dispatch failed:", result.error);
+          logger.warn("password_reset_email_not_accepted", {
+            requestId: req.id,
+            outcome: result.outcome || "provider_error"
+          });
         }
       })
-      .catch((error) => {
-        console.error("Password reset email dispatch error:", error);
+      .catch(() => {
+        logger.error("password_reset_email_dispatch_failed", {
+          requestId: req.id,
+          outcome: "unexpected_error"
+        });
       });
 
     return res.json({
@@ -523,10 +534,13 @@ router.post("/forgot-password", async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Forgot password error:", error);
+    logger.error("forgot_password_request_failed", {
+      requestId: req.id,
+      code: /^[A-Za-z0-9_-]{1,40}$/.test(String(error?.code || "")) ? error.code : "request_error"
+    });
     return res.status(500).json({
       success: false,
-      message: error.message
+      message: "Unable to process password reset request."
     });
   }
 });

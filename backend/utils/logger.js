@@ -2,20 +2,20 @@ const crypto = require('crypto');
 
 const SENSITIVE_KEYS = new Set([
   'password',
-  'confirmPassword',
+  'confirmpassword',
   'token',
   'authorization',
   'cookie',
   'secret',
-  'apiKey',
-  'accessToken',
-  'refreshToken',
+  'apikey',
+  'accesstoken',
+  'refreshtoken',
   'session'
 ]);
 
 function isSensitiveKey(key) {
   const normalized = String(key || '').toLowerCase();
-  return SENSITIVE_KEYS.has(normalized) || normalized.includes('password') || normalized.includes('token') || normalized.includes('secret') || normalized.includes('cookie') || normalized.includes('authorization');
+  return SENSITIVE_KEYS.has(normalized) || normalized.includes('password') || normalized.includes('token') || normalized.includes('secret') || normalized.includes('cookie') || normalized.includes('authorization') || normalized.includes('email') || normalized.includes('apikey');
 }
 
 function sanitizeForLog(value, parentKey = '', seen = new WeakSet(), depth = 0) {
