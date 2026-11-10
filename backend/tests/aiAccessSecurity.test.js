@@ -9,6 +9,7 @@ const aiRouter = require('../routes/ai');
 const AIConversation = require('../models/AIConversation');
 const StudentNote = require('../models/StudentNote');
 const Course = require('../models/course');
+const User = require('../models/User');
 const StudentPerformance = require('../models/StudentPerformance');
 const File = require('../models/File');
 const PastQuestionPaper = require('../models/PastQuestionPaper');
@@ -136,10 +137,14 @@ test('client-supplied user IDs cannot override authenticated identity in chat re
     _id: '507f1f77bcf86cd799439012',
     title: 'Programming 101',
     code: 'CSC101',
-    department: { _id: '507f1f77bcf86cd799439013', name: 'Computer Science' }
+    department: { _id: '507f1f77bcf86cd799439013', name: 'Computer Science' },
+    level: 'ND1',
+    semester: 'First',
+    lecturers: []
   };
 
   const courseOrig = Course.findById;
+  const userOrig = User.findById;
   const perfOrig = StudentPerformance.findOne;
   const fileOrig = File.find;
   const paperOrig = PastQuestionPaper.find;
@@ -147,6 +152,13 @@ test('client-supplied user IDs cannot override authenticated identity in chat re
   const convOrig = AIConversation.findById;
 
   Course.findById = async () => courseDoc;
+  User.findById = async () => ({
+    _id: USER_A,
+    role: 'student',
+    department: courseDoc.department._id,
+    yearOfStudy: 'ND1',
+    semester: 'First'
+  });
   StudentPerformance.findOne = async () => null;
   File.find = async () => [];
   PastQuestionPaper.find = async () => [];
@@ -174,6 +186,7 @@ test('client-supplied user IDs cannot override authenticated identity in chat re
     assert.equal(res.body.message, 'Powered by Gemini');
   } finally {
     Course.findById = courseOrig;
+    User.findById = userOrig;
     StudentPerformance.findOne = perfOrig;
     File.find = fileOrig;
     PastQuestionPaper.find = paperOrig;

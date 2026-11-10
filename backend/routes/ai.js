@@ -79,14 +79,21 @@ router.post("/chat", protect, async (req, res) => {
       });
     }
 
-    // Validate course exists
-    const courseRecord = await Course.findById(courseId);
+    const access = await questionAccess.getCourseAccess(req.user.id, courseId);
+    if (!access.allowed) {
+      if (access.statusCode === 404) {
+        return res.status(404).json({ success: false, message: "Course not found" });
+      }
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to access this course."
+      });
+    }
+
+    const courseRecord = access.course;
     const course = courseRecord && typeof courseRecord.populate === "function"
       ? await courseRecord.populate("department")
       : courseRecord;
-    if (!course) {
-      return res.status(404).json({ success: false, message: "Course not found" });
-    }
 
     // Get or create conversation
     let conversation = null;
