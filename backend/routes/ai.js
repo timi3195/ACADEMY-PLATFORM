@@ -13,7 +13,6 @@ const requirePremium = require("../config/middleware/planMiddleware");
 const AIConversation = require("../models/AIConversation");
 const StudentNote = require("../models/StudentNote");
 const PastQuestionExplanation = require("../models/PastQuestionExplanation");
-const StudentPerformance = require("../models/StudentPerformance");
 const LearningPath = require("../models/LearningPath");
 const Question = require("../models/Question");
 const Course = require("../models/course");
@@ -55,6 +54,56 @@ const upload = multer({
     }
   }
 });
+
+const parseTargetExamDate = (value) => {
+  if (typeof value !== "string") return null;
+
+  const dateOnly = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const timestamp = value.match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(Z|([+-])(\d{2}):(\d{2}))$/
+  );
+  const match = dateOnly || timestamp;
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const isLeapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [
+    31,
+    isLeapYear ? 29 : 28,
+    31,
+    30,
+    31,
+    30,
+    31,
+    31,
+    30,
+    31,
+    30,
+    31
+  ][month - 1];
+  if (!daysInMonth || day < 1 || day > daysInMonth) return null;
+
+  if (timestamp) {
+    const hour = Number(match[4]);
+    const minute = Number(match[5]);
+    const second = Number(match[6] || 0);
+    if (hour > 23 || minute > 59 || second > 59) return null;
+
+    if (match[7] !== "Z") {
+      const offsetHour = Number(match[9]);
+      const offsetMinute = Number(match[10]);
+      if (offsetHour > 14 || offsetMinute > 59 ||
+          (offsetHour === 14 && offsetMinute !== 0)) return null;
+    }
+  }
+
+  const parsedDate = dateOnly
+    ? new Date(`${value}T00:00:00.000Z`)
+    : new Date(value);
+  return Number.isFinite(parsedDate.getTime()) ? parsedDate : null;
+};
 
 // ============================================================================
 // 1. AI STUDY ASSISTANT - CHAT ENDPOINTS
@@ -704,52 +753,104 @@ router.post("/learning-path/generate", protect, requirePremium, async (req, res)
   try {
     const { courseId, targetExamDate, studyHoursPerDay } = req.body;
 
-    if (!courseId) {
+    if (!courseId || !mongoose.Types.ObjectId.isValid(String(courseId))) {
+      return res.status(400).json({ success: false, message: "A valid courseId is required." });
+    }
+
+    let parsedTargetDate;
+    if (targetExamDate !== undefined && targetExamDate !== null) {
+      parsedTargetDate = parseTargetExamDate(targetExamDate);
+      if (!parsedTargetDate) {
+        return res.status(400).json({ success: false, message: "targetExamDate must be a valid date." });
+      }
+      const today = new Date();
+      const todayUtc = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+      const targetUtc = Date.UTC(
+        parsedTargetDate.getUTCFullYear(),
+        parsedTargetDate.getUTCMonth(),
+        parsedTargetDate.getUTCDate()
+      );
+      if (targetUtc < todayUtc) {
+        return res.status(400).json({ success: false, message: "targetExamDate cannot be in the past." });
+      }
+    }
+
+    if (studyHoursPerDay !== undefined &&
+        (typeof studyHoursPerDay !== "number" || !Number.isFinite(studyHoursPerDay) ||
+          studyHoursPerDay < 0.25 || studyHoursPerDay > 12)) {
       return res.status(400).json({
         success: false,
-        message: "courseId is required"
+        message: "studyHoursPerDay must be between 0.25 and 12."
       });
     }
 
-    // Get course
-    const course = await Course.findById(courseId);
-    if (!course) {
-      return res.status(404).json({ success: false, message: "Course not found" });
+    const access = await questionAccess.getCourseAccess(req.user.id, courseId);
+    if (!access.allowed) {
+      return res.status(access.statusCode || 403).json({
+        success: false,
+        message: access.message || "You are not authorized to access this course."
+      });
     }
 
-    // Get student performance
-    let performance = await StudentPerformance.findOne({
-      user: req.user.id,
-      course: courseId
+    const courseRecord = access.course;
+    const course = courseRecord && typeof courseRecord.populate === "function"
+      ? await courseRecord.populate("department")
+      : courseRecord;
+    const startDate = new Date();
+    const startDay = new Date(Date.UTC(
+      startDate.getUTCFullYear(),
+      startDate.getUTCMonth(),
+      startDate.getUTCDate()
+    ));
+    const targetDay = parsedTargetDate
+      ? new Date(Date.UTC(
+        parsedTargetDate.getUTCFullYear(),
+        parsedTargetDate.getUTCMonth(),
+        parsedTargetDate.getUTCDate()
+      ))
+      : null;
+    const daysRemaining = targetDay
+      ? Math.floor((targetDay.getTime() - startDay.getTime()) / 86400000) + 1
+      : 7;
+    const scheduleCount = Math.min(daysRemaining, 14);
+    const studyHours = studyHoursPerDay === undefined ? 2 : studyHoursPerDay;
+    const scheduleDays = Array.from({ length: scheduleCount }, (_, index) => {
+      const elapsedDay = scheduleCount === 1
+        ? 0
+        : Math.round(index * (daysRemaining - 1) / (scheduleCount - 1));
+      const date = new Date(startDay.getTime() + elapsedDay * 86400000);
+      return { day: elapsedDay + 1, date: date.toISOString().slice(0, 10) };
     });
 
-    if (!performance) {
-      performance = new StudentPerformance({
-        user: req.user.id,
-        course: courseId,
-        topStrengths: [],
-        areasToImprove: ["General practice needed"]
-      });
-    }
-
-    // Generate learning path using Gemini
     const pathData = await geminiService.generateLearningPath(
       {
         courseName: course.title,
         courseCode: course.code,
-        academicLevel: req.user.yearOfStudy,
-        sources: []
+        departmentName: course.department?.name || "Unknown",
+        academicLevel: access.user.yearOfStudy || "Unknown",
+        planning: {
+          startDate: startDay.toISOString().slice(0, 10),
+          targetExamDate: targetDay ? targetDay.toISOString().slice(0, 10) : null,
+          daysRemaining,
+          studyHoursPerDay: studyHours,
+          scheduleDays
+        }
       },
       req.user.id
     );
 
-    // Create LearningPath document
+    const validatedPath = geminiService.validateLearningPathOutput(pathData?.path, {
+      scheduleDays,
+      maxStudyMinutes: studyHours * 60
+    });
     const path = new LearningPath({
       user: req.user.id,
-      course: courseId,
-      title: pathData.path.title,
-      targetExamDate: targetExamDate,
-      schedule: pathData.path.schedule
+      course: course._id,
+      title: validatedPath.title,
+      startDate,
+      targetExamDate: parsedTargetDate,
+      daysRemaining,
+      schedule: validatedPath.schedule
     });
 
     await path.save();
@@ -761,8 +862,14 @@ router.post("/learning-path/generate", protect, requirePremium, async (req, res)
       cost: pathData.cost
     });
   } catch (error) {
-    console.error("Learning path error:", error);
-    res.status(error.statusCode || 500).json({ success: false, message: error.message });
+    if (error.isSafeLearningPathError) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
+    console.error("Learning path generation failed.");
+    return res.status(500).json({
+      success: false,
+      message: "Unable to generate a learning path. Please try again."
+    });
   }
 });
 
