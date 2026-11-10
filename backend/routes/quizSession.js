@@ -480,6 +480,14 @@ router.post("/submit", protect, requirePremium, async (req, res) => {
           expired: saved.kind === "expired"
         });
       }
+      if (saved.kind === "conflict") {
+        return res.status(409).json({
+          success: false,
+          code: "ANSWER_VERSION_CONFLICT",
+          message: "The attempt changed while submitting. Review the latest saved answers and retry.",
+          attempt: quizSessionService.toStudentAttempt(saved.session, new Date())
+        });
+      }
       if (saved.kind === "invalid_option") {
         return res.status(400).json({
           success: false,
@@ -495,7 +503,7 @@ router.post("/submit", protect, requirePremium, async (req, res) => {
       if (saved.kind === "not_found") {
         return res.status(404).json({ success: false, message: "Examination attempt not found." });
       }
-      if (saved.kind !== "saved" && saved.kind !== "conflict") {
+      if (saved.kind !== "saved") {
         return res.status(409).json({
           success: false,
           message: "The attempt changed while submitting. Review the saved answers and retry."

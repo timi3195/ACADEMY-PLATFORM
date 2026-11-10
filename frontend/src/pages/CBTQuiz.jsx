@@ -6,8 +6,11 @@ import EmptyState from '../components/EmptyState'
 import ErrorState from '../components/ErrorState'
 import {
   createServerDeadline,
+  cbtSubmissionAnswers,
   formatCbtCountdown,
+  isCbtAnswerVersionConflict,
   isValidCbtQuestionCount,
+  reconcileCbtSubmissionConflict,
   reconcileCbtAnswers,
   remainingCbtSeconds,
   unansweredQuestionNumbers
@@ -378,11 +381,36 @@ export default function CBTQuiz() {
         setError('Wait for all answers to save successfully before submitting.')
         return
       }
-      const response = await apiPost('/api/quiz/submit', { attemptId })
+      const response = await apiPost('/api/quiz/submit', {
+        attemptId,
+        answers: cbtSubmissionAnswers(questions, answersRef.current)
+      })
       setResult(response.session)
       setConfirmingSubmit(false)
     } catch (err) {
       if (err.body?.session?.status === 'completed') setResult(err.body.session)
+      else if (isCbtAnswerVersionConflict(err)) {
+        const conflictAttempt = err.body.attempt
+        const reconciliation = reconcileCbtSubmissionConflict(
+          conflictAttempt,
+          questions,
+          answersRef.current,
+          saveStatusesRef.current,
+          stateVersionRef.current
+        )
+        if (reconciliation) {
+          const timingMessage = applyAttempt(conflictAttempt, { preserveAnswers: true })
+          stateVersionRef.current = reconciliation.stateVersion
+          answersRef.current = reconciliation.answers
+          setAnswers(reconciliation.answers)
+          saveStatusesRef.current = reconciliation.statuses
+          setSaveStatuses(reconciliation.statuses)
+          setRecoveryMessage(timingMessage)
+          setError('Answers were synchronized with the latest server state. Review them, retry any failed saves, then submit again.')
+        } else {
+          setError('The attempt changed, but its latest answer state could not be reconciled. Your local answers are unchanged; reload the attempt before submitting again.')
+        }
+      }
       else setError(err.message || 'Unable to submit the examination.')
     } finally {
       setSubmitting(false)

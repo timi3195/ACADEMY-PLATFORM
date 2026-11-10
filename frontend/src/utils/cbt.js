@@ -28,6 +28,10 @@ export function cbtSubmissionAnswers(questions, answers) {
   }))
 }
 
+export function isCbtAnswerVersionConflict(error) {
+  return error?.status === 409 && error?.body?.code === 'ANSWER_VERSION_CONFLICT'
+}
+
 export function createServerDeadline(expiresAt, serverNow, monotonicNow) {
   const expiryMs = Date.parse(expiresAt)
   const serverNowMs = Date.parse(serverNow)
@@ -63,4 +67,31 @@ export function reconcileCbtAnswers(serverQuestions, localQuestions, localAnswer
       : 'failed'
   })
   return { answers, statuses }
+}
+
+export function reconcileCbtSubmissionConflict(
+  attempt,
+  localQuestions,
+  localAnswers,
+  localStatuses,
+  localStateVersion
+) {
+  const serverStateVersion = attempt?.stateVersion
+  if (!Number.isSafeInteger(serverStateVersion) || serverStateVersion < 0) return null
+
+  if (Number.isSafeInteger(localStateVersion) && serverStateVersion <= localStateVersion) {
+    return {
+      answers: [...localAnswers],
+      statuses: { ...localStatuses },
+      stateVersion: localStateVersion
+    }
+  }
+
+  const reconciled = reconcileCbtAnswers(
+    attempt.questions || [],
+    localQuestions,
+    localAnswers,
+    localStatuses
+  )
+  return { ...reconciled, stateVersion: serverStateVersion }
 }

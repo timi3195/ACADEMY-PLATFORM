@@ -119,7 +119,12 @@ const createAttempt = (overrides = {}) => ({
   ...overrides
 });
 
-const withQuizMocks = async (run, { attempt = null, user = student, courseRecord = course } = {}) => {
+const withQuizMocks = async (run, {
+  attempt = null,
+  user = student,
+  courseRecord = course,
+  beforeAnswerUpdate
+} = {}) => {
   const originals = {
     sessionCreate: QuizSession.create,
     sessionFindOne: QuizSession.findOne,
@@ -196,6 +201,11 @@ const withQuizMocks = async (run, { attempt = null, user = student, courseRecord
     return query;
   };
   QuizSession.findOneAndUpdate = async (filter, update) => {
+    if (beforeAnswerUpdate && update.$inc?.stateVersion && !update.$set?.status) {
+      const simulateConcurrentUpdate = beforeAnswerUpdate;
+      beforeAnswerUpdate = undefined;
+      await simulateConcurrentUpdate(state);
+    }
     const conditions = filter.$and || [filter];
     const found = state.attempts.find((item) => conditions.every((condition) => {
       if (condition._id && String(item._id) !== String(condition._id)) return false;
@@ -625,7 +635,7 @@ test("submission grades the immutable question snapshot even if the source quest
   }, { attempt: createAttempt() });
 });
 
-test("submission validates options and grades using the persisted server key", async () => {
+test("successful submission persists answers and correct server-calculated results", async () => {
   await withQuizMocks(async (state) => {
     const response = await request(buildApp()).post("/api/quiz/submit").send({
       attemptId: ATTEMPT_ID,
@@ -643,7 +653,46 @@ test("submission validates options and grades using the persisted server key", a
     assert.equal(state.attempt.percentage, 50);
     assert.equal(state.attempt.duration >= 0, true);
     assert.equal(state.attempt.questions[0].correctOptionId, "option-two");
+    assert.equal(state.attempt.questions[0].selectedOptionId, "option-three");
+    assert.equal(state.attempt.questions[0].isCorrect, false);
+    assert.equal(state.attempt.questions[1].selectedOptionId, "option-four");
+    assert.equal(state.attempt.questions[1].isCorrect, true);
+    assert.equal(response.body.session.score, 1);
+    assert.equal(response.body.session.percentage, 50);
   }, { attempt: createAttempt() });
+});
+
+test("submission returns a conflict and does not finalize after a concurrent answer update", async () => {
+  await withQuizMocks(async (state) => {
+    const response = await request(buildApp()).post("/api/quiz/submit").send({
+      attemptId: ATTEMPT_ID,
+      answers: [
+        { questionId: QUESTION_A, selectedOptionId: "option-two" },
+        { questionId: QUESTION_B, selectedOptionId: "option-four" }
+      ]
+    });
+
+    assert.equal(response.status, 409);
+    assert.equal(response.body.code, "ANSWER_VERSION_CONFLICT");
+    assert.match(response.body.message, /latest saved answers/);
+    assert.equal(response.body.attempt.status, "in_progress");
+    assert.equal(response.body.attempt.questions[0].selectedOptionId, "option-three");
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(response.body.attempt.questions[0], "correctOptionId"),
+      false
+    );
+    assert.equal(state.attempt.status, "in_progress");
+    assert.equal(state.attempt.questions[0].selectedOptionId, "option-three");
+    assert.equal(state.attempt.questions[1].selectedOptionId, undefined);
+    assert.equal(state.finalizationUpdateCount, 0);
+    assert.equal(state.attempt.score, undefined);
+  }, {
+    attempt: createAttempt(),
+    beforeAnswerUpdate: async (state) => {
+      state.attempt.questions[0].selectedOptionId = "option-three";
+      state.attempt.stateVersion += 1;
+    }
+  });
 });
 
 test("students cannot read another student's results", async () => {

@@ -9,7 +9,9 @@ import {
   cbtSubmissionAnswers,
   createServerDeadline,
   formatCbtCountdown,
+  isCbtAnswerVersionConflict,
   isValidCbtQuestionCount,
+  reconcileCbtSubmissionConflict,
   reconcileCbtAnswers,
   remainingCbtSeconds,
   unansweredQuestionNumbers
@@ -89,5 +91,61 @@ describe('CBT access and delivery helpers', () => {
       answers: ['option-a', 'option-b'],
       statuses: { 'question-a': 'saved', 'question-b': 'failed' }
     })
+  })
+
+  it('recognizes only the answer-version conflict response during submission', () => {
+    expect(isCbtAnswerVersionConflict({
+      status: 409,
+      body: { code: 'ANSWER_VERSION_CONFLICT' }
+    })).toBe(true)
+    expect(isCbtAnswerVersionConflict({
+      status: 409,
+      body: { code: 'ATTEMPT_EXPIRED' }
+    })).toBe(false)
+    expect(isCbtAnswerVersionConflict({
+      status: 500,
+      body: { code: 'ANSWER_VERSION_CONFLICT' }
+    })).toBe(false)
+  })
+
+  it('does not replace newer local answers with an older conflict snapshot', () => {
+    const questions = [{ _id: 'question-a' }, { _id: 'question-b' }]
+    const localAnswers = ['new-local-answer', 'local-answer-b']
+    const localStatuses = { 'question-a': 'saved', 'question-b': 'saved' }
+
+    expect(reconcileCbtSubmissionConflict({
+      stateVersion: 4,
+      questions: [
+        { _id: 'question-a', selectedOptionId: 'stale-server-answer' },
+        { _id: 'question-b', selectedOptionId: null }
+      ]
+    }, questions, localAnswers, localStatuses, 5)).toEqual({
+      answers: localAnswers,
+      statuses: localStatuses,
+      stateVersion: 5
+    })
+  })
+
+  it('synchronizes a newer server snapshot and preserves pending local answers for retry', () => {
+    const questions = [{ _id: 'question-a' }, { _id: 'question-b' }]
+    const localAnswers = ['local-a', 'pending-local-b']
+    const localStatuses = { 'question-a': 'saved', 'question-b': 'failed' }
+    const reconciled = reconcileCbtSubmissionConflict({
+      stateVersion: 8,
+      questions: [
+        { _id: 'question-a', selectedOptionId: 'server-a' },
+        { _id: 'question-b', selectedOptionId: null }
+      ]
+    }, questions, localAnswers, localStatuses, 7)
+
+    expect(reconciled).toEqual({
+      answers: ['server-a', 'pending-local-b'],
+      statuses: { 'question-b': 'failed' },
+      stateVersion: 8
+    })
+    expect(cbtSubmissionAnswers(questions, reconciled.answers)).toEqual([
+      { questionId: 'question-a', selectedOptionId: 'server-a' },
+      { questionId: 'question-b', selectedOptionId: 'pending-local-b' }
+    ])
   })
 })
