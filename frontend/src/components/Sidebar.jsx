@@ -14,6 +14,7 @@ export default function Sidebar() {
     { to: '/library', label: 'Library', icon: '⌂' },
     { to: '/notes', label: 'Notes', icon: '✎' },
     { to: '/past-questions', label: 'Past Questions', icon: '✓' },
+    { to: '/examination-history', label: 'Exam History', icon: '▤' },
     { to: '/ai', label: 'AI Study', icon: '◎' },
     { to: '/analytics', label: 'Analytics', icon: '◭' },
   ];

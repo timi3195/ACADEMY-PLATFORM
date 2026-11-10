@@ -30,6 +30,7 @@ import LecturerPaymentSettings from './pages/LecturerPaymentSettings'
 import LecturerQuestionExtractions from './pages/LecturerQuestionExtractions'
 import AdminLecturerManagement from './pages/AdminLecturerManagement'
 import CBTQuiz from './pages/CBTQuiz'
+import ExaminationHistory from './pages/ExaminationHistory'
 import MainLayout from './layouts/MainLayout'
 import AuthLayout from './layouts/AuthLayout'
 
@@ -115,6 +116,7 @@ export default function App() {
         <Route path="/notes" element={<Protected><Notes /></Protected>} />
         <Route path="/past-questions" element={<Protected><PastQuestions /></Protected>} />
         <Route path="/cbt" element={<Protected><CBTQuiz /></Protected>} />
+        <Route path="/examination-history" element={<Protected><ExaminationHistory /></Protected>} />
         <Route path="/ai" element={<Protected><AI /></Protected>} />
         <Route path="/ai-chat" element={<Protected><AIChatPage /></Protected>} />
         <Route path="/analytics" element={<Protected><AnalyticsDashboard /></Protected>} />

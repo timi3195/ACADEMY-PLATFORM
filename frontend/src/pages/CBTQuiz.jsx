@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useSearchParams } from 'react-router-dom'
 import { apiGet, apiPatch, apiPost } from '../utils/api'
 import PremiumGate from '../components/PremiumGate'
@@ -447,6 +448,7 @@ export default function CBTQuiz() {
             <p>Your score: {result.score} / {result.totalQuestions}</p>
             <p>Percentage: {Number(result.percentage || 0).toFixed(1)}%</p>
             <p className="text-sm text-gray-600">Your result was calculated and saved by the server.</p>
+            <Link className="inline-flex items-center mr-3" to="/examination-history">View examination history</Link>
             <button type="button" onClick={resetQuiz}>Start another practice quiz</button>
           </section>
         </div>
@@ -458,6 +460,7 @@ export default function CBTQuiz() {
     <PremiumGate fallback={<p>Upgrade to premium to access the CBT quiz engine.</p>}>
       <div className="page">
         <h2>CBT Practice</h2>
+        <p className="mb-4"><Link to="/examination-history">View examination history</Link></p>
         <p className="text-sm text-gray-600 mb-4">Practice with approved objective questions. Your result is graded by the server.</p>
         {error && <ErrorState message={error} />}
         {recoveryMessage && <p className="text-sm text-blue-700" role="status">{recoveryMessage}</p>}
