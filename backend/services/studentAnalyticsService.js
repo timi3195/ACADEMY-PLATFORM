@@ -498,6 +498,44 @@ const getStudentAnalytics = async (userId, generatedAt = new Date()) => {
   return buildStudentAnalytics(aggregation[0] || {}, generatedAt);
 };
 
+const buildCoursePerformanceContext = (analytics = {}, courseId) => {
+  const course = (analytics.courses || []).find(
+    (item) => String(item.courseId) === String(courseId)
+  );
+  if (!course || course.completedAttempts < 1) {
+    return {
+      hasCompletedAttempts: false,
+      scope: "selected_course",
+      completedAttempts: 0
+    };
+  }
+
+  const summarizeTopics = (topics = [], includeAccuracy) => topics.slice(0, 5).map((topic) => ({
+    topic: topic.topic,
+    questionsAnswered: topic.questionsAnswered,
+    ...(includeAccuracy ? { accuracy: topic.accuracy } : {})
+  }));
+  const trend = analytics.trend || {};
+
+  return {
+    hasCompletedAttempts: true,
+    scope: "selected_course",
+    completedAttempts: course.completedAttempts,
+    averageScorePercentage: course.averageScorePercentage,
+    accuracy: course.accuracy,
+    questionsAnswered: course.questionsAnswered,
+    strongTopics: summarizeTopics(course.strongestTopics, true),
+    weakTopics: summarizeTopics(course.weakestTopics, true),
+    topicsWithInsufficientEvidence: summarizeTopics(course.insufficientTopics),
+    overallTrend: {
+      scope: "all_courses",
+      direction: trend.direction || "insufficient_data",
+      comparedAttempts: trend.comparedAttempts || 0,
+      changePercentagePoints: trend.changePercentagePoints ?? null
+    }
+  };
+};
+
 module.exports = {
   TOPIC_THRESHOLDS,
   TREND_MINIMUM_ATTEMPTS,
@@ -507,5 +545,6 @@ module.exports = {
   classifyTopic,
   calculateTrend,
   buildStudentAnalytics,
-  getStudentAnalytics
+  getStudentAnalytics,
+  buildCoursePerformanceContext
 };

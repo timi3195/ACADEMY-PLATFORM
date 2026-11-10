@@ -127,6 +127,9 @@ export default function AI() {
           <div>
             <h1>🤖 AI Study Assistant</h1>
             <p>Your personal tutor powered by advanced AI. Get explanations, practice questions, and exam prep.</p>
+            <p className="ai-personalization-note">
+              Guidance can use your completed CBT results for the selected course. Without completed attempts, you can still ask ordinary study questions.
+            </p>
           </div>
           <button className="btn-new-chat" onClick={startNewChat}>
             ➕ New Chat
@@ -308,6 +311,10 @@ export default function AI() {
           margin: 0.5rem 0 0 0;
           color: #666;
           font-size: 0.95rem;
+        }
+
+        .ai-header .ai-personalization-note {
+          font-size: 0.85rem;
         }
 
         .btn-new-chat {

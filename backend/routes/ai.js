@@ -25,6 +25,7 @@ const QuizSession = require("../models/QuizSession");
 // Services
 const geminiService = require("../utils/gemini");
 const questionAccess = require("../services/questionAccessService");
+const studentAnalytics = require("../services/studentAnalyticsService");
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -130,11 +131,8 @@ router.post("/chat", protect, async (req, res) => {
       content: msg.content
     }));
 
-    // Get user performance data for context
-    const performance = await StudentPerformance.findOne({
-      user: req.user.id,
-      course: courseId
-    });
+    const analytics = await studentAnalytics.getStudentAnalytics(req.user.id);
+    const cbtPerformance = studentAnalytics.buildCoursePerformanceContext(analytics, courseId);
 
     const fileQuery = File.find({ course: course.title, productStatus: "published", hidden: false, isDeleted: false });
     const paperQuery = PastQuestionPaper.find({ course: courseId });
@@ -150,7 +148,7 @@ router.post("/chat", protect, async (req, res) => {
       courseCode: course.code,
       departmentName: course.department?.name || "Unknown",
       academicLevel: req.user.yearOfStudy || "Unknown",
-      topicsMastery: performance ? performance.topicMetrics : [],
+      cbtPerformance,
       sources: [
         ...materials.map((item) => ({ type: item.materialType || "course material", title: item.title, description: item.description })),
         ...papers.map((item) => ({ type: "past-question paper", title: item.title, description: `${item.examinationYear}, ${item.level}, ${item.semester}` }))

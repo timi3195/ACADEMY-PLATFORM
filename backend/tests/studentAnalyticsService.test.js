@@ -4,6 +4,7 @@ const mongoose = require("mongoose");
 const QuizSession = require("../models/QuizSession");
 const {
   buildAnalyticsPipeline,
+  buildCoursePerformanceContext,
   buildStudentAnalytics,
   calculateTrend,
   classifyTopic,
@@ -177,3 +178,90 @@ test("recommendations contain only evidence-backed topic results", () => {
   assert.equal(recommendation.evidence.questionsAnswered, 4);
   assert.equal(recommendation.priority, "high");
 });
+
+test("course performance context is selected-course scoped and contains aggregate fields only", () => {
+  const context = buildCoursePerformanceContext(analyticsWithMultipleCourses(), "course-1");
+
+  assert.equal(context.hasCompletedAttempts, true);
+  assert.equal(context.completedAttempts, 2);
+  assert.equal(context.averageScorePercentage, 65);
+  assert.equal(context.accuracy, 60);
+  assert.deepEqual(context.strongTopics, [{ topic: "Networks", questionsAnswered: 5, accuracy: 90 }]);
+  assert.deepEqual(context.weakTopics, [{ topic: "Routing", questionsAnswered: 5, accuracy: 30 }]);
+  assert.deepEqual(context.topicsWithInsufficientEvidence, [{ topic: "Security", questionsAnswered: 2 }]);
+  assert.equal(context.overallTrend.scope, "all_courses");
+  assert.doesNotMatch(JSON.stringify(context), /Second course|correctAnswer|correctOptionId|selectedAnswer/);
+});
+
+test("course context does not label topics with insufficient evidence as weaknesses", () => {
+  const analytics = buildStudentAnalytics({
+    courses: [{
+      courseId: "course-1",
+      title: "Networking",
+      completedAttempts: 1,
+      averageScorePercentage: 50,
+      questionsAnswered: 2,
+      correctAnswers: 1,
+      incorrectAnswers: 1
+    }],
+    topics: [{
+      courseId: "course-1",
+      courseTitle: "Networking",
+      topic: "Routing",
+      totalQuestions: 2,
+      questionsAnswered: 2,
+      correctAnswers: 0,
+      incorrectAnswers: 2,
+      accuracy: 0
+    }],
+    trend: []
+  });
+  const context = buildCoursePerformanceContext(analytics, "course-1");
+
+  assert.deepEqual(context.weakTopics, []);
+  assert.deepEqual(context.topicsWithInsufficientEvidence, [
+    { topic: "Routing", questionsAnswered: 2 }
+  ]);
+});
+
+test("course context clearly reports when no completed attempts are available", () => {
+  assert.deepEqual(buildCoursePerformanceContext({ courses: [] }, "course-1"), {
+    hasCompletedAttempts: false,
+    scope: "selected_course",
+    completedAttempts: 0
+  });
+});
+
+function analyticsWithMultipleCourses() {
+  return {
+    courses: [
+      {
+        courseId: "course-1",
+        title: "Networking",
+        completedAttempts: 2,
+        averageScorePercentage: 65,
+        accuracy: 60,
+        questionsAnswered: 10,
+        strongestTopics: [{ topic: "Networks", questionsAnswered: 5, accuracy: 90 }],
+        weakestTopics: [{ topic: "Routing", questionsAnswered: 5, accuracy: 30 }],
+        insufficientTopics: [{ topic: "Security", questionsAnswered: 2, accuracy: 50 }]
+      },
+      {
+        courseId: "course-2",
+        title: "Second course",
+        completedAttempts: 8,
+        averageScorePercentage: 99,
+        accuracy: 99,
+        questionsAnswered: 40,
+        strongestTopics: [],
+        weakestTopics: [],
+        insufficientTopics: []
+      }
+    ],
+    trend: {
+      direction: "declining",
+      comparedAttempts: 4,
+      changePercentagePoints: -10
+    }
+  };
+}

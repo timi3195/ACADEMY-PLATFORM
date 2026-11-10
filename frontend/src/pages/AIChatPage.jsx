@@ -80,7 +80,7 @@ const AIChatPage = () => {
 
       <div className="page-footer">
         <div className="footer-info">
-          <p>💡 <strong>Tip:</strong> The AI learns from your performance and adapts explanations based on your level.</p>
+          <p>💡 <strong>Personalized guidance:</strong> The AI can use completed CBT results for the selected course. Without completed attempts, you can still ask ordinary study questions.</p>
         </div>
       </div>
     </div>

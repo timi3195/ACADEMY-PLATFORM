@@ -14,6 +14,7 @@ const StudentPerformance = require('../models/StudentPerformance');
 const File = require('../models/File');
 const PastQuestionPaper = require('../models/PastQuestionPaper');
 const geminiService = require('../utils/gemini');
+const studentAnalytics = require('../services/studentAnalyticsService');
 
 const USER_A = '507f1f77bcf86cd799439011';
 
@@ -149,6 +150,7 @@ test('client-supplied user IDs cannot override authenticated identity in chat re
   const fileOrig = File.find;
   const paperOrig = PastQuestionPaper.find;
   const geminiOrig = geminiService.chatWithStudent;
+  const analyticsOrig = studentAnalytics.getStudentAnalytics;
   const convOrig = AIConversation.findById;
 
   Course.findById = async () => courseDoc;
@@ -159,7 +161,10 @@ test('client-supplied user IDs cannot override authenticated identity in chat re
     yearOfStudy: 'ND1',
     semester: 'First'
   });
-  StudentPerformance.findOne = async () => null;
+  StudentPerformance.findOne = async () => {
+    throw new Error('AI chat must not read legacy student performance');
+  };
+  studentAnalytics.getStudentAnalytics = async () => ({ courses: [], trend: {} });
   File.find = async () => [];
   PastQuestionPaper.find = async () => [];
   geminiService.chatWithStudent = async (messages, context, userId) => {
@@ -191,6 +196,7 @@ test('client-supplied user IDs cannot override authenticated identity in chat re
     File.find = fileOrig;
     PastQuestionPaper.find = paperOrig;
     geminiService.chatWithStudent = geminiOrig;
+    studentAnalytics.getStudentAnalytics = analyticsOrig;
     AIConversation.findById = convOrig;
   }
 });
