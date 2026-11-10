@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const express = require("express");
 const request = require("supertest");
 const nodemailer = require("nodemailer");
+const axios = require("axios");
 const sgMail = require("@sendgrid/mail");
 const User = require("../models/User");
 const { logger } = require("../utils/logger");
@@ -12,10 +13,11 @@ const authRouter = require("../routes/auth");
 const TEST_EMAIL = "reset-recipient@example.test";
 const RESET_TOKEN = "private-reset-token-for-test";
 const API_KEY = "SG.private-api-key-for-test";
+const BREVO_API_KEY = "brevo-private-api-key-for-test";
 
 const withEmailConfig = async (run, values = {}) => {
   const keys = [
-    "NODE_ENV", "SENDGRID_API_KEY", "SMTP_HOST", "SMTP_PORT", "SMTP_SECURE",
+    "NODE_ENV", "BREVO_API_KEY", "SENDGRID_API_KEY", "SMTP_HOST", "SMTP_PORT", "SMTP_SECURE",
     "SMTP_USER", "SMTP_PASS", "EMAIL_FROM", "FRONTEND_URL", "SKIP_EMAIL_IN_DEV"
   ];
   const previous = Object.fromEntries(keys.map((key) => [
@@ -58,124 +60,191 @@ const captureLogs = async (run, onLog = () => {}) => {
   }
 };
 
-test("SMTP reset mail reports provider acceptance without claiming delivery", async () => {
+test("Brevo reset mail uses its HTTPS API, preserves template content, and reports acceptance", async () => {
+  const originalPost = axios.post;
   const originalCreateTransport = nodemailer.createTransport;
-  let sentMessage;
-  let transportOptions;
-  let sendMailLogCount;
+  let requestOptions;
+  let requestBody;
+  let sendAttemptLogCount;
   let capturedLogLines;
-  nodemailer.createTransport = (options) => {
-    transportOptions = options;
-    return {
-      sendMail: async (message) => {
-        sendMailLogCount = capturedLogLines.length;
-        sentMessage = message;
-        return { accepted: [TEST_EMAIL], rejected: [], messageId: "smtp-test-id" };
-      }
-    };
+  axios.post = async (url, body, options) => {
+    requestBody = body;
+    requestOptions = { url, ...options };
+    sendAttemptLogCount = capturedLogLines.length;
+    return { status: 201, data: { messageId: "<brevo-message-id>" } };
+  };
+  nodemailer.createTransport = () => {
+    throw new Error("SMTP must not be used for Brevo");
   };
 
   try {
     await withEmailConfig(async () => {
       const { result, lines } = await captureLogs(
-        () => sendPasswordResetEmail(TEST_EMAIL, RESET_TOKEN, "Test Student", "request-smtp-ok"),
+        () => sendPasswordResetEmail(TEST_EMAIL, RESET_TOKEN, "Test Student", "request-brevo-ok"),
         (_line, captured) => { capturedLogLines = captured; }
       );
-      assert.equal(transportOptions.host, "smtp.example.test");
-      assert.equal(transportOptions.port, "587");
-      assert.equal(transportOptions.secure, false);
-      assert.deepEqual(transportOptions.auth, { user: "smtp-user-test", pass: "smtp-password-test" });
-      assert.match(sentMessage.html, new RegExp(RESET_TOKEN));
-      assert.match(sentMessage.html, /https:\/\/academy\.example\.test\/reset-password/);
+      assert.equal(requestOptions.url, "https://api.brevo.com/v3/smtp/email");
+      assert.equal(requestOptions.headers["api-key"], BREVO_API_KEY);
+      assert.equal(requestOptions.timeout, 15000);
+      assert.deepEqual(requestBody.sender, { email: "noreply@example.test" });
+      assert.deepEqual(requestBody.to, [{ email: TEST_EMAIL }]);
+      assert.equal(requestBody.subject, "Password Reset Request - Academy Platform");
+      assert.match(requestBody.htmlContent, new RegExp(RESET_TOKEN));
+      assert.match(requestBody.htmlContent, /https:\/\/academy\.example\.test\/reset-password/);
       assert.equal(result.success, true);
       assert.equal(result.accepted, true);
       assert.equal(result.delivered, false);
       assert.equal(result.outcome, "accepted_by_provider");
-      assert.ok(lines.some((line) => line.includes('"provider":"smtp"') && line.includes('"delivered":false')));
-      const sendAttemptLogIndex = lines.findIndex((line) =>
+      assert.equal(result.messageId, "<brevo-message-id>");
+      const accepted = lines.map((line) => JSON.parse(line))
+        .find((entry) => entry.event === "password_reset_email_provider_accepted");
+      assert.equal(accepted.provider, "brevo");
+      assert.equal(accepted.providerMessageId, "<brevo-message-id>");
+      const sendAttemptIndex = lines.findIndex((line) =>
         line.includes('"event":"password_reset_email_send_attempted"')
       );
-      assert.ok(sendAttemptLogIndex >= 0);
-      assert.equal(sendMailLogCount, sendAttemptLogIndex + 1);
+      assert.ok(sendAttemptIndex >= 0);
+      assert.equal(sendAttemptLogCount, sendAttemptIndex + 1);
       assert.ok(lines.every((line) =>
         !line.includes(TEST_EMAIL) &&
         !line.includes(RESET_TOKEN) &&
         !line.includes("https://academy.example.test/reset-password") &&
-        !line.includes("smtp-password-test") &&
-        !line.includes("smtp-user-test")
+        !line.includes(BREVO_API_KEY)
       ));
     }, {
+      BREVO_API_KEY,
+      SENDGRID_API_KEY: API_KEY,
       SMTP_HOST: "smtp.example.test",
-      SMTP_PORT: "587",
       SMTP_USER: "smtp-user-test",
       SMTP_PASS: "smtp-password-test"
     });
   } finally {
+    axios.post = originalPost;
     nodemailer.createTransport = originalCreateTransport;
   }
 });
 
-test("SMTP authentication failures return a safe diagnostic", async () => {
-  const originalCreateTransport = nodemailer.createTransport;
-  nodemailer.createTransport = () => ({
-    sendMail: async () => {
-      const error = new Error(`authentication failed: ${API_KEY} ${RESET_TOKEN}`);
-      error.code = "EAUTH";
-      throw error;
-    }
-  });
+test("Brevo HTTP errors return safe diagnostics without provider details", async () => {
+  const originalPost = axios.post;
+  axios.post = async () => {
+    const error = new Error(`rejected ${BREVO_API_KEY} ${RESET_TOKEN} ${TEST_EMAIL}`);
+    error.response = {
+      status: 401,
+      data: { message: `private provider detail ${BREVO_API_KEY}` }
+    };
+    throw error;
+  };
 
   try {
     await withEmailConfig(async () => {
       const { result, lines } = await captureLogs(() =>
-        sendPasswordResetEmail(TEST_EMAIL, RESET_TOKEN, "Test Student", "request-smtp-fail")
+        sendPasswordResetEmail(TEST_EMAIL, RESET_TOKEN, "Test Student", "request-brevo-fail")
       );
       assert.equal(result.success, false);
       assert.equal(result.outcome, "provider_authentication_failed");
       const diagnostics = lines.join("\n");
-      assert.ok(diagnostics.includes('"code":"EAUTH"'));
+      assert.ok(diagnostics.includes('"provider":"brevo"'));
+      assert.ok(diagnostics.includes('"code":"401"'));
       assert.ok(diagnostics.includes("provider rejected the configured credentials"));
-      assert.ok(!diagnostics.includes(TEST_EMAIL));
+      assert.ok(!diagnostics.includes(BREVO_API_KEY));
       assert.ok(!diagnostics.includes(RESET_TOKEN));
-      assert.ok(!diagnostics.includes(API_KEY));
-      assert.ok(!diagnostics.includes("authentication failed:"));
-    }, {
-      SMTP_HOST: "smtp.example.test",
-      SMTP_USER: "smtp-user-test",
-      SMTP_PASS: "smtp-password-test"
-    });
+      assert.ok(!diagnostics.includes(TEST_EMAIL));
+      assert.ok(!diagnostics.includes("private provider detail"));
+    }, { BREVO_API_KEY });
   } finally {
-    nodemailer.createTransport = originalCreateTransport;
+    axios.post = originalPost;
   }
 });
 
-test("SMTP sender or recipient rejection is not reported as accepted", async () => {
-  const originalCreateTransport = nodemailer.createTransport;
-  nodemailer.createTransport = () => ({
-    sendMail: async () => {
-      const error = new Error(`sender rejected ${RESET_TOKEN}`);
-      error.code = "EENVELOPE";
-      throw error;
-    }
-  });
+test("Brevo sender accepts display-name and plain-address formats", async () => {
+  const originalPost = axios.post;
+  const senders = [];
+  axios.post = async (_url, body) => {
+    senders.push(body.sender);
+    return { status: 201, data: { messageId: "<sender-format-test>" } };
+  };
 
   try {
     await withEmailConfig(async () => {
-      const { result, lines } = await captureLogs(() =>
-        sendPasswordResetEmail(TEST_EMAIL, RESET_TOKEN, "Test Student", "request-smtp-rejected")
+      for (const [from, expected] of [
+        ["AcademyPlatform <verified-email@example.com>", {
+          email: "verified-email@example.com",
+          name: "AcademyPlatform"
+        }],
+        ["verified-email@example.com", { email: "verified-email@example.com" }]
+      ]) {
+        process.env.EMAIL_FROM = from;
+        const result = await sendPasswordResetEmail(
+          TEST_EMAIL,
+          RESET_TOKEN,
+          "Test Student",
+          "request-sender-format"
+        );
+        assert.equal(result.success, true);
+        assert.deepEqual(senders.at(-1), expected);
+      }
+    }, { BREVO_API_KEY });
+  } finally {
+    axios.post = originalPost;
+  }
+});
+
+test("invalid or missing production sender fails safely before provider request", async () => {
+  const originalPost = axios.post;
+  let apiCalls = 0;
+  axios.post = async () => {
+    apiCalls += 1;
+    return { status: 201, data: { messageId: "<should-not-send>" } };
+  };
+
+  try {
+    await withEmailConfig(async () => {
+      for (const sender of ["", "invalid sender", "AcademyPlatform <not-an-email>", "sender@example.com\r\nBcc: other@example.com"]) {
+        process.env.EMAIL_FROM = sender;
+        const { result, lines } = await captureLogs(() =>
+          sendPasswordResetEmail(TEST_EMAIL, RESET_TOKEN, "Test Student", "request-invalid-sender")
+        );
+        assert.equal(result.success, false);
+        assert.equal(result.outcome, "configuration_missing");
+        assert.match(result.error, /Email delivery is not configured/);
+        if (sender) assert.ok(!lines.join("\n").includes(sender));
+      }
+      delete process.env.EMAIL_FROM;
+      const { result } = await captureLogs(() =>
+        sendPasswordResetEmail(TEST_EMAIL, RESET_TOKEN, "Test Student", "request-missing-sender")
       );
       assert.equal(result.success, false);
-      assert.equal(result.accepted, false);
-      assert.equal(result.outcome, "provider_rejected_request");
-      assert.match(lines.join("\n"), /rejected the sender or recipient address/);
-      assert.ok(!lines.join("\n").includes(RESET_TOKEN));
-    }, {
-      SMTP_HOST: "smtp.example.test",
-      SMTP_USER: "smtp-user-test",
-      SMTP_PASS: "smtp-password-test"
-    });
+      assert.equal(result.outcome, "configuration_missing");
+      assert.equal(apiCalls, 0);
+    }, { BREVO_API_KEY });
   } finally {
-    nodemailer.createTransport = originalCreateTransport;
+    axios.post = originalPost;
+  }
+});
+
+test("SendGrid receives the original configured sender format", async () => {
+  const originalSend = sgMail.send;
+  let sentMessage;
+  sgMail.send = async (message) => {
+    sentMessage = message;
+    return [{ statusCode: 202, headers: { "x-message-id": "sendgrid-sender-test" } }];
+  };
+
+  try {
+    await withEmailConfig(async () => {
+      const from = "AcademyPlatform <verified-email@example.com>";
+      process.env.EMAIL_FROM = from;
+      const result = await sendPasswordResetEmail(
+        TEST_EMAIL,
+        RESET_TOKEN,
+        "Test Student",
+        "request-sendgrid-sender"
+      );
+      assert.equal(result.success, true);
+      assert.equal(sentMessage.from, from);
+    }, { SENDGRID_API_KEY: API_KEY });
+  } finally {
+    sgMail.send = originalSend;
   }
 });
 
@@ -210,33 +279,24 @@ test("SendGrid API errors are reported without exposing provider response detail
   }
 });
 
-test("SMTP configuration is incomplete unless both credentials are present", async () => {
+test("production ignores SMTP configuration when API provider keys are missing", async () => {
   const originalCreateTransport = nodemailer.createTransport;
-  nodemailer.createTransport = () => ({
-    sendMail: async () => ({
-      accepted: [TEST_EMAIL],
-      rejected: [],
-      messageId: "smtp-missing-auth-test-id"
-    })
-  });
-
+  nodemailer.createTransport = () => {
+    throw new Error("SMTP must not be used in production");
+  };
   try {
-    for (const smtpCredentials of [{}, { SMTP_USER: "smtp-user-test" }]) {
-      await withEmailConfig(async () => {
-        const { result, lines } = await captureLogs(() =>
-          sendPasswordResetEmail(TEST_EMAIL, RESET_TOKEN, "Test Student", "request-smtp-missing-auth")
-        );
-        const started = lines.map((line) => JSON.parse(line))
-          .find((entry) => entry.event === "password_reset_email_send_started");
-        assert.equal(started.configurationComplete, false);
-        assert.equal(result.success, Object.keys(smtpCredentials).length === 0);
-        if (Object.keys(smtpCredentials).length > 0) {
-          assert.equal(result.outcome, "configuration_missing");
-        }
-        assert.ok(!lines.join("\n").includes(RESET_TOKEN));
-        assert.ok(!lines.join("\n").includes("smtp-user-test"));
-      }, { SMTP_HOST: "smtp.example.test", ...smtpCredentials });
-    }
+    await withEmailConfig(async () => {
+      const { result, lines } = await captureLogs(() =>
+        sendPasswordResetEmail(TEST_EMAIL, RESET_TOKEN, "Test Student", "request-no-api")
+      );
+      const started = lines.map((line) => JSON.parse(line))
+        .find((entry) => entry.event === "password_reset_email_send_started");
+      assert.equal(started.provider, "unconfigured");
+      assert.equal(started.configurationComplete, false);
+      assert.equal(result.success, false);
+      assert.equal(result.outcome, "configuration_missing");
+      assert.ok(!lines.join("\n").includes("smtp.example.test"));
+    }, { SMTP_HOST: "smtp.example.test", SMTP_USER: "smtp-user-test", SMTP_PASS: "smtp-password-test" });
   } finally {
     nodemailer.createTransport = originalCreateTransport;
   }
@@ -256,22 +316,22 @@ test("missing production email configuration is rejected and diagnosed", async (
   });
 });
 
-test("provider timeouts are distinguished from rejected or accepted email", async () => {
-  const originalSend = sgMail.send;
-  sgMail.send = async () => new Promise(() => {});
+test("Brevo network timeouts are distinguished from rejected or accepted email", async () => {
+  const originalPost = axios.post;
+  axios.post = async () => new Promise(() => {});
 
   try {
     await withEmailConfig(async () => {
       const { result, lines } = await captureLogs(() =>
-        sendPasswordResetEmail(TEST_EMAIL, RESET_TOKEN, "Test Student", "request-sendgrid-timeout", 5)
+        sendPasswordResetEmail(TEST_EMAIL, RESET_TOKEN, "Test Student", "request-brevo-timeout", 5)
       );
       assert.equal(result.success, false);
       assert.equal(result.outcome, "timeout_delivery_unknown");
       assert.match(lines.join("\n"), /acceptance is unknown/);
       assert.ok(!lines.join("\n").includes(RESET_TOKEN));
-    }, { SENDGRID_API_KEY: API_KEY });
+    }, { BREVO_API_KEY });
   } finally {
-    sgMail.send = originalSend;
+    axios.post = originalPost;
   }
 });
 
@@ -279,14 +339,8 @@ test("forgot-password keeps the same generic response for known and unknown acco
   const originalFindOne = User.findOne;
   const originalSave = User.prototype.save;
   const originalGenerate = User.prototype.generatePasswordResetToken;
-  const originalCreateTransport = nodemailer.createTransport;
-  nodemailer.createTransport = () => ({
-    sendMail: async (message) => ({
-      accepted: [message.to],
-      rejected: [],
-      messageId: "route-smtp-test-id"
-    })
-  });
+  const originalPost = axios.post;
+  axios.post = async () => ({ status: 201, data: { messageId: "<route-brevo-id>" } });
   User.prototype.save = async function saveWithoutDatabase() { return this; };
   User.prototype.generatePasswordResetToken = function generateTestToken() {
     this.resetPasswordToken = RESET_TOKEN;
@@ -348,23 +402,18 @@ test("forgot-password keeps the same generic response for known and unknown acco
       assert.ok(events.some((entry) =>
         entry.event === "password_reset_email_send_attempted" &&
         entry.requestId === knownLookup.requestId &&
-        entry.provider === "smtp"
+        entry.provider === "brevo"
       ));
       assert.ok(!lines.join("\n").includes(TEST_EMAIL));
       assert.ok(!lines.join("\n").includes(RESET_TOKEN));
       assert.ok(!lines.join("\n").includes("https://academy.example.test/reset-password"));
-      assert.ok(!lines.join("\n").includes("smtp-password-test"));
-      assert.ok(!lines.join("\n").includes("smtp-user-test"));
-    }, {
-      SMTP_HOST: "smtp.example.test",
-      SMTP_USER: "smtp-user-test",
-      SMTP_PASS: "smtp-password-test"
-    });
+      assert.ok(!lines.join("\n").includes(BREVO_API_KEY));
+    }, { BREVO_API_KEY });
   } finally {
     User.findOne = originalFindOne;
     User.prototype.save = originalSave;
     User.prototype.generatePasswordResetToken = originalGenerate;
-    nodemailer.createTransport = originalCreateTransport;
+    axios.post = originalPost;
   }
 });
 
