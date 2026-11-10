@@ -4,7 +4,8 @@ const {
   migrateAdminRoleIndex,
   supportsSameKeyPatternIndexes,
   readApplyFlag,
-  formatSafeFailure
+  formatSafeFailure,
+  getSafeErrorCategory
 } = require("../scripts/migrate-admin-role-index");
 
 const LEGACY_ROLE_INDEX = {
@@ -208,5 +209,44 @@ test("safe failure output identifies unsupported versions and confirmation cance
   assert.doesNotMatch(
     formatSafeFailure("version-check", unsupported),
     /private server details/
+  );
+});
+
+test("connection failures are categorized from allowlisted error properties", () => {
+  const cases = [
+    ["authentication", { code: 18 }],
+    ["authorization", { codeName: "Unauthorized" }],
+    ["dns-srv", { name: "MongoNetworkError", cause: { code: "ENOTFOUND" } }],
+    ["dns-srv", {
+      name: "MongoServerSelectionError",
+      reason: { servers: new Map([["private-host", { error: { code: "EAI_AGAIN" } }]]) }
+    }],
+    ["network-unreachable", { code: "ECONNREFUSED" }],
+    ["connection-timeout", { name: "MongoNetworkTimeoutError" }],
+    ["tls-certificate", { code: "ERR_TLS_CERT_ALTNAME_INVALID" }],
+    ["server-selection", { name: "MongoServerSelectionError" }],
+    ["invalid-uri", { code: "MIGRATION_INVALID_URI" }],
+    ["unknown-connection-failure", { name: "MongoUnexpectedConnectionError" }]
+  ];
+
+  for (const [expected, properties] of cases) {
+    const error = Object.assign(new Error("sensitive connection details"), properties);
+    assert.equal(getSafeErrorCategory("database-connection", error), expected);
+  }
+});
+
+test("connection diagnostic output never includes raw error properties", () => {
+  const error = Object.assign(
+    new Error("mongodb+srv://user:password@private-host/test"),
+    { name: "MongoServerSelectionError", code: "ENOTFOUND" }
+  );
+  const diagnostic = formatSafeFailure("database-connection", error);
+
+  assert.match(diagnostic, /stage "database-connection"/);
+  assert.match(diagnostic, /category: dns-srv/);
+  assert.match(diagnostic, /DNS\/SRV resolution/);
+  assert.doesNotMatch(
+    diagnostic,
+    /mongodb|user|password|private-host|ENOTFOUND|sensitive connection details/
   );
 });

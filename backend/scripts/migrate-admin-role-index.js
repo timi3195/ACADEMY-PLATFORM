@@ -33,27 +33,79 @@ const createMigrationError = (message, code) => {
   return error;
 };
 
-const getSafeErrorCategory = (stage, error) => {
-  const code = error?.code;
-  const codeName = error?.codeName;
-  const name = error?.name;
+const getErrorSignals = (error) => {
+  const signals = [];
+  const visited = new Set();
+  const pending = [{ value: error, depth: 0 }];
 
-  if (code === "MIGRATION_UNSUPPORTED_VERSION") return "unsupported-version";
-  if (code === 18 || codeName === "AuthenticationFailed") return "authentication";
-  if (code === 13 || codeName === "Unauthorized") return "authorization";
-  if (code === 11000 || codeName === "DuplicateKey") return "duplicate-key";
-  if ([85, 86, 67].includes(code) ||
-      ["IndexOptionsConflict", "IndexKeySpecsConflict", "CannotCreateIndex"].includes(codeName)) {
+  while (pending.length > 0) {
+    const { value, depth } = pending.pop();
+    if (!value || typeof value !== "object" || visited.has(value) || depth > 5) continue;
+    visited.add(value);
+
+    signals.push({
+      code: value.code,
+      codeName: value.codeName,
+      name: value.name
+    });
+
+    for (const property of ["cause", "reason", "error"]) {
+      if (value[property] && typeof value[property] === "object") {
+        pending.push({ value: value[property], depth: depth + 1 });
+      }
+    }
+
+    const servers = value.servers;
+    if (servers instanceof Map) {
+      for (const server of servers.values()) {
+        if (server?.error && typeof server.error === "object") {
+          pending.push({ value: server.error, depth: depth + 1 });
+        }
+      }
+    }
+  }
+
+  return signals;
+};
+
+const getSafeErrorCategory = (stage, error) => {
+  const signals = getErrorSignals(error);
+  const hasCode = (...codes) => signals.some(({ code }) => codes.includes(code));
+  const hasCodeName = (...names) => signals.some(({ codeName }) => names.includes(codeName));
+  const hasName = (...names) => signals.some(({ name }) => names.includes(name));
+  const hasTlsSignal = signals.some(({ code }) =>
+    typeof code === "string" &&
+    (/^(?:ERR_TLS_|ERR_SSL_|CERT_|SELF_SIGNED_CERT|UNABLE_TO_VERIFY_LEAF_SIGNATURE)/.test(code))
+  );
+
+  if (hasCode("MIGRATION_UNSUPPORTED_VERSION")) return "unsupported-version";
+  if (hasCode("MIGRATION_INVALID_URI")) return "invalid-uri";
+  if (hasCode(18) || hasCodeName("AuthenticationFailed")) return "authentication";
+  if (hasCode(13) || hasCodeName("Unauthorized")) return "authorization";
+  if (hasCode(11000) || hasCodeName("DuplicateKey")) return "duplicate-key";
+  if (hasCode(85, 86, 67) ||
+      hasCodeName("IndexOptionsConflict", "IndexKeySpecsConflict", "CannotCreateIndex")) {
     return "index-conflict";
   }
-  if ([
-    "MongoNetworkError",
-    "MongoNetworkTimeoutError",
-    "MongoServerSelectionError"
-  ].includes(name) || ["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "ENOTFOUND"].includes(code)) {
-    return "network";
+  if (hasTlsSignal) return "tls-certificate";
+  if (hasCode(
+    "ENOTFOUND",
+    "EAI_AGAIN",
+    "ENODATA",
+    "ESERVFAIL",
+    "ECANCELLED",
+    "ERR_DNS"
+  )) return "dns-srv";
+  if (hasCode("ECONNREFUSED", "ENETUNREACH", "EHOSTUNREACH", "ECONNRESET")) {
+    return "network-unreachable";
+  }
+  if (hasCode("ETIMEDOUT", "ETIME") ||
+      hasName("MongoNetworkTimeoutError", "MongoTimeoutError")) return "connection-timeout";
+  if (stage === "database-connection" && hasName("MongoServerSelectionError")) {
+    return "server-selection";
   }
   if (stage === "confirmation") return "cancelled";
+  if (stage === "database-connection") return "unknown-connection-failure";
   return "operation-failed";
 };
 
@@ -63,7 +115,13 @@ const formatSafeFailure = (stage, error) => {
   const suggestions = {
     authentication: "Check the database user's authentication configuration.",
     authorization: "Check that the database user has the required database and index permissions.",
-    network: "Check database network access and connectivity, then try again.",
+    "dns-srv": "Check the Atlas hostname and DNS/SRV resolution from this environment.",
+    "network-unreachable": "Check outbound network access and the Atlas network access list.",
+    "connection-timeout": "Check network access and Atlas availability, then retry only after review.",
+    "tls-certificate": "Check the runtime's TLS certificates and the system clock.",
+    "server-selection": "Check Atlas availability, network access, and connection settings.",
+    "invalid-uri": "Check that MONGO_URI is a valid MongoDB URI targeting the required database.",
+    "unknown-connection-failure": "Review the connection configuration and network access without sharing the URI.",
     "unsupported-version": "Use MongoDB 5.0 or later for this migration.",
     "index-conflict": "Review the existing role indexes; do not remove or replace indexes automatically.",
     "duplicate-key": "Review administrator-role uniqueness before retrying; no automatic retry was attempted.",
@@ -153,8 +211,14 @@ const main = async () => {
 
     stage = "database-connection";
     const mongoUri = process.env.MONGO_URI;
-    if (!mongoUri) throw new Error("MONGO_URI is not configured.");
-    getDatabaseNameFromUri(mongoUri);
+    if (!mongoUri) {
+      throw createMigrationError("MONGO_URI is not configured.", "MIGRATION_INVALID_URI");
+    }
+    try {
+      getDatabaseNameFromUri(mongoUri);
+    } catch {
+      throw createMigrationError("MONGO_URI is invalid for this migration.", "MIGRATION_INVALID_URI");
+    }
     await mongoose.connect(mongoUri);
 
     stage = "database-verification";
