@@ -3,7 +3,8 @@ const assert = require("node:assert/strict");
 const {
   migrateAdminRoleIndex,
   supportsSameKeyPatternIndexes,
-  readApplyFlag
+  readApplyFlag,
+  formatSafeFailure
 } = require("../scripts/migrate-admin-role-index");
 
 const LEGACY_ROLE_INDEX = {
@@ -139,4 +140,73 @@ test("unsupported MongoDB versions fail before inspecting or changing indexes", 
   );
   assert.equal(harness.calls.listIndexes, 0);
   assert.deepEqual(harness.calls.createIndex, []);
+});
+
+test("index creation failures report their stage and safe category only", async () => {
+  const harness = createMigrationHarness({ indexes: [LEGACY_ROLE_INDEX] });
+  const sensitiveMessage =
+    "mongodb+srv://operator:secret@private-host/db?token=reset-token admin@example.com";
+  harness.User.collection.createIndex = async () => {
+    const error = new Error(sensitiveMessage);
+    error.code = 11000;
+    throw error;
+  };
+  const stages = [];
+  let failure;
+
+  try {
+    await migrateAdminRoleIndex({
+      connection: { name: "test" },
+      User: harness.User,
+      serverVersion: "8.0.0",
+      setStage: (stage) => stages.push(stage)
+    });
+  } catch (error) {
+    failure = error;
+  }
+
+  assert.ok(failure);
+  assert.deepEqual(stages, [
+    "database-verification",
+    "version-check",
+    "index-inspection",
+    "admin-count",
+    "index-creation"
+  ]);
+  const diagnostic = formatSafeFailure(stages.at(-1), failure);
+  assert.match(diagnostic, /stage "index-creation"/);
+  assert.match(diagnostic, /category: duplicate-key/);
+  assert.match(diagnostic, /no automatic retry/i);
+  assert.equal(diagnostic.includes(sensitiveMessage), false);
+  assert.doesNotMatch(diagnostic, /operator|secret|private-host|reset-token|admin@example\.com/);
+});
+
+test("safe failure output classifies known failures without printing error details", () => {
+  const sensitiveError = new Error(
+    "mongodb://name:password@host/test?apiKey=secret account@example.com"
+  );
+  sensitiveError.code = 13;
+
+  const diagnostic = formatSafeFailure("index-inspection", sensitiveError);
+  assert.match(diagnostic, /stage "index-inspection"/);
+  assert.match(diagnostic, /category: authorization/);
+  assert.match(diagnostic, /required database and index permissions/);
+  assert.doesNotMatch(diagnostic, /name|password|host|apiKey|secret|account@example\.com/);
+});
+
+test("safe failure output identifies unsupported versions and confirmation cancellation", () => {
+  const unsupported = new Error("private server details");
+  unsupported.code = "MIGRATION_UNSUPPORTED_VERSION";
+  assert.match(
+    formatSafeFailure("version-check", unsupported),
+    /category: unsupported-version/
+  );
+  assert.match(
+    formatSafeFailure("confirmation", new Error("anything private")),
+    /category: cancelled/
+  );
+  assert.doesNotMatch(
+    formatSafeFailure("version-check", unsupported),
+    /private server details/
+  );
 });
