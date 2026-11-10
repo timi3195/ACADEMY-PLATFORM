@@ -1,4 +1,6 @@
 const QuizSession = require("../models/QuizSession");
+const { logger } = require("../utils/logger");
+const { classifyMongoConnectionError } = require("../utils/mongoConnection");
 
 const DEFAULT_DURATION_MINUTES = 30;
 const MAX_DURATION_MINUTES = 180;
@@ -357,13 +359,22 @@ const startExpiryWorker = () => {
   if (expiryWorker) return expiryWorker;
   const process = () => {
     processExpiredAttempts().catch((error) => {
-      console.error("Quiz expiry processing failed:", error);
+      logger.error("quiz_expiry_processing_failed", {
+        category: classifyMongoConnectionError(error)
+      });
     });
   };
   process();
   expiryWorker = setInterval(process, EXPIRY_POLL_INTERVAL_MS);
   expiryWorker.unref?.();
   return expiryWorker;
+};
+
+const stopExpiryWorker = () => {
+  if (!expiryWorker) return false;
+  clearInterval(expiryWorker);
+  expiryWorker = undefined;
+  return true;
 };
 
 module.exports = {
@@ -377,5 +388,6 @@ module.exports = {
   saveAnswers,
   toStudentAttempt,
   processExpiredAttempts,
-  startExpiryWorker
+  startExpiryWorker,
+  stopExpiryWorker
 };

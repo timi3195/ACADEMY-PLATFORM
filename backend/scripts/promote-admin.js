@@ -5,26 +5,49 @@ const { isSingleAdminIndex } = require("../utils/adminRoleIndex");
 
 const TARGET_DATABASE = "test";
 
+const inspectMongoUri = (uri) => {
+  const present = typeof uri === "string" && uri.length > 0;
+  const schemeSupported = present && /^mongodb(?:\+srv)?:\/\//.test(uri);
+  const match = schemeSupported &&
+    uri.match(/^mongodb(?:\+srv)?:\/\/[^/?#]+\/([^/?#]*)(?:\?([^#]*))?$/);
+  let databaseName;
+  let databaseNameExtracted = false;
+  let databaseNameIsTest = false;
+
+  if (match) {
+    try {
+      databaseName = decodeURIComponent(match[1]);
+      databaseNameExtracted = databaseName.length > 0;
+      const queryDatabases = new URLSearchParams(match[2] || "").getAll("dbName");
+      databaseNameIsTest = databaseName === TARGET_DATABASE &&
+        queryDatabases.every((queryDatabase) => queryDatabase === TARGET_DATABASE);
+    } catch {
+      databaseNameExtracted = false;
+      databaseNameIsTest = false;
+    }
+  }
+
+  return {
+    present,
+    schemeSupported,
+    databaseNameExtracted,
+    databaseNameIsTest
+  };
+};
+
 const getDatabaseNameFromUri = (uri) => {
-  if (typeof uri !== "string") {
+  const diagnostic = inspectMongoUri(uri);
+  if (!diagnostic.present) {
     throw new Error("MONGO_URI must be a valid MongoDB URI.");
   }
-  const match = uri.match(/^mongodb(?:\+srv)?:\/\/[^/?#]+\/([^/?#]*)(?:\?([^#]*))?$/);
-  if (!match) throw new Error("MONGO_URI must be a valid MongoDB URI with an explicit database.");
-
-  let uriDatabase;
-  try {
-    uriDatabase = decodeURIComponent(match[1]);
-  } catch {
-    throw new Error("MONGO_URI must contain a valid database name.");
+  if (!diagnostic.schemeSupported || !diagnostic.databaseNameExtracted) {
+    throw new Error("MONGO_URI must be a valid MongoDB URI with an explicit database.");
   }
-  const queryDatabase = new URLSearchParams(match[2] || "").get("dbName");
-  if (uriDatabase !== TARGET_DATABASE ||
-      (queryDatabase && queryDatabase !== TARGET_DATABASE)) {
+  if (!diagnostic.databaseNameIsTest) {
     throw new Error(`MONGO_URI must explicitly target the ${TARGET_DATABASE} database.`);
   }
 
-  return uriDatabase;
+  return TARGET_DATABASE;
 };
 
 const normalizeTargetEmail = (email) => {
@@ -157,6 +180,7 @@ if (require.main === module) {
 
 module.exports = {
   TARGET_DATABASE,
+  inspectMongoUri,
   getDatabaseNameFromUri,
   normalizeTargetEmail,
   verifySingleAdminIndex,

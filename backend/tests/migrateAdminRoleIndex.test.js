@@ -5,7 +5,8 @@ const {
   supportsSameKeyPatternIndexes,
   readApplyFlag,
   formatSafeFailure,
-  getSafeErrorCategory
+  getSafeErrorCategory,
+  formatMongoUriDiagnostic
 } = require("../scripts/migrate-admin-role-index");
 
 const LEGACY_ROLE_INDEX = {
@@ -249,4 +250,21 @@ test("connection diagnostic output never includes raw error properties", () => {
     diagnostic,
     /mongodb|user|password|private-host|ENOTFOUND|sensitive connection details/
   );
+});
+
+test("invalid URI diagnostic prints only the required boolean status", () => {
+  const uriStatus = {
+    present: true,
+    schemeSupported: true,
+    databaseNameExtracted: false,
+    databaseNameIsTest: false
+  };
+  const error = Object.assign(new Error("sensitive URI contents"), {
+    code: "MIGRATION_INVALID_URI"
+  });
+  const diagnostic = formatSafeFailure("database-connection", error, uriStatus);
+
+  assert.match(diagnostic, /MONGO_URI checks: present=yes, scheme-supported=yes, database-extracted=no, database-is-test=no/);
+  assert.doesNotMatch(diagnostic, /sensitive URI contents|mongodb|password|host/);
+  assert.equal(formatMongoUriDiagnostic(uriStatus).includes("true"), false);
 });

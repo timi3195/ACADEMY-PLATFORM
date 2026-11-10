@@ -5,6 +5,13 @@ const path = require("path");
 const session = require("express-session");
 const { configureCors } = require("./config/cors");
 require("dotenv").config({ path: path.resolve(__dirname, '.env') });
+const { resolveSessionSecret } = require("./utils/sessionSecret");
+const {
+  classifyMongoConnectionError,
+  registerMongoConnectionEvents,
+  isDatabaseReady,
+  createHealthHandler
+} = require("./utils/mongoConnection");
 
 process.on('warning', (warning) => {
   if (warning.name === 'DeprecationWarning' && /url\.parse\(\)/i.test(warning.message)) {
@@ -31,7 +38,7 @@ configureCors(app);
 app.use(cookieParser());
 app.use(
   session({
-    secret: "secretkey",
+    secret: resolveSessionSecret(),
     resave: false,
     saveUninitialized: false
   })
@@ -121,16 +128,6 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/departments", departmentRoutes);
 
-// Keep importing the app side-effect-free for isolated automated tests.
-if (process.env.NODE_ENV !== "test" && process.env.MONGO_URI) {
-  mongoose.connect(process.env.MONGO_URI)
-    .then(async () => {
-      await autoSeedDepartments();
-      quizSessionService.startExpiryWorker();
-    })
-    .catch((err) => console.error("MongoDB connection error:", err));
-}
-
 /**
  * Auto-seed departments if database is empty
  */
@@ -174,7 +171,9 @@ async function autoSeedDepartments() {
       }))
     );
   } catch (error) {
-    console.warn('⚠️ Auto-seed error (non-blocking):', error.message);
+    logger.error("department_auto_seed_failed", {
+      category: classifyMongoConnectionError(error)
+    });
   }
 }
 
@@ -187,22 +186,90 @@ app.get("/", (req, res) => {
   });  
 });
 
-app.get("/health", (req, res) => {
-  res.json({
-    success: true,
-    status: "healthy",
-    timestamp: new Date().toISOString()
-  });
-});
+app.get("/health", createHealthHandler(mongoose.connection));
 const PORT = process.env.PORT || 5000;
 
+const startServer = async ({
+  serverApp = app,
+  mongooseClient = mongoose,
+  mongoUri = process.env.MONGO_URI,
+  port = PORT,
+  afterDatabaseConnected = async () => {
+    await autoSeedDepartments();
+    quizSessionService.startExpiryWorker();
+  },
+  stopBackgroundServices = () => quizSessionService.stopExpiryWorker(),
+  loggerInstance = logger
+} = {}) => {
+  if (typeof mongoUri !== "string" || mongoUri.trim().length === 0) {
+    loggerInstance.error("mongodb_startup_failed", { category: "configuration" });
+    throw new Error("MongoDB URI is required to start the server.");
+  }
+
+  registerMongoConnectionEvents(mongooseClient.connection, loggerInstance);
+  let connected = false;
+  let cleanupPromise;
+  const cleanupAfterFailure = () => {
+    if (cleanupPromise) return cleanupPromise;
+    cleanupPromise = (async () => {
+      try {
+        await stopBackgroundServices();
+      } catch (error) {
+        loggerInstance.error("startup_service_cleanup_failed", {
+          category: classifyMongoConnectionError(error)
+        });
+      }
+      if (connected && mongooseClient.connection.readyState !== 0) {
+        try {
+          await mongooseClient.disconnect();
+        } catch (error) {
+          loggerInstance.error("startup_database_cleanup_failed", {
+            category: classifyMongoConnectionError(error)
+          });
+        }
+      }
+    })();
+    return cleanupPromise;
+  };
+
+  try {
+    await mongooseClient.connect(mongoUri);
+    connected = true;
+    await afterDatabaseConnected();
+
+    const server = serverApp.listen(port, () => {
+      loggerInstance.info("server_listening", { port });
+    });
+    if (typeof server?.on === "function") {
+      server.on("error", (error) => {
+        loggerInstance.error("server_listen_failed", {
+          category: classifyMongoConnectionError(error)
+        });
+        cleanupAfterFailure().finally(() => { process.exitCode = 1; });
+      });
+    }
+    return server;
+  } catch (error) {
+    loggerInstance.error(
+      connected ? "server_initialization_failed" : "mongodb_initial_connection_failed",
+      {
+        category: classifyMongoConnectionError(error)
+      }
+    );
+    if (connected) await cleanupAfterFailure();
+    throw new Error(connected
+      ? "Application initialization failed."
+      : "MongoDB initial connection failed.");
+  }
+};
+
 if (require.main === module) {
-  app.listen(PORT, () => {
-    console.log(`Server listening on port ${PORT}`);
-  }).on('error', (err) => {
-    console.error('Server failed to start:', err.message);
-    process.exit(1);
+  startServer().catch(() => {
+    logger.error("server_start_failed", { category: "startup-failed" });
+    process.exitCode = 1;
   });
 }
 
+app.startServer = startServer;
+app.isDatabaseReady = isDatabaseReady;
 module.exports = app;

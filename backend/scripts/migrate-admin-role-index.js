@@ -10,6 +10,7 @@ const {
 } = require("../utils/adminRoleIndex");
 const {
   TARGET_DATABASE,
+  inspectMongoUri,
   getDatabaseNameFromUri
 } = require("./promote-admin");
 
@@ -109,7 +110,13 @@ const getSafeErrorCategory = (stage, error) => {
   return "operation-failed";
 };
 
-const formatSafeFailure = (stage, error) => {
+const formatMongoUriDiagnostic = (diagnostic) =>
+  `MONGO_URI checks: present=${diagnostic.present ? "yes" : "no"}, ` +
+  `scheme-supported=${diagnostic.schemeSupported ? "yes" : "no"}, ` +
+  `database-extracted=${diagnostic.databaseNameExtracted ? "yes" : "no"}, ` +
+  `database-is-test=${diagnostic.databaseNameIsTest ? "yes" : "no"}.`;
+
+const formatSafeFailure = (stage, error, mongoUriDiagnostic) => {
   const safeStage = EXECUTION_STAGES.includes(stage) ? stage : "environment-loading";
   const category = getSafeErrorCategory(safeStage, error);
   const suggestions = {
@@ -128,8 +135,13 @@ const formatSafeFailure = (stage, error) => {
     cancelled: "Run the command interactively and enter the exact confirmation text.",
     "operation-failed": "Review the database configuration and existing index state before retrying."
   };
-  return `Index migration failed at stage "${safeStage}" (category: ${category}). ` +
+  const failureMessage =
+    `Index migration failed at stage "${safeStage}" (category: ${category}). ` +
     suggestions[category];
+  if (category === "invalid-uri" && mongoUriDiagnostic) {
+    return `${failureMessage} ${formatMongoUriDiagnostic(mongoUriDiagnostic)}`;
+  }
+  return failureMessage;
 };
 
 const supportsSameKeyPatternIndexes = (version) => {
@@ -200,6 +212,7 @@ const main = async () => {
   let stage = "environment-loading";
   let mongoose;
   let failure;
+  let mongoUriDiagnostic;
   try {
     require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 
@@ -211,14 +224,16 @@ const main = async () => {
 
     stage = "database-connection";
     const mongoUri = process.env.MONGO_URI;
-    if (!mongoUri) {
+    mongoUriDiagnostic = inspectMongoUri(mongoUri);
+    if (!mongoUriDiagnostic.present) {
       throw createMigrationError("MONGO_URI is not configured.", "MIGRATION_INVALID_URI");
     }
-    try {
-      getDatabaseNameFromUri(mongoUri);
-    } catch {
+    if (!mongoUriDiagnostic.schemeSupported ||
+        !mongoUriDiagnostic.databaseNameExtracted ||
+        !mongoUriDiagnostic.databaseNameIsTest) {
       throw createMigrationError("MONGO_URI is invalid for this migration.", "MIGRATION_INVALID_URI");
     }
+    getDatabaseNameFromUri(mongoUri);
     await mongoose.connect(mongoUri);
 
     stage = "database-verification";
@@ -261,7 +276,7 @@ const main = async () => {
       ? "Administrator uniqueness index created and verified."
       : "Administrator uniqueness index already exists and was verified.");
   } catch (error) {
-    failure = { stage, error };
+    failure = { stage, error, mongoUriDiagnostic };
   } finally {
     if (mongoose?.connection.readyState !== 0) {
       stage = "disconnect";
@@ -274,7 +289,11 @@ const main = async () => {
   }
 
   if (failure) {
-    console.error(formatSafeFailure(failure.stage, failure.error));
+    console.error(formatSafeFailure(
+      failure.stage,
+      failure.error,
+      failure.mongoUriDiagnostic
+    ));
     process.exitCode = 1;
   }
 };
@@ -291,5 +310,6 @@ module.exports = {
   migrateAdminRoleIndex,
   readApplyFlag,
   getSafeErrorCategory,
-  formatSafeFailure
+  formatSafeFailure,
+  formatMongoUriDiagnostic
 };

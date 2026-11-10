@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
+  inspectMongoUri,
   getDatabaseNameFromUri,
   normalizeTargetEmail,
   verifySingleAdminIndex,
@@ -84,9 +85,64 @@ test("production MongoDB URI must explicitly identify the test database", () => 
     /explicitly target the test database/
   );
   assert.throws(
-    () => getDatabaseNameFromUri("mongodb://cluster.example/?dbName=other"),
+    () => getDatabaseNameFromUri("mongodb://cluster.example/test?dbName=other"),
     /explicitly target the test database/
   );
+});
+
+test("MongoDB URI inspection supports both schemes and encoded credentials", () => {
+  const uriStatuses = [
+    inspectMongoUri("mongodb+srv://test%40user:p%3Ass%2Fword@cluster.example/test?retryWrites=true"),
+    inspectMongoUri("mongodb://test%40user:p%3Ass%2Fword@host1:27017,host2:27017/test?replicaSet=rs0")
+  ];
+
+  for (const status of uriStatuses) {
+    assert.deepEqual(status, {
+      present: true,
+      schemeSupported: true,
+      databaseNameExtracted: true,
+      databaseNameIsTest: true
+    });
+  }
+});
+
+test("MongoDB URI inspection safely reports invalid format and database conditions", () => {
+  assert.deepEqual(inspectMongoUri(undefined), {
+    present: false,
+    schemeSupported: false,
+    databaseNameExtracted: false,
+    databaseNameIsTest: false
+  });
+  assert.deepEqual(inspectMongoUri("https://cluster.example/test"), {
+    present: true,
+    schemeSupported: false,
+    databaseNameExtracted: false,
+    databaseNameIsTest: false
+  });
+  assert.deepEqual(inspectMongoUri("mongodb://host.example/"), {
+    present: true,
+    schemeSupported: true,
+    databaseNameExtracted: false,
+    databaseNameIsTest: false
+  });
+  assert.deepEqual(inspectMongoUri("mongodb://host.example/other?dbName=test"), {
+    present: true,
+    schemeSupported: true,
+    databaseNameExtracted: true,
+    databaseNameIsTest: false
+  });
+  assert.deepEqual(inspectMongoUri("mongodb://host.example/test?dbName=other"), {
+    present: true,
+    schemeSupported: true,
+    databaseNameExtracted: true,
+    databaseNameIsTest: false
+  });
+  assert.deepEqual(inspectMongoUri("mongodb://host.example/%ZZ"), {
+    present: true,
+    schemeSupported: true,
+    databaseNameExtracted: false,
+    databaseNameIsTest: false
+  });
 });
 
 test("requires an exact supplied target email argument", () => {
