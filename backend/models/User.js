@@ -271,7 +271,7 @@ const userSchema = new mongoose.Schema({
 
 }, { timestamps: true });
 
-// INDEXES for fast queries (unique: true creates index automatically)
+// The administrator-only unique index is installed by the explicit migration script.
 userSchema.index({ role: 1 });
 userSchema.index({ department: 1 });
 userSchema.index({ yearOfStudy: 1 });

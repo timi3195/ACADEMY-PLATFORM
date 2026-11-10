@@ -1,96 +1,166 @@
 #!/usr/bin/env node
 
-/**
- * Promote User to Admin - Utility Script
- * 
- * Usage: node promote-admin.js <email> [role] [department]
- * 
- * Examples:
- *   node promote-admin.js admin@example.com admin
- *   node promote-admin.js lecturer@example.com lecturer
- *   node promote-admin.js user@example.com student
- */
+const path = require("node:path");
+const { isSingleAdminIndex } = require("../utils/adminRoleIndex");
 
-const mongoose = require("mongoose");
-require("dotenv").config();
+const TARGET_DATABASE = "test";
 
-// Import User model
-const User = require("../models/User");
+const getDatabaseNameFromUri = (uri) => {
+  if (typeof uri !== "string") {
+    throw new Error("MONGO_URI must be a valid MongoDB URI.");
+  }
+  const match = uri.match(/^mongodb(?:\+srv)?:\/\/[^/?#]+\/([^/?#]*)(?:\?([^#]*))?$/);
+  if (!match) throw new Error("MONGO_URI must be a valid MongoDB URI with an explicit database.");
 
-const VALID_ROLES = ["student", "lecturer", "admin"];
-
-async function promoteUser() {
-  const email = process.argv[2];
-  const role = process.argv[3] || "admin";
-
-  // Validate inputs
-  if (!email) {
-    console.error("❌ Error: Email is required");
-    console.log("\nUsage: node promote-admin.js <email> [role]");
-    console.log("Example: node promote-admin.js user@example.com admin");
-    process.exit(1);
+  let uriDatabase;
+  try {
+    uriDatabase = decodeURIComponent(match[1]);
+  } catch {
+    throw new Error("MONGO_URI must contain a valid database name.");
+  }
+  const queryDatabase = new URLSearchParams(match[2] || "").get("dbName");
+  if (uriDatabase !== TARGET_DATABASE ||
+      (queryDatabase && queryDatabase !== TARGET_DATABASE)) {
+    throw new Error(`MONGO_URI must explicitly target the ${TARGET_DATABASE} database.`);
   }
 
-  if (!VALID_ROLES.includes(role)) {
-    console.error(`❌ Error: Invalid role "${role}"`);
-    console.log(`Valid roles: ${VALID_ROLES.join(", ")}`);
-    process.exit(1);
+  return uriDatabase;
+};
+
+const normalizeTargetEmail = (email) => {
+  if (typeof email !== "string" || !email.trim() || /[\r\n]/.test(email)) {
+    throw new Error("Provide the exact target email using --email.");
   }
+  return email.trim().toLowerCase();
+};
+
+const verifySingleAdminIndex = async (User) => {
+  const collection = User?.collection;
+  if (!collection || typeof collection.listIndexes !== "function") {
+    throw new Error("Unable to verify the administrator uniqueness constraint.");
+  }
+
+  const indexes = await collection.listIndexes().toArray();
+  const matchingIndex = indexes.find(isSingleAdminIndex);
+  if (matchingIndex) return matchingIndex.name;
+  throw new Error("Administrator uniqueness migration is required before promotion.");
+};
+
+const promoteVerifiedUser = async ({ connection, User, email, confirm }) => {
+  if (connection?.name !== TARGET_DATABASE) {
+    throw new Error(`Connected database must be ${TARGET_DATABASE}.`);
+  }
+
+  await verifySingleAdminIndex(User);
+  const targetEmail = normalizeTargetEmail(email);
+  const targetUser = await User.findOne({ email: targetEmail })
+    .select("_id role emailVerified");
+
+  if (!targetUser) {
+    throw new Error("No matching account was found.");
+  }
+  if (targetUser.emailVerified !== true) {
+    throw new Error("The matching account is not verified.");
+  }
+
+  const adminCount = await User.countDocuments({ role: "admin" });
+  if (adminCount !== 0) {
+    throw new Error("An administrator already exists; no changes were made.");
+  }
+
+  if (typeof confirm !== "function" || !(await confirm())) {
+    throw new Error("Promotion was not confirmed; no changes were made.");
+  }
+
+  let result;
+  try {
+    result = await User.updateOne(
+      {
+        _id: targetUser._id,
+        email: targetEmail,
+        emailVerified: true,
+        role: targetUser.role
+      },
+      { $set: { role: "admin" } },
+      { runValidators: true, timestamps: false }
+    );
+  } catch (error) {
+    if (error?.code === 11000) {
+      throw new Error("Another administrator was created concurrently; no changes were made.");
+    }
+    throw error;
+  }
+
+  if (result.modifiedCount !== 1) {
+    throw new Error("The account changed during promotion; no role change was confirmed.");
+  }
+};
+
+const readEmailArgument = (args) => {
+  const allowedArgs = args.filter((arg) => arg !== "--");
+  if (allowedArgs.length !== 2 || allowedArgs[0] !== "--email") {
+    throw new Error('Usage: npm run promote-admin -- --email "<exact-email>"');
+  }
+  return normalizeTargetEmail(allowedArgs[1]);
+};
+
+const main = async () => {
+  require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
+  const mongoose = require("mongoose");
+  const User = require("../models/User");
 
   try {
-    // Connect to MongoDB
-    console.log("🔗 Connecting to MongoDB...");
-    await mongoose.connect(process.env.MONGO_URI);
-    console.log("✅ Connected to MongoDB");
-
-    // Find user by email
-    console.log(`\n🔍 Looking for user: ${email}`);
-    const user = await User.findOne({ email: email.toLowerCase() });
-
-    if (!user) {
-      console.error(`❌ Error: User with email "${email}" not found`);
-      process.exit(1);
+    const email = readEmailArgument(process.argv.slice(2));
+    const mongoUri = process.env.MONGO_URI;
+    if (!mongoUri) {
+      throw new Error("MONGO_URI is not configured.");
     }
 
-    console.log(`✅ Found user: ${user.name} (${user.email})`);
-    console.log(`   Current role: ${user.role}`);
-    console.log(`   Current plan: ${user.plan}`);
+    getDatabaseNameFromUri(mongoUri);
+    await mongoose.connect(mongoUri);
 
-    // Check if already has the role
-    if (user.role === role) {
-      console.log(`\n⚠️  User is already a ${role}`);
-      process.exit(0);
+    if (mongoose.connection.name !== TARGET_DATABASE) {
+      throw new Error(`Connected database must be ${TARGET_DATABASE}.`);
     }
 
-    // Update user role
-    console.log(`\n⏳ Updating role to "${role}"...`);
-    user.role = role;
-    
-    // If promoting to lecturer or admin, and they don't have a department set, mention it
-    if ((role === "lecturer" || role === "admin") && !user.department) {
-      console.log(`   ℹ️  Note: No department assigned. Assign later via admin panel if needed.`);
-    }
+    console.log("Connected to the intended database.");
+    await promoteVerifiedUser({
+      connection: mongoose.connection,
+      User,
+      email,
+      confirm: async () => {
+        const readline = require("node:readline/promises");
+        const terminal = readline.createInterface({
+          input: process.stdin,
+          output: process.stdout
+        });
+        try {
+          return (await terminal.question("Type PROMOTE to confirm this one-time role change: ")).trim() === "PROMOTE";
+        } finally {
+          terminal.close();
+        }
+      }
+    });
 
-    await user.save();
-    console.log(`✅ User successfully promoted to "${role}"`);
-
-    // Display updated user info
-    console.log(`\n📋 Updated User Info:`);
-    console.log(`   Name: ${user.name}`);
-    console.log(`   Email: ${user.email}`);
-    console.log(`   Role: ${user.role}`);
-    console.log(`   Plan: ${user.plan}`);
-    console.log(`   Verified: ${user.emailVerified ? "Yes" : "No"}`);
-
-    await mongoose.connection.close();
-    console.log(`\n✅ Done! Connection closed.`);
-
-  } catch (error) {
-    console.error("❌ Error:", error.message);
-    process.exit(1);
+    console.log("The verified account role was changed to administrator.");
+  } finally {
+    if (mongoose.connection.readyState !== 0) await mongoose.disconnect();
   }
+};
+
+if (require.main === module) {
+  main().catch(() => {
+    console.error("Promotion failed or was cancelled. No credentials or account details were displayed.");
+    process.exitCode = 1;
+  });
 }
 
-// Run the script
-promoteUser();
-
+module.exports = {
+  TARGET_DATABASE,
+  getDatabaseNameFromUri,
+  normalizeTargetEmail,
+  verifySingleAdminIndex,
+  isSingleAdminIndex,
+  promoteVerifiedUser,
+  readEmailArgument
+};
