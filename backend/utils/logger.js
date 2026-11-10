@@ -2,9 +2,14 @@ const crypto = require('crypto');
 
 const SENSITIVE_KEYS = new Set([
   'password',
+  'pass',
   'confirmpassword',
   'token',
   'authorization',
+  'auth',
+  'credential',
+  'privatekey',
+  'accesskey',
   'cookie',
   'secret',
   'apikey',
@@ -14,8 +19,8 @@ const SENSITIVE_KEYS = new Set([
 ]);
 
 function isSensitiveKey(key) {
-  const normalized = String(key || '').toLowerCase();
-  return SENSITIVE_KEYS.has(normalized) || normalized.includes('password') || normalized.includes('token') || normalized.includes('secret') || normalized.includes('cookie') || normalized.includes('authorization') || normalized.includes('email') || normalized.includes('apikey');
+  const normalized = String(key || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return SENSITIVE_KEYS.has(normalized) || normalized.includes('password') || normalized.includes('pass') || normalized.includes('token') || normalized.includes('secret') || normalized.includes('cookie') || normalized.includes('authorization') || normalized.includes('auth') || normalized.includes('credential') || normalized.includes('privatekey') || normalized.includes('accesskey') || normalized.includes('email') || normalized.includes('apikey');
 }
 
 function sanitizeForLog(value, parentKey = '', seen = new WeakSet(), depth = 0) {
@@ -70,6 +75,20 @@ function buildRequestId(req) {
   return req.id;
 }
 
+function sanitizeUrlForLog(value) {
+  try {
+    const url = new URL(String(value || ''), 'http://localhost');
+    for (const key of new Set(url.searchParams.keys())) {
+      if (isSensitiveKey(key)) {
+        url.searchParams.set(key, '********');
+      }
+    }
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return '[redacted URL]';
+  }
+}
+
 function log(level, event, details = {}) {
   const payload = {
     timestamp: new Date().toISOString(),
@@ -99,12 +118,12 @@ const logger = {
     logger.info('request', {
       requestId,
       method: req.method,
-      url: req.originalUrl,
+      url: sanitizeUrlForLog(req.originalUrl),
       ip: req.ip || req.socket?.remoteAddress || 'unknown',
       userId: req.user?.id || req.user?._id || null,
       userEmail: req.user?.email || null,
       body: requestBody && Object.keys(requestBody).length ? requestBody : null,
-      query: req.query && Object.keys(req.query).length ? req.query : null
+      query: req.query && Object.keys(req.query).length ? sanitizeForLog(req.query) : null
     });
 
     const originalJson = res.json.bind(res);
@@ -112,7 +131,7 @@ const logger = {
       logger.info('response', {
         requestId,
         method: req.method,
-        url: req.originalUrl,
+        url: sanitizeUrlForLog(req.originalUrl),
         statusCode: res.statusCode,
         durationMs: Date.now() - start,
         userId: req.user?.id || req.user?._id || null,
@@ -127,7 +146,7 @@ const logger = {
         logger.info('response', {
           requestId,
           method: req.method,
-          url: req.originalUrl,
+          url: sanitizeUrlForLog(req.originalUrl),
           statusCode: res.statusCode,
           durationMs: Date.now() - start,
           userId: req.user?.id || req.user?._id || null,
@@ -143,6 +162,7 @@ const logger = {
 module.exports = {
   logger,
   sanitizeForLog,
+  sanitizeUrlForLog,
   buildRequestId,
   isSensitiveKey
 };

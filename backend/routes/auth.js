@@ -7,6 +7,7 @@ const { generateTokenPair, generateAccessToken, verifyRefreshToken } = require("
 const { sendVerificationEmail, sendPasswordResetEmail, sendSubscriptionConfirmation } = require("../utils/email");
 const crypto = require("crypto");
 const { logger } = require("../utils/logger");
+const createRateLimiter = require("../utils/rateLimit");
 
 const router = express.Router();
 
@@ -262,25 +263,12 @@ router.post("/lecturer/register", protect, async (req, res) => {
  * POST /api/auth/login
  * Login with email and password
  */
-const loginAttempts = new Map();
-
-const rateLimitLogin = (req, res, next) => {
-  const key = (req.ip || 'unknown') + ':' + (req.body?.email || '').toLowerCase();
-  const now = Date.now();
-  const windowMs = 15 * 60 * 1000;
-  const maxAttempts = 10;
-
-  const attempts = loginAttempts.get(key) || [];
-  const recent = attempts.filter((timestamp) => now - timestamp < windowMs);
-
-  if (recent.length >= maxAttempts) {
-    return res.status(429).json({ success: false, message: 'Too many login attempts. Please try again later.' });
-  }
-
-  recent.push(now);
-  loginAttempts.set(key, recent);
-  next();
-};
+const rateLimitLogin = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  maxAttempts: 10,
+  getKey: (req) => `${req.ip || "unknown"}:${(req.body?.email || "").toLowerCase()}`,
+  message: "Too many login attempts. Please try again later."
+});
 
 router.post("/login", rateLimitLogin, async (req, res) => {
   try {

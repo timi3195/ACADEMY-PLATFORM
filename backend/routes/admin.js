@@ -1,14 +1,87 @@
 const express = require("express");
 const router = express.Router();
+const mongoose = require("mongoose");
+const crypto = require("crypto");
 const protect = require("../config/middleware/authMiddleware");
 const adminOnly = require("../config/middleware/adminOnly");
 const { getAdminLecturerList } = require("../services/adminService");
+const createRateLimiter = require("../utils/rateLimit");
 
 const User = require("../models/User");
 const Course = require("../models/course");
 const Department = require("../models/Department");
 const School = require("../models/School");
 const Question = require("../models/Question");
+
+const maskEmail = (email) => {
+  if (typeof email !== "string" || !email.includes("@")) return null;
+  const [localPart, ...domainParts] = email.split("@");
+  return `${localPart.slice(0, 2)}*****@${domainParts.join("@")}`;
+};
+
+const rateLimitAccountDiagnostic = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  maxAttempts: 5,
+  getKey: () => "account-diagnostic",
+  message: "Too many diagnostic requests. Try again later."
+});
+
+const verifyAccountDiagnosticSecret = (req, res, next) => {
+  const expectedSecret = process.env.ACCOUNT_DIAGNOSTIC_SECRET;
+  const suppliedSecret = req.body?.secret;
+
+  if (typeof expectedSecret !== "string" || typeof suppliedSecret !== "string") {
+    return res.status(404).json({ success: false, message: "Not found." });
+  }
+
+  const suppliedBytes = Buffer.from(suppliedSecret, "utf8");
+  const expectedBytes = Buffer.from(expectedSecret, "utf8");
+  if (expectedBytes.length < 32) {
+    return res.status(404).json({ success: false, message: "Not found." });
+  }
+
+  const suppliedDigest = crypto.createHash("sha256").update(suppliedBytes).digest();
+  const expectedDigest = crypto.createHash("sha256").update(expectedBytes).digest();
+  const digestMatches = crypto.timingSafeEqual(suppliedDigest, expectedDigest);
+  const secretMatches = digestMatches && suppliedBytes.length === expectedBytes.length;
+
+  if (!secretMatches) {
+    return res.status(404).json({ success: false, message: "Not found." });
+  }
+
+  return next();
+};
+
+// TEMPORARY: Remove this endpoint and ACCOUNT_DIAGNOSTIC_SECRET after account recovery.
+// The endpoint is disabled immediately when ACCOUNT_DIAGNOSTIC_SECRET is unset.
+router.post("/account-diagnostic", verifyAccountDiagnosticSecret, rateLimitAccountDiagnostic, async (req, res) => {
+  try {
+    const [totalUsers, users] = await Promise.all([
+      User.countDocuments({}),
+      User.find({})
+        .select("email role createdAt emailVerified -_id")
+        .sort({ createdAt: 1 })
+        .lean()
+    ]);
+
+    return res.json({
+      success: true,
+      database: mongoose.connection.name,
+      totalUsers,
+      users: users.map((user) => ({
+        email: maskEmail(user.email),
+        role: user.role || "unknown",
+        registeredAt: user.createdAt || null,
+        emailVerified: user.emailVerified === true
+      }))
+    });
+  } catch {
+    return res.status(503).json({
+      success: false,
+      message: "Account diagnostic is temporarily unavailable."
+    });
+  }
+});
 
 /**
  * MANAGE SCHOOLS (Admin only)
