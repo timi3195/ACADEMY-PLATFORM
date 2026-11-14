@@ -2,10 +2,8 @@ const express = require("express");
 const mongoose = require("mongoose");
 const cookieParser = require("cookie-parser");
 const path = require("path");
-const session = require("express-session");
 const { configureCors } = require("./config/cors");
 require("dotenv").config({ path: path.resolve(__dirname, '.env') });
-const { resolveSessionSecret } = require("./utils/sessionSecret");
 const {
   classifyMongoConnectionError,
   registerMongoConnectionEvents,
@@ -36,16 +34,7 @@ const searchRoutes = require("./routes/search");
 
 configureCors(app);
 app.use(cookieParser());
-app.use(
-  session({
-    secret: resolveSessionSecret(),
-    resave: false,
-    saveUninitialized: false
-  })
-);
-
 app.use(passport.initialize());
-app.use(passport.session());
 app.use(express.json({
   limit: '10mb',
   verify: (req, res, buffer) => {

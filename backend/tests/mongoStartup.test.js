@@ -14,40 +14,12 @@ const {
   isDatabaseReady,
   createHealthHandler
 } = require("../utils/mongoConnection");
-const { resolveSessionSecret } = require("../utils/sessionSecret");
 
 const makeLogger = () => ({
   entries: [],
   info(event, details) { this.entries.push({ level: "info", event, details }); },
   warn(event, details) { this.entries.push({ level: "warn", event, details }); },
   error(event, details) { this.entries.push({ level: "error", event, details }); }
-});
-
-test("production requires a configured session secret", () => {
-  assert.throws(
-    () => resolveSessionSecret({ sessionSecret: undefined, nodeEnv: "production" }),
-    /SESSION_SECRET must be configured in production/
-  );
-  assert.throws(
-    () => resolveSessionSecret({ sessionSecret: "", nodeEnv: "production" }),
-    /SESSION_SECRET must be configured in production/
-  );
-});
-
-test("production rejects weak session secrets and accepts a sufficiently long secret", () => {
-  assert.throws(
-    () => resolveSessionSecret({ sessionSecret: "short", nodeEnv: "production" }),
-    /at least 32 bytes/
-  );
-  const validSecret = "this-is-a-test-secret-with-at-least-32-bytes";
-  assert.equal(
-    resolveSessionSecret({ sessionSecret: validSecret, nodeEnv: "production" }) === validSecret,
-    true
-  );
-  assert.doesNotMatch(
-    resolveSessionSecret({ sessionSecret: undefined, nodeEnv: "test" }),
-    /secretkey/
-  );
 });
 
 test("startup refuses to listen when MONGO_URI is missing", async () => {
