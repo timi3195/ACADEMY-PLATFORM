@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   buildChatRequest,
   formatLearningPathDate,
-  getChatConversationId
+  getLocalDateInputValue,
+  getChatConversationId,
+  isPastLearningPathDate
 } from './AI'
 
 describe('AI page chat and Learning Path helpers', () => {
@@ -44,5 +46,16 @@ describe('AI page chat and Learning Path helpers', () => {
       if (originalTimezone === undefined) delete process.env.TZ
       else process.env.TZ = originalTimezone
     }
+  })
+
+  it('uses the local calendar date as the date input minimum', () => {
+    expect(getLocalDateInputValue(new Date(2026, 0, 15, 23, 30))).toBe('2026-01-15')
+  })
+
+  it('only considers dates before the local calendar date to be past', () => {
+    expect(isPastLearningPathDate('2026-01-14', '2026-01-15')).toBe(true)
+    expect(isPastLearningPathDate('2026-01-15', '2026-01-15')).toBe(false)
+    expect(isPastLearningPathDate('2026-01-16', '2026-01-15')).toBe(false)
+    expect(isPastLearningPathDate('', '2026-01-15')).toBe(false)
   })
 })

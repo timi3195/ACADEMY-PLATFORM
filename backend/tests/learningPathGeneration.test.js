@@ -363,6 +363,20 @@ test("today and one-day-ahead targets are accepted at the UTC date boundary", as
   });
 });
 
+test("target exam date can be omitted", async (t) => {
+  freezeTestTime(t);
+  await withGenerationMocks(async (state) => {
+    const response = await requestGeneration(buildApp(), { courseId: COURSE_ID });
+
+    assert.equal(response.status, 200);
+    assert.equal(state.savedPath.targetExamDate, undefined);
+    assert.equal(state.generationContext.planning.targetExamDate, null);
+    assert.equal(state.generationContext.planning.daysRemaining, 7);
+    assert.equal(state.generationCalls, 1);
+    assert.equal(state.saveCalls, 1);
+  });
+});
+
 test("invalid scheduling inputs are rejected", async (t) => {
   freezeTestTime(t);
   const invalidCases = [

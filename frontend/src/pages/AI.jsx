@@ -57,6 +57,16 @@ export const formatLearningPathDate = (value) => {
       })
 }
 
+export const getLocalDateInputValue = (date = new Date()) => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+export const isPastLearningPathDate = (targetDate, today = getLocalDateInputValue()) =>
+  Boolean(targetDate && targetDate < today)
+
 export const getChatConversationId = (response, currentId = null) =>
   response?.conversationId || currentId
 
@@ -146,6 +156,10 @@ export default function AI() {
     const hours = Number(studyHoursPerDay)
     if (!selectedCourse) {
       setPathError('Select a course before generating a Learning Path.')
+      return
+    }
+    if (isPastLearningPathDate(targetExamDate)) {
+      setPathError("The target exam date can't be in the past. Choose today or a future date.")
       return
     }
     if (!Number.isFinite(hours) || hours < 0.25 || hours > 12) {
@@ -299,6 +313,7 @@ export default function AI() {
   )
   const pathControlsDisabled = pathLoading || pathGenerating || Boolean(pendingActivity)
   const pathActionPending = pathGenerating || Boolean(pendingActivity)
+  const minTargetExamDate = getLocalDateInputValue()
 
   return (
     <>
@@ -346,6 +361,7 @@ export default function AI() {
               <input
                 id="learning-path-exam-date"
                 type="date"
+                min={minTargetExamDate}
                 value={targetExamDate}
                 onChange={event => setTargetExamDate(event.target.value)}
                 disabled={pathControlsDisabled}
