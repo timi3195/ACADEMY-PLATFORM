@@ -129,10 +129,129 @@ const validPathFor = (scheduleDays) => ({
 
 const requestGeneration = (app, body = { courseId: COURSE_ID }) =>
   request(app).post("/api/ai/learning-path/generate").send(body);
+const requestProgressUpdate = (app, pathId, body) =>
+  request(app).put(`/api/ai/learning-path/${pathId}/update-progress`).send(body);
+
+const withProgressMocks = async (run, { path = makeLearningPath() } = {}) => {
+  const originals = {
+    userFindById: User.findById,
+    pathFindOne: LearningPath.findOne
+  };
+  const state = { path, lookup: null, saveCalls: 0 };
+  User.findById = async () => makeUser();
+  LearningPath.findOne = async (query) => {
+    state.lookup = query;
+    return path;
+  };
+  if (path) {
+    path.save = async function save() {
+      state.saveCalls += 1;
+      return this;
+    };
+  }
+
+  try {
+    await run(state);
+  } finally {
+    User.findById = originals.userFindById;
+    LearningPath.findOne = originals.pathFindOne;
+  }
+};
+
+const makeLearningPath = () => ({
+  _id: "507f1f77bcf86cd799439055",
+  user: STUDENT_ID,
+  schedule: [{
+    activities: [{
+      completed: false,
+      completedAt: null,
+      score: undefined
+    }]
+  }],
+  async save() {}
+});
 
 test("unauthenticated requests are rejected", async () => {
   const response = await requestGeneration(buildApp({ authenticated: false }));
   assert.equal(response.status, 401);
+});
+
+test("progress update completes an existing activity and preserves optional score", async () => {
+  await withProgressMocks(async (state) => {
+    const response = await requestProgressUpdate(buildApp(), state.path._id, {
+      dayIndex: 0,
+      activityIndex: 0,
+      completed: true,
+      score: 85
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.success, true);
+    assert.equal(state.path.schedule[0].activities[0].completed, true);
+    assert.ok(state.path.schedule[0].activities[0].completedAt instanceof Date);
+    assert.equal(state.path.schedule[0].activities[0].score, 85);
+    assert.equal(state.saveCalls, 1);
+    assert.equal(String(state.lookup.user), STUDENT_ID);
+  });
+});
+
+test("progress update marks an activity incomplete and clears its completion timestamp", async () => {
+  const path = makeLearningPath();
+  path.schedule[0].activities[0].completed = true;
+  path.schedule[0].activities[0].completedAt = new Date("2026-01-01T00:00:00.000Z");
+  await withProgressMocks(async (state) => {
+    const response = await requestProgressUpdate(buildApp(), state.path._id, {
+      dayIndex: 0,
+      activityIndex: 0,
+      completed: false
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(state.path.schedule[0].activities[0].completed, false);
+    assert.equal(state.path.schedule[0].activities[0].completedAt, null);
+    assert.equal(state.saveCalls, 1);
+  }, { path });
+});
+
+test("invalid progress updates are rejected without modifying saved progress", async () => {
+  const invalidCases = [
+    { body: { activityIndex: 0, completed: true } },
+    { body: { dayIndex: 0, completed: true } },
+    { body: { dayIndex: -1, activityIndex: 0, completed: true } },
+    { body: { dayIndex: 0, activityIndex: -1, completed: true } },
+    { body: { dayIndex: 0.5, activityIndex: 0, completed: true } },
+    { body: { dayIndex: 0, activityIndex: 0.5, completed: true } },
+    { body: { dayIndex: 1, activityIndex: 0, completed: true } },
+    { body: { dayIndex: 0, activityIndex: 1, completed: true } },
+    { body: { dayIndex: 0, activityIndex: 0 } },
+    { body: { dayIndex: 0, activityIndex: 0, completed: "true" } },
+    { body: { dayIndex: 0, activityIndex: 0, completed: true, score: "85" } }
+  ];
+
+  for (const { body } of invalidCases) {
+    await withProgressMocks(async (state) => {
+      const before = { ...state.path.schedule[0].activities[0] };
+      const response = await requestProgressUpdate(buildApp(), state.path._id, body);
+      assert.equal(response.status, 400, JSON.stringify(body));
+      assert.equal(state.saveCalls, 0, JSON.stringify(body));
+      assert.deepEqual(state.path.schedule[0].activities[0], before, JSON.stringify(body));
+    });
+  }
+});
+
+test("progress update cannot access another user's learning path", async () => {
+  await withProgressMocks(async (state) => {
+    const response = await requestProgressUpdate(buildApp(), "507f1f77bcf86cd799439055", {
+      dayIndex: 0,
+      activityIndex: 0,
+      completed: true
+    });
+
+    assert.equal(response.status, 404);
+    assert.equal(response.body.message, "Path not found");
+    assert.equal(String(state.lookup.user), STUDENT_ID);
+    assert.equal(state.saveCalls, 0);
+  }, { path: null });
 });
 
 test("premium access restriction remains enforced", async () => {

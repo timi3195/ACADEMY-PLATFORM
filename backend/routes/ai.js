@@ -907,10 +907,24 @@ router.get("/learning-path/:courseId", protect, async (req, res) => {
 router.put("/learning-path/:pathId/update-progress", protect, async (req, res) => {
   try {
     const { pathId } = req.params;
-    const { dayIndex, activityIndex, completed, score } = req.body;
+    const { dayIndex, activityIndex, completed, score } = req.body || {};
 
     if (!mongoose.Types.ObjectId.isValid(pathId)) {
       return res.status(400).json({ success: false, message: "Invalid path ID" });
+    }
+
+    if (!Number.isInteger(dayIndex) || dayIndex < 0) {
+      return res.status(400).json({ success: false, message: "dayIndex must be a non-negative integer." });
+    }
+    if (!Number.isInteger(activityIndex) || activityIndex < 0) {
+      return res.status(400).json({ success: false, message: "activityIndex must be a non-negative integer." });
+    }
+    if (typeof completed !== "boolean") {
+      return res.status(400).json({ success: false, message: "completed must be a boolean." });
+    }
+    if (score !== undefined && score !== null &&
+        (typeof score !== "number" || !Number.isFinite(score))) {
+      return res.status(400).json({ success: false, message: "score must be a finite number or null." });
     }
 
     const path = await LearningPath.findOne({
@@ -922,16 +936,21 @@ router.put("/learning-path/:pathId/update-progress", protect, async (req, res) =
       return res.status(404).json({ success: false, message: "Path not found" });
     }
 
-    if (dayIndex >= 0 && dayIndex < path.schedule.length) {
-      const day = path.schedule[dayIndex];
-      if (activityIndex >= 0 && activityIndex < day.activities.length) {
-        day.activities[activityIndex].completed = completed;
-        if (score !== undefined) {
-          day.activities[activityIndex].score = score;
-        }
-        day.activities[activityIndex].completedAt = new Date();
-      }
+    if (!Array.isArray(path.schedule) || dayIndex >= path.schedule.length) {
+      return res.status(400).json({ success: false, message: "dayIndex is out of range." });
     }
+    const day = path.schedule[dayIndex];
+    if (!day || !Array.isArray(day.activities) || activityIndex >= day.activities.length) {
+      return res.status(400).json({ success: false, message: "activityIndex is out of range." });
+    }
+
+    const activity = day.activities[activityIndex];
+    if (!activity) {
+      return res.status(400).json({ success: false, message: "activityIndex is out of range." });
+    }
+    activity.completed = completed;
+    activity.completedAt = completed ? new Date() : null;
+    if (score !== undefined) activity.score = score;
 
     await path.save();
 
