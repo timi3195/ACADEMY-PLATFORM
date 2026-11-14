@@ -1,5 +1,10 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { apiGet, apiPost } from '../utils/api'
+import {
+  generateLearningPath,
+  getLearningPath,
+  updateLearningPathProgress
+} from '../services/aiLearningPathService'
 
 const SUGGESTED_PROMPTS = [
   {
@@ -39,14 +44,48 @@ const SUGGESTED_PROMPTS = [
   }
 ]
 
+export const formatLearningPathDate = (value) => {
+  if (!value) return ''
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? String(value)
+    : date.toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        timeZone: 'UTC'
+      })
+}
+
+export const getChatConversationId = (response, currentId = null) =>
+  response?.conversationId || currentId
+
+export const buildChatRequest = ({ courseId, message, conversationId }) => ({
+  courseId,
+  message,
+  conversationId: conversationId || undefined
+})
+
 export default function AI() {
   const [question, setQuestion] = useState('')
   const [courses, setCourses] = useState([])
   const [selectedCourse, setSelectedCourse] = useState('')
+  const [coursesLoading, setCoursesLoading] = useState(true)
+  const [courseLoadError, setCourseLoadError] = useState('')
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(false)
   const [conversationId, setConversationId] = useState(null)
   const [error, setError] = useState('')
+  const [learningPath, setLearningPath] = useState(null)
+  const [pathLoading, setPathLoading] = useState(false)
+  const [pathGenerating, setPathGenerating] = useState(false)
+  const [pendingActivity, setPendingActivity] = useState('')
+  const [pathError, setPathError] = useState('')
+  const [pathLoadFailed, setPathLoadFailed] = useState(false)
+  const [targetExamDate, setTargetExamDate] = useState('')
+  const [studyHoursPerDay, setStudyHoursPerDay] = useState('2')
+  const [pathReloadKey, setPathReloadKey] = useState(0)
+  const pendingActivityRef = useRef(false)
 
   useEffect(() => {
     const loadCourses = async () => {
@@ -58,11 +97,137 @@ export default function AI() {
         }
       } catch (err) {
         console.error('Failed to load courses', err)
+        setCourseLoadError('Unable to load your courses. Please refresh the page and try again.')
+      } finally {
+        setCoursesLoading(false)
       }
     }
 
     loadCourses()
   }, [])
+
+  useEffect(() => {
+    let active = true
+    setLearningPath(null)
+    setPathError('')
+    setPathLoadFailed(false)
+
+    if (!selectedCourse) {
+      setPathLoading(false)
+      return () => {
+        active = false
+      }
+    }
+
+    setPathLoading(true)
+    getLearningPath(selectedCourse)
+      .then((response) => {
+        if (active) setLearningPath(response.path || null)
+      })
+      .catch((err) => {
+        if (!active) return
+        if (err.status === 404) {
+          setLearningPath(null)
+          return
+        }
+        setPathLoadFailed(true)
+        setPathError(err.message || 'Unable to load your saved Learning Path.')
+      })
+      .finally(() => {
+        if (active) setPathLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [selectedCourse, pathReloadKey])
+
+  const handleGenerateLearningPath = async () => {
+    const hours = Number(studyHoursPerDay)
+    if (!selectedCourse) {
+      setPathError('Select a course before generating a Learning Path.')
+      return
+    }
+    if (!Number.isFinite(hours) || hours < 0.25 || hours > 12) {
+      setPathError('Daily study hours must be between 0.25 and 12.')
+      return
+    }
+
+    setPathError('')
+    setPathLoadFailed(false)
+    setPathGenerating(true)
+    try {
+      const response = await generateLearningPath({
+        courseId: selectedCourse,
+        targetExamDate: targetExamDate || undefined,
+        studyHoursPerDay: hours
+      })
+      if (!response.path) {
+        throw new Error('The server did not return a Learning Path. Please try again.')
+      }
+      setLearningPath(response.path)
+    } catch (err) {
+      setPathError(err.status === 403
+        ? 'Learning Path generation requires premium access. Upgrade your plan to generate a study timetable.'
+        : err.message || 'Unable to generate your Learning Path. Please try again.')
+    } finally {
+      setPathGenerating(false)
+    }
+  }
+
+  const handleActivityCompletion = async (dayIndex, activityIndex, completed) => {
+    if (pendingActivityRef.current || !learningPath) return
+
+    const activityKey = `${dayIndex}-${activityIndex}`
+    const previousPath = learningPath
+    const completedAt = completed ? new Date().toISOString() : null
+    const optimisticPath = {
+      ...previousPath,
+      schedule: previousPath.schedule.map((day, currentDayIndex) => (
+        currentDayIndex !== dayIndex
+          ? day
+          : {
+              ...day,
+              activities: day.activities.map((activity, currentActivityIndex) => (
+                currentActivityIndex !== activityIndex
+                  ? activity
+                  : { ...activity, completed, completedAt }
+              ))
+            }
+      ))
+    }
+
+    pendingActivityRef.current = true
+    setPendingActivity(activityKey)
+    setPathError('')
+    setPathLoadFailed(false)
+    setLearningPath(optimisticPath)
+    try {
+      const response = await updateLearningPathProgress(previousPath._id, {
+        dayIndex,
+        activityIndex,
+        completed
+      })
+      if (!response.path) {
+        throw new Error('The server did not confirm the saved progress. Please try again.')
+      }
+      setLearningPath(response.path)
+    } catch (err) {
+      setLearningPath(previousPath)
+      setPathError(err.message || 'Unable to update activity progress. Please try again.')
+    } finally {
+      pendingActivityRef.current = false
+      setPendingActivity('')
+    }
+  }
+
+  const handleCourseChange = (courseId) => {
+    setSelectedCourse(courseId)
+    setMessages([])
+    setConversationId(null)
+    setQuestion('')
+    setError('')
+  }
 
   const sendMessage = async () => {
     if (!question.trim()) return
@@ -78,14 +243,15 @@ export default function AI() {
     setError('')
 
     try {
-      const res = await apiPost('/api/ai/chat', {
+      const res = await apiPost('/api/ai/chat', buildChatRequest({
         courseId: selectedCourse,
         message: question,
-        conversationId: conversationId || undefined
-      })
+        conversationId
+      }))
 
-      if (!conversationId && res.conversation?._id) {
-        setConversationId(res.conversation._id)
+      const updatedConversationId = getChatConversationId(res, conversationId)
+      if (updatedConversationId) {
+        setConversationId(updatedConversationId)
       }
 
       const assistantMessage = {
@@ -120,6 +286,20 @@ export default function AI() {
     setQuestion('')
   }
 
+  const schedule = Array.isArray(learningPath?.schedule) ? learningPath.schedule : []
+  const totalActivities = schedule.reduce(
+    (total, day) => total + (Array.isArray(day?.activities) ? day.activities.length : 0),
+    0
+  )
+  const completedActivities = schedule.reduce(
+    (total, day) => total + (Array.isArray(day?.activities)
+      ? day.activities.filter(activity => activity?.completed === true).length
+      : 0),
+    0
+  )
+  const pathControlsDisabled = pathLoading || pathGenerating || Boolean(pendingActivity)
+  const pathActionPending = pathGenerating || Boolean(pendingActivity)
+
   return (
     <>
       <div className="page ai-study-page">
@@ -136,18 +316,183 @@ export default function AI() {
           </button>
         </div>
 
+        <section className="learning-path-section" aria-labelledby="learning-path-heading">
+          <div className="learning-path-section-heading">
+            <div>
+              <h2 id="learning-path-heading">📅 Learning Path</h2>
+              <p>Build a personalized study timetable and track your completed activities.</p>
+            </div>
+          </div>
+
+          <div className="learning-path-controls">
+            <div className="learning-path-field">
+              <label htmlFor="learning-path-course">Course</label>
+              <select
+                id="learning-path-course"
+                value={selectedCourse}
+                onChange={event => handleCourseChange(event.target.value)}
+                disabled={coursesLoading || loading || pathActionPending}
+              >
+                <option value="">-- Choose a course --</option>
+                {courses.map(course => (
+                  <option key={course._id} value={course._id}>
+                    {course.code}{course.title ? ` — ${course.title}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="learning-path-field">
+              <label htmlFor="learning-path-exam-date">Target exam date (optional)</label>
+              <input
+                id="learning-path-exam-date"
+                type="date"
+                value={targetExamDate}
+                onChange={event => setTargetExamDate(event.target.value)}
+                disabled={pathControlsDisabled}
+              />
+            </div>
+            <div className="learning-path-field">
+              <label htmlFor="learning-path-study-hours">Daily study hours</label>
+              <input
+                id="learning-path-study-hours"
+                type="number"
+                min="0.25"
+                max="12"
+                step="0.25"
+                value={studyHoursPerDay}
+                onChange={event => setStudyHoursPerDay(event.target.value)}
+                disabled={pathControlsDisabled}
+              />
+            </div>
+            <button
+              type="button"
+              className="learning-path-generate"
+              onClick={handleGenerateLearningPath}
+              disabled={!selectedCourse || coursesLoading || pathControlsDisabled}
+            >
+              {pathGenerating ? 'Generating...' : 'Generate Learning Path'}
+            </button>
+          </div>
+
+          {courseLoadError && <p className="learning-path-error" role="alert">{courseLoadError}</p>}
+          {pathError && (
+            <div className="learning-path-error" role="alert">
+              <span>{pathError}</span>
+              {pathLoadFailed && (
+                <button type="button" onClick={() => setPathReloadKey(key => key + 1)}>
+                  Retry loading
+                </button>
+              )}
+            </div>
+          )}
+
+          {coursesLoading && <p className="learning-path-status" role="status">Loading your courses...</p>}
+          {!coursesLoading && !selectedCourse && !courseLoadError && (
+            <p className="learning-path-empty">Select a course to view or generate a Learning Path.</p>
+          )}
+          {selectedCourse && pathLoading && (
+            <p className="learning-path-status" role="status">Loading your saved Learning Path...</p>
+          )}
+          {selectedCourse && !pathLoading && !learningPath && !pathError && (
+            <p className="learning-path-empty">
+              No saved Learning Path for this course yet. Choose your study preferences and generate one.
+            </p>
+          )}
+
+          {learningPath && !pathLoading && (
+            <div className="learning-path-results">
+              <div className="learning-path-overview">
+                <div>
+                  <h3>{learningPath.title}</h3>
+                  {learningPath.targetExamDate && (
+                    <p>Target exam date: {formatLearningPathDate(learningPath.targetExamDate)}</p>
+                  )}
+                  <p>{schedule.length} study {schedule.length === 1 ? 'day' : 'days'}</p>
+                </div>
+                <div className="learning-path-progress">
+                  <span>
+                    Progress: {completedActivities} / {totalActivities} activities completed
+                  </span>
+                  {totalActivities > 0 ? (
+                    <progress
+                      value={completedActivities}
+                      max={totalActivities}
+                      aria-label={`${completedActivities} of ${totalActivities} activities completed`}
+                    />
+                  ) : (
+                    <small>No activities to track yet.</small>
+                  )}
+                </div>
+              </div>
+
+              {schedule.length === 0 ? (
+                <p className="learning-path-empty">This Learning Path has no scheduled study days.</p>
+              ) : (
+                <div className="learning-path-days">
+                  {schedule.map((day, dayIndex) => (
+                    <article className="learning-path-day" key={`${day.day ?? dayIndex}-${day.date ?? dayIndex}`}>
+                      <div className="learning-path-day-heading">
+                        <div>
+                          <h4>Day {day.day ?? dayIndex + 1}</h4>
+                          {day.date && <p>{formatLearningPathDate(day.date)}</p>}
+                        </div>
+                      </div>
+                      {day.summary && <p className="learning-path-summary">{day.summary}</p>}
+                      <div className="learning-path-activities">
+                        {(Array.isArray(day.activities) ? day.activities : []).map((activity, activityIndex) => {
+                          const activityTitle = activity.title || `Activity ${activityIndex + 1}`
+                          const activityKey = `${dayIndex}-${activityIndex}`
+                          return (
+                            <div
+                              className={`learning-path-activity${activity.completed ? ' is-completed' : ''}`}
+                              key={activity._id || activityKey}
+                            >
+                              <label className="learning-path-activity-toggle">
+                                <input
+                                  type="checkbox"
+                                  checked={activity.completed === true}
+                                  disabled={Boolean(pendingActivity)}
+                                  onChange={event => handleActivityCompletion(
+                                    dayIndex,
+                                    activityIndex,
+                                    event.target.checked
+                                  )}
+                                  aria-label={`Mark ${activityTitle} ${activity.completed ? 'incomplete' : 'complete'}`}
+                                />
+                                <span>{activityTitle}</span>
+                              </label>
+                              {activity.description && <p>{activity.description}</p>}
+                              <div className="learning-path-activity-meta">
+                                <span>{activity.type ? activity.type.replace(/-/g, ' ') : 'Activity'}</span>
+                                {activity.duration != null && (
+                                  <span>{activity.duration} min</span>
+                                )}
+                              </div>
+                              {pendingActivity === activityKey && (
+                                <span className="learning-path-updating" role="status">Saving progress...</span>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
         <div className="ai-container">
           <div className="ai-sidebar">
             <div className="course-selection">
-              <label>📚 Select Course</label>
+            <label htmlFor="chat-course-select">📚 Select Course</label>
               <select
-                value={selectedCourse}
-                onChange={e => {
-                  setSelectedCourse(e.target.value)
-                  setMessages([])
-                  setConversationId(null)
-                }}
-                className="course-select"
+              id="chat-course-select"
+              value={selectedCourse}
+              onChange={e => handleCourseChange(e.target.value)}
+              disabled={loading || pathActionPending}
+              className="course-select"
               >
                 <option value="">-- Choose a course --</option>
                 {courses.map(course => (
@@ -292,6 +637,266 @@ export default function AI() {
           flex-direction: column;
           height: 100%;
           gap: 1.5rem;
+        }
+
+        .learning-path-section {
+          background: white;
+          border: 1px solid #e0e0e0;
+          border-radius: 12px;
+          padding: 1.5rem;
+          display: flex;
+          flex-direction: column;
+          gap: 1rem;
+        }
+
+        .learning-path-section-heading h2 {
+          margin: 0;
+          color: #242424;
+          font-size: 1.35rem;
+        }
+
+        .learning-path-section-heading p {
+          margin: 0.4rem 0 0;
+          color: #666;
+          font-size: 0.9rem;
+        }
+
+        .learning-path-controls {
+          display: grid;
+          grid-template-columns: minmax(180px, 1.5fr) repeat(2, minmax(150px, 1fr)) auto;
+          align-items: end;
+          gap: 0.8rem;
+          padding: 1rem;
+          background: #f8f8fc;
+          border: 1px solid #ececf4;
+          border-radius: 10px;
+        }
+
+        .learning-path-field {
+          display: flex;
+          flex-direction: column;
+          gap: 0.4rem;
+        }
+
+        .learning-path-field label {
+          color: #444;
+          font-size: 0.82rem;
+          font-weight: 600;
+        }
+
+        .learning-path-field select,
+        .learning-path-field input {
+          width: 100%;
+          min-height: 42px;
+          padding: 0.6rem 0.7rem;
+          border: 1px solid #d5d5df;
+          border-radius: 7px;
+          background: white;
+          color: #333;
+          font: inherit;
+        }
+
+        .learning-path-field select:focus,
+        .learning-path-field input:focus,
+        .learning-path-activity-toggle input:focus-visible {
+          outline: 2px solid #667eea;
+          outline-offset: 2px;
+        }
+
+        .learning-path-field :disabled {
+          background: #f0f0f0;
+          cursor: not-allowed;
+        }
+
+        .learning-path-generate {
+          min-height: 42px;
+          padding: 0.65rem 1rem;
+          border: 0;
+          border-radius: 7px;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          font-weight: 600;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+
+        .learning-path-generate:disabled {
+          cursor: not-allowed;
+          opacity: 0.6;
+        }
+
+        .learning-path-empty,
+        .learning-path-status {
+          margin: 0;
+          padding: 0.9rem 1rem;
+          border-radius: 8px;
+          background: #f8f8fc;
+          color: #555;
+        }
+
+        .learning-path-error {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 1rem;
+          margin: 0;
+          padding: 0.85rem 1rem;
+          border: 1px solid #f2c5c5;
+          border-radius: 8px;
+          background: #fff3f3;
+          color: #9f2424;
+        }
+
+        .learning-path-error button {
+          padding: 0.4rem 0.65rem;
+          border: 1px solid currentColor;
+          border-radius: 6px;
+          background: white;
+          color: inherit;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+
+        .learning-path-results {
+          display: flex;
+          flex-direction: column;
+          gap: 1rem;
+        }
+
+        .learning-path-overview {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 1.5rem;
+          padding: 1rem;
+          border-radius: 9px;
+          background: linear-gradient(135deg, #667eea12 0%, #764ba212 100%);
+        }
+
+        .learning-path-overview h3 {
+          margin: 0;
+          color: #292b3d;
+          font-size: 1.15rem;
+        }
+
+        .learning-path-overview p {
+          margin: 0.35rem 0 0;
+          color: #5e6070;
+          font-size: 0.88rem;
+        }
+
+        .learning-path-progress {
+          display: flex;
+          flex-direction: column;
+          gap: 0.4rem;
+          min-width: min(250px, 40%);
+          color: #444;
+          font-size: 0.85rem;
+        }
+
+        .learning-path-progress progress {
+          width: 100%;
+          height: 0.7rem;
+          accent-color: #667eea;
+        }
+
+        .learning-path-days {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+          gap: 0.9rem;
+        }
+
+        .learning-path-day {
+          min-width: 0;
+          padding: 1rem;
+          border: 1px solid #e6e6ec;
+          border-radius: 9px;
+          background: white;
+        }
+
+        .learning-path-day-heading h4 {
+          margin: 0;
+          color: #333;
+          font-size: 1rem;
+        }
+
+        .learning-path-day-heading p,
+        .learning-path-summary {
+          margin: 0.35rem 0 0;
+          color: #666;
+          font-size: 0.85rem;
+          line-height: 1.45;
+        }
+
+        .learning-path-activities {
+          display: flex;
+          flex-direction: column;
+          gap: 0.65rem;
+          margin-top: 0.8rem;
+        }
+
+        .learning-path-activity {
+          padding: 0.8rem;
+          border: 1px solid #ededf1;
+          border-radius: 8px;
+          background: #fafafd;
+        }
+
+        .learning-path-activity.is-completed {
+          border-color: #b7dfc5;
+          background: #f3fbf5;
+        }
+
+        .learning-path-activity-toggle {
+          display: flex;
+          align-items: flex-start;
+          gap: 0.6rem;
+          color: #333;
+          font-size: 0.92rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+
+        .learning-path-activity-toggle input {
+          width: 1rem;
+          height: 1rem;
+          margin: 0.15rem 0 0;
+          accent-color: #667eea;
+          flex: 0 0 auto;
+        }
+
+        .learning-path-activity-toggle input:disabled {
+          cursor: wait;
+        }
+
+        .learning-path-activity > p {
+          margin: 0.55rem 0 0;
+          color: #5c5c65;
+          font-size: 0.85rem;
+          line-height: 1.45;
+        }
+
+        .learning-path-activity-meta {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.5rem;
+          margin-top: 0.65rem;
+        }
+
+        .learning-path-activity-meta span {
+          padding: 0.22rem 0.5rem;
+          border-radius: 999px;
+          background: #eceeff;
+          color: #454b80;
+          font-size: 0.75rem;
+          text-transform: capitalize;
+        }
+
+        .learning-path-updating {
+          display: inline-block;
+          margin-top: 0.5rem;
+          color: #555;
+          font-size: 0.78rem;
         }
 
         .ai-header {
@@ -662,6 +1267,24 @@ export default function AI() {
         }
 
         @media (max-width: 768px) {
+          .learning-path-section {
+            padding: 1rem;
+          }
+
+          .learning-path-controls {
+            grid-template-columns: 1fr;
+          }
+
+          .learning-path-overview {
+            align-items: stretch;
+            flex-direction: column;
+            gap: 1rem;
+          }
+
+          .learning-path-progress {
+            min-width: 0;
+          }
+
           .ai-container {
             grid-template-columns: 1fr;
           }
