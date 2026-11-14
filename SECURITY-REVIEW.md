@@ -1,10 +1,10 @@
 # Targeted Security Review: File Access and Paystack
 
-**Scope:** Read-only review of backend file access/storage and Paystack payment flows. No files or database records were changed during the investigation. No tests were executed.
+**Scope:** Read-only review of backend file access/storage and Paystack payment flows. No application code or database records were changed during the investigations.
 
 ## Findings
 
-### Medium — Course membership can be bypassed for uploaded course files
+### Medium — Course membership can be bypassed for uploaded course files (remediated)
 
 - **Confidence:** 9/10
 - **Affected routes:** `POST /api/files/upload`, `GET /api/files/view/:id`, `GET /api/files/download/:id`
@@ -13,6 +13,7 @@
 - **Boundaries:** This does not establish unauthenticated access. The reviewed private-file ownership and paid-material transaction checks remain in place.
 - **Recommended correction:** Resolve the stored course title to an actual course before authorizing access, or use a course reference for authorization. Fail closed if course membership cannot be determined. Do not broaden access to other courses.
 - **Missing regression coverage:** Exercise both streaming routes with the real File schema and access service, using an authenticated student outside the material's course.
+- **Resolution:** New course uploads now retain the uniquely constrained course code. Legacy course uploads resolve by exact title, department, level, and semester, and are denied if the course or department match is missing or ambiguous. View and download use the same material access service. Regression coverage is in `backend/tests/fileCourseMembershipSecurity.test.js`.
 
 ### Low — Local-disk file persistence depends on deployment configuration
 
@@ -30,18 +31,26 @@
 
 ## Paystack review
 
-No confirmed payment-forgery, old-reference reuse, duplicate activation, or unpaid premium-access vulnerability was identified.
+No confirmed payment-forgery, old-reference reuse, duplicate activation, or unpaid material-access vulnerability was identified.
 
-- `backend/routes/payments.js`: `/initialize` determines plan pricing server-side; `/verify/:reference` verifies through Paystack and checks the transaction owner; `/webhook` validates the Paystack signature and payment fields.
-- `backend/services/paymentIntegrityService.js`: transaction references are claimed atomically, and duplicate processing is handled idempotently.
-- Subscription activation follows validated successful payment; premium access checks subscription expiry.
+- `backend/services/marketplaceService.js`, `initializePurchase` and `verifyPurchase`: the server calculates the expected material charge, creates a pending transaction bound to the authenticated user and material, and verifies the reference with Paystack before completion.
+- `backend/services/paymentIntegrityService.js`, `claimPendingTransaction` and `validatePaystackPayment`: verification checks the expected transaction/reference, successful Paystack status, amount in minor units, currency and customer email when supplied. Conditional transaction claims prevent concurrent verification or webhook delivery from completing the same transaction twice.
+- `backend/routes/payments.js`, `POST /webhook`: validates the SHA-512 signature against the raw request body using a timing-safe comparison. Only successful charge events proceed to payment validation.
+- `backend/services/materialAccessService.js`, `userHasPurchasedMaterial` and `canViewMaterial`: paid file access requires a successful transaction matching the user and material, and both view and download use the same access decision.
 
-Existing coverage in `backend/tests/paystackPaymentSecurity.test.js` includes server-side pricing, ownership, payment validation, duplicate verification and webhook delivery, signature checks, and concurrency.
+### Low — Refund/reversal entitlement revocation is unverified
 
-**Additional focused test opportunity:** Add coverage for successful material-purchase webhooks, duplicate delivery, and reference/material mismatch.
+- **Confidence:** 7/10; conditional on refunds or reversals being supported operationally.
+- **Relevant code:** `backend/routes/payments.js`, `/webhook`; `backend/services/materialAccessService.js`, `userHasPurchasedMaterial`.
+- **Issue:** The webhook path handles `charge.success` but no refund/reversal entitlement-revocation flow was found. A transaction that remains `status: "success"` continues to satisfy the material purchase check.
+- **Recommended correction:** If refunds or reversals are supported, process their verified events and revoke or invalidate the corresponding entitlement. Otherwise, document the operational policy. Add tests asserting refunded/reversed purchases cannot view or download materials if such events are in scope.
+
+Focused tests in `backend/tests/marketplacePaymentSecurity.test.js`, `backend/tests/paystackPaymentSecurity.test.js`, and `backend/tests/fileCourseMembershipSecurity.test.js` were reported as passing: **78 tests, 0 failures**. Coverage includes server-side pricing, user/material binding, amount and currency validation, signature checks, duplicate/retry handling, concurrency, and file-access entitlement checks.
+
+**Configuration risk:** The deployment must provide the Paystack secret and expected currency through protected configuration. No secret values were inspected or included in this report.
 
 ## Priorities
 
-1. **Medium:** Fix the course-membership bypass for uploaded course materials and add route-level regression tests.
+1. **Medium (remediated):** Course-membership checks for uploaded course materials.
 2. **Low/configuration-dependent:** Ensure durable object storage is configured in production and account for legacy local files.
-3. **Paystack:** No code correction recommended based on this review; add the material-webhook test cases noted above.
+3. **Low/conditional:** Confirm whether refund/reversal processing is operationally supported; if so, add verified event handling and entitlement tests.
