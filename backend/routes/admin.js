@@ -3,12 +3,18 @@
  const protect = require("../config/middleware/authMiddleware");
  const adminOnly = require("../config/middleware/adminOnly");
  const { getAdminLecturerList } = require("../services/adminService");
+ const { classifyMongoConnectionError } = require("../utils/mongoConnection");
+ const { logger } = require("../utils/logger");
 
  const User = require("../models/User");
  const Course = require("../models/course");
+ const File = require("../models/File");
  const Department = require("../models/Department");
  const School = require("../models/School");
  const Question = require("../models/Question");
+
+ const COURSE_MATERIAL_DIAGNOSTIC_STORAGE_KEY =
+   "materials/6a7f568dbde058bf65575337/a2cb5112-5b44-4e30-b0db-725b40757417-Chapter1_Campus_Mesh_Network.docx";
 
  /**
   * MANAGE SCHOOLS (Admin only)
@@ -350,6 +356,51 @@ router.get("/analytics/departments", protect, adminOnly, async (req, res) => {
     res.status(500).json({
       success: false,
       message: err.message
+    });
+  }
+});
+
+// Temporary admin-only diagnostic; remove after production verification.
+router.get("/diagnostics/course-material", protect, adminOnly, async (req, res) => {
+  try {
+    const [courseCodeMatch, courseTitleMatch, material] = await Promise.all([
+      Course.exists({ code: "NCC221" }),
+      Course.exists({ title: "Cloud Computing 4" }),
+      File.findOne({ storageKey: COURSE_MATERIAL_DIAGNOSTIC_STORAGE_KEY })
+        .select("courseCode course storageProvider storageStatus storageKey")
+        .lean()
+    ]);
+
+    const courseReference =
+      typeof material?.course === "string" ? material.course.trim() : "";
+    const courseId = /^[a-f\d]{24}$/i.test(courseReference) ? courseReference : null;
+    const referencedCourseResolves = courseId
+      ? Boolean(await Course.exists({ _id: courseId }))
+      : false;
+
+    return res.json({
+      success: true,
+      courseCodeNCC221Exists: Boolean(courseCodeMatch),
+      courseTitleCloudComputing4Exists: Boolean(courseTitleMatch),
+      materialExists: Boolean(material),
+      material: material
+        ? {
+            courseCode: material.courseCode || "",
+            courseId,
+            storageProvider: material.storageProvider || "",
+            storageStatus: material.storageStatus || "",
+            storageKey: material.storageKey || ""
+          }
+        : null,
+      referencedCourseResolves
+    });
+  } catch (error) {
+    logger.error("course_material_diagnostic_failed", {
+      category: classifyMongoConnectionError(error)
+    });
+    return res.status(500).json({
+      success: false,
+      message: "Course-material diagnostic failed."
     });
   }
 });
