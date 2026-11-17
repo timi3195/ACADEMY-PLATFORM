@@ -5,12 +5,9 @@
  const { getAdminLecturerList } = require("../services/adminService");
  const { classifyMongoConnectionError } = require("../utils/mongoConnection");
  const { logger } = require("../utils/logger");
- const materialAccessService = require("../services/materialAccessService");
- const storageService = require("../services/storageService");
 
  const User = require("../models/User");
  const Course = require("../models/course");
- const File = require("../models/File");
  const Department = require("../models/Department");
  const School = require("../models/School");
  const Question = require("../models/Question");
@@ -349,73 +346,6 @@ router.get("/analytics/departments", protect, adminOnly, async (req, res) => {
     res.status(500).json({
       success: false,
       message: err.message
-    });
-  }
-});
-
-// Temporary admin-only diagnostic; remove after production verification.
-router.get("/diagnostics/course-material", protect, adminOnly, async (req, res) => {
-  const materialId = req.query.materialId;
-  if (typeof materialId !== "string" || !/^[a-f\d]{24}$/i.test(materialId)) {
-    return res.status(400).json({
-      success: false,
-      message: "A valid materialId query parameter is required."
-    });
-  }
-
-  try {
-    const material = await File.findById(materialId)
-      .select("_id course courseCode department level semester courseRef storageProvider storageStatus storageKey")
-      .lean();
-
-    if (!material) {
-      return res.json({
-        success: true,
-        materialExists: false,
-        material: null,
-        courseResolution: { status: "not_checked", course: null },
-        r2Object: null
-      });
-    }
-
-    const [courseResolution, r2Object] = await Promise.all([
-      materialAccessService.resolveCourseForMaterialWithStatus(material),
-      storageService.headObjectMetadata(material)
-    ]);
-    const course = courseResolution.course;
-
-    return res.json({
-      success: true,
-      materialExists: true,
-      material: {
-        course: typeof material.course === "string" ? material.course : "",
-        courseCode: typeof material.courseCode === "string" ? material.courseCode : "",
-        department: typeof material.department === "string" ? material.department : "",
-        level: typeof material.level === "string" ? material.level : "",
-        semester: typeof material.semester === "string" ? material.semester : "",
-        storageProvider: typeof material.storageProvider === "string" ? material.storageProvider : "",
-        storageStatus: typeof material.storageStatus === "string" ? material.storageStatus : ""
-      },
-      courseResolution: {
-        status: courseResolution.status,
-        course: course ? {
-          id: String(course._id),
-          title: typeof course.title === "string" ? course.title : "",
-          code: typeof course.code === "string" ? course.code : "",
-          department: String(course.department?._id || course.department || ""),
-          level: typeof course.level === "string" ? course.level : "",
-          semester: typeof course.semester === "string" ? course.semester : ""
-        } : null
-      },
-      r2Object
-    });
-  } catch (error) {
-    logger.error("course_material_diagnostic_failed", {
-      category: classifyMongoConnectionError(error)
-    });
-    return res.status(500).json({
-      success: false,
-      message: "Course-material diagnostic failed."
     });
   }
 });

@@ -51,24 +51,22 @@ const resolveCourseDepartmentId = async (departmentValue, expectedId) => {
     : null;
 };
 
-const resolveCourseForMaterialWithStatus = async (material) => {
+const resolveCourseForMaterial = async (material) => {
   if (material?.courseRef && mongoose.Types.ObjectId.isValid(idOf(material.courseRef))) {
-    const course = await require("../models/course").findById(idOf(material.courseRef));
-    return { status: course ? "resolved" : "missing", course: course || null };
+    return require("../models/course").findById(idOf(material.courseRef));
   }
 
   if (!isCourseMaterial(material) || !material.course) {
-    return { status: "unresolved", course: null };
+    return null;
   }
 
   const Course = require("../models/course");
   if (typeof material.courseCode === "string" && material.courseCode.trim()) {
     const courses = await Course.find({ code: material.courseCode.trim() });
-    if (courses.length === 0) return { status: "missing", course: null };
-    if (courses.length !== 1) return { status: "ambiguous", course: null };
+    if (courses.length !== 1) return null;
     const [course] = courses;
     if (!course.title || course.title !== material.course || !course.department || !course.level) {
-      return { status: "unresolved", course: null };
+      return null;
     }
     const departmentId = await resolveCourseDepartmentId(
       material.department,
@@ -81,16 +79,14 @@ const resolveCourseForMaterialWithStatus = async (material) => {
         (!isRecognizedSemester(material.semester) ||
           normalizeSemester(course.semester) !== normalizeSemester(material.semester)))
     ) {
-      return { status: "unresolved", course: null };
+      return null;
     }
-    return { status: "resolved", course };
+    return course;
   }
 
-  if (!material.department || !material.level || !isRecognizedSemester(material.semester)) {
-    return { status: "unresolved", course: null };
-  }
+  if (!material.department || !material.level || !isRecognizedSemester(material.semester)) return null;
   const departmentId = await resolveCourseDepartmentId(material.department);
-  if (!departmentId) return { status: "unresolved", course: null };
+  if (!departmentId) return null;
   const query = {
     title: material.course,
     department: departmentId,
@@ -98,8 +94,7 @@ const resolveCourseForMaterialWithStatus = async (material) => {
     semester: normalizeSemester(material.semester)
   };
   const candidates = await Course.find(query);
-  if (candidates.length === 0) return { status: "missing", course: null };
-  if (candidates.length !== 1) return { status: "ambiguous", course: null };
+  if (candidates.length !== 1) return null;
   const [course] = candidates;
 
   if (
@@ -109,14 +104,11 @@ const resolveCourseForMaterialWithStatus = async (material) => {
     normalizeAcademicLevel(course.level) !== normalizeAcademicLevel(material.level) ||
     normalizeSemester(course.semester) !== normalizeSemester(material.semester)
   ) {
-    return { status: "unresolved", course: null };
+    return null;
   }
 
-  return { status: "resolved", course };
+  return course;
 };
-
-const resolveCourseForMaterial = async (material) =>
-  (await resolveCourseForMaterialWithStatus(material)).course;
 
 /**
  * Determine whether a user is an admin.
@@ -253,7 +245,6 @@ const recordDownload = async ({ material }) => {
 module.exports = {
   isCourseAssociatedMaterial,
   resolveCourseForMaterial,
-  resolveCourseForMaterialWithStatus,
   verifyCourseMembership,
   canViewMaterial,
   canDownloadMaterial,

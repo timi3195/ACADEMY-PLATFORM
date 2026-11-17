@@ -1127,7 +1127,11 @@ export default function AdminPanel() {
                     {materials.map(m => (
                       <tr key={m._id} className="border-b hover:bg-gray-50">
                         <td className="px-4 py-2">{m.title}</td>
-                        <td className="px-4 py-2">{m.course?.title || 'N/A'}</td>
+                        <td className="px-4 py-2">
+                          {typeof m.course === 'string' && m.course.trim()
+                            ? m.course.trim()
+                            : 'Course information unavailable'}
+                        </td>
                         <td className="px-4 py-2">Course authorization</td>
                         <td className="px-4 py-2">{new Date(m.uploadedAt || m.createdAt).toLocaleDateString()}</td>
                       </tr>
