@@ -36,11 +36,11 @@ const student = {
   _id: STUDENT_A,
   id: STUDENT_A,
   role: "student",
-  plan: "premium",
-  subscriptionType: "premium",
+  plan: "free",
   department: DEPARTMENT_ID,
   yearOfStudy: "ND1",
-  semester: "First"
+  semester: "First",
+  coursesEnrolled: [COURSE_ID]
 };
 const course = {
   _id: COURSE_ID,
@@ -512,10 +512,10 @@ test("students cannot start an exam for another academic course", async () => {
   });
 });
 
-test("students cannot start an exam for a course in another level or semester", async () => {
+test("students cannot start an exam for another department, even with course ID enrollment", async () => {
   for (const courseRecord of [
-    { ...course, level: "ND2" },
-    { ...course, semester: "Second" }
+    { ...course, department: "507f1f77bcf86cd799439032" },
+    { ...course, department: null }
   ]) {
     await withQuizMocks(async (state) => {
       const response = await request(buildApp())
@@ -524,8 +524,26 @@ test("students cannot start an exam for a course in another level or semester", 
       assert.equal(response.status, 403);
       assert.equal(state.pipeline, null);
       assert.equal(state.createCount, 0);
-    }, { courseRecord });
+    }, { courseRecord, user: { ...student, coursesEnrolled: [COURSE_ID] } });
   }
+});
+
+test("same-department students access courses without enrollment or academic-field matching", async () => {
+  await withQuizMocks(async (state) => {
+    const response = await request(buildApp())
+      .post("/api/quiz/start")
+      .send({ courseId: COURSE_ID, questionCount: 1 });
+
+    assert.equal(response.status, 201);
+    assert.equal(state.createCount, 1);
+  }, {
+    user: {
+      ...student,
+      coursesEnrolled: [],
+      yearOfStudy: "HND2",
+      semester: "Second"
+    }
+  });
 });
 
 for (const [field, value] of [

@@ -1,12 +1,11 @@
 const express = require("express");
 const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
 const protect = require("../config/middleware/authMiddleware");
 const lecturerOnly = require("../config/middleware/lecturerOnly");
 const approvedLecturerOnly = require("../config/middleware/approvedLecturerOnly");
 const lecturerController = require("../controllers/lecturerController");
 const storageService = require("../services/storageService");
+const commerceUnavailable = require("../middleware/commerceUnavailable");
 
 const router = express.Router();
 
@@ -39,6 +38,7 @@ router.post(
   protect,
   lecturerOnly,
   uploadFields,
+  lecturerController.rejectPaidMaterialOperation,
   lecturerController.createMaterial
 );
 
@@ -48,6 +48,7 @@ router.put(
   protect,
   lecturerOnly,
   uploadFields,
+  lecturerController.rejectPaidMaterialOperation,
   lecturerController.updateMaterial
 );
 
@@ -75,11 +76,11 @@ router.get("/sales/export/csv", protect, lecturerOnly, lecturerController.getSal
 router.get("/withdrawals", protect, lecturerOnly, lecturerController.getWithdrawalHistory);
 
 // Create withdrawal request
-router.post("/withdraw", protect, lecturerOnly, lecturerController.requestWithdrawal);
+router.post("/withdraw", protect, lecturerOnly, commerceUnavailable);
 
 // Lecturer payment settings
 router.get("/payment/settings", protect, approvedLecturerOnly, lecturerController.getPaymentSettings);
-router.post("/payment/settings", protect, approvedLecturerOnly, lecturerController.updatePaymentSettings);
+router.post("/payment/settings", protect, approvedLecturerOnly, commerceUnavailable);
 router.get("/payment/banks", protect, approvedLecturerOnly, lecturerController.getAvailableBanks);
 
 module.exports = router;

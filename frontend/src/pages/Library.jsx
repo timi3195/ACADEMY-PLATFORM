@@ -18,7 +18,7 @@ export default function Library() {
   const [sortBy, setSortBy] = useState('newest');
   const [page, setPage] = useState(1);
   const [viewMode, setViewMode] = useState('grid');
-  const [filters, setFilters] = useState({ department: '', course: '', semester: '', level: '', materialType: '', price: '', recentlyOpened: false, recentlyPurchased: false });
+  const [filters, setFilters] = useState({ department: '', course: '', semester: '', level: '', materialType: '', recentlyOpened: false });
   const [notice, setNotice] = useState('');
   const [wishlistIds, setWishlistIds] = useState(loadWishlistEntries());
   const debouncedSearch = useDebounce(search, 250);
@@ -33,16 +33,15 @@ export default function Library() {
       semester: filters.semester,
       level: filters.level,
       materialType: filters.materialType,
-      price: filters.price,
       page,
       limit: 8
     });
     loadMaterials({ limit: 24 }).catch(() => undefined);
-  }, [debouncedSearch, filters.department, filters.course, filters.semester, filters.level, filters.materialType, filters.price, page, sortBy, loadLibrary, loadMaterials]);
+  }, [debouncedSearch, filters.department, filters.course, filters.semester, filters.level, filters.materialType, page, sortBy, loadLibrary, loadMaterials]);
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, filters.department, filters.course, filters.semester, filters.level, filters.materialType, filters.price, filters.recentlyOpened, filters.recentlyPurchased, sortBy]);
+  }, [debouncedSearch, filters.department, filters.course, filters.semester, filters.level, filters.materialType, filters.recentlyOpened, sortBy]);
 
   const sourceItems = useMemo(() => Array.isArray(items) ? items : [], [items]);
 
@@ -86,12 +85,12 @@ export default function Library() {
       <NotificationBanner type="info" message={notice} onClose={() => setNotice('')} autoDismissMs={2400} />
       <section className="library-hero">
         <div className="library-actions">
-          <span className="library-pill">📚 {sourceItems.length} purchased</span>
+          <span className="library-pill">📚 {sourceItems.length} resources</span>
           <span className="library-pill">⭐ {wishlistIds.length} wishlist</span>
           <span className="library-pill">⏱ {continueReadingItems.length} continue reading</span>
         </div>
         <h2 style={{ margin: 0 }}>Your digital bookshelf</h2>
-        <p style={{ margin: 0, maxWidth: '760px' }}>A polished library experience with progress tracking, curated recommendations, and quick access to your purchases.</p>
+        <p style={{ margin: 0, maxWidth: '760px' }}>Your learning resources, with progress tracking, curated recommendations, and quick access to course materials.</p>
         <div className="library-actions" style={{ marginTop: '4px' }}>
           <button type="button" className="product-card__button product-card__button--ghost" onClick={() => setViewMode('grid')}>Grid view</button>
           <button type="button" className="product-card__button product-card__button--ghost" onClick={() => setViewMode('list')}>List view</button>
@@ -160,16 +159,8 @@ export default function Library() {
             <option value="">Material type</option>
             {materialTypeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
           </select>
-          <select name="price" value={filters.price} onChange={handleFilterChange} aria-label="Filter by price">
-            <option value="">Price</option>
-            <option value="free">Free</option>
-            <option value="paid">Paid</option>
-          </select>
           <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '.9rem' }}>
             <input type="checkbox" name="recentlyOpened" checked={filters.recentlyOpened} onChange={handleFilterChange} /> Recently opened
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '.9rem' }}>
-            <input type="checkbox" name="recentlyPurchased" checked={filters.recentlyPurchased} onChange={handleFilterChange} /> Recently purchased
           </label>
         </div>
       </section>
@@ -177,7 +168,7 @@ export default function Library() {
       {loading && <LoadingSpinner label="Loading library" />}
       {error && <ErrorState message={error} />}
       {!loading && !error && sourceItems.length === 0 && (
-        <EmptyState title="No library yet" description="Your purchased materials will show up here once you buy them." icon="📖" />
+        <EmptyState title="No library resources yet" description="Materials authorized for your courses will appear here." icon="📖" />
       )}
 
       {!loading && !error && filteredItems.length === 0 && sourceItems.length > 0 && (
@@ -202,7 +193,6 @@ export default function Library() {
                 />
                 {viewMode === 'list' && (
                   <div style={{ marginTop: '12px', color: '#64748b', fontSize: '13px' }}>
-                    <div>Purchased: {item.purchasedAt ? new Date(item.purchasedAt).toLocaleDateString() : '—'}</div>
                     <div>Lecturer: {item.material?.lecturer?.name || '—'}</div>
                     <div>Course: {item.material?.course?.title || '—'}</div>
                     <div>Last opened: {progress?.lastOpened ? new Date(progress.lastOpened).toLocaleDateString() : 'Not yet opened'}</div>
@@ -236,26 +226,8 @@ export default function Library() {
 
       <section className="library-section" style={{ marginTop: '20px' }}>
         <div className="library-section__header">
-          <h3 style={{ margin: 0 }}>Purchase history</h3>
-          <span className="nav-pill">Latest records</span>
-        </div>
-        <div className="library-list">
-          {sourceItems.slice(0, 4).map((item) => (
-            <div key={`${item.transactionId || item.material?._id}-history`} className="library-list-item">
-              <div>
-                <strong>{item.material?.title}</strong>
-                <div style={{ color: '#64748b', fontSize: '.9rem' }}>{item.transactionId || 'No reference'}</div>
-              </div>
-              <div style={{ color: '#64748b', fontSize: '.9rem' }}>{item.purchasedAt ? new Date(item.purchasedAt).toLocaleDateString() : '—'}</div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="library-section" style={{ marginTop: '20px' }}>
-        <div className="library-section__header">
           <h3 style={{ margin: 0 }}>Recommended for you</h3>
-          <span className="nav-pill">From the marketplace</span>
+          <span className="nav-pill">Suggested resources</span>
         </div>
         <div className="marketplace-grid">
           {recommendations.map((material) => (

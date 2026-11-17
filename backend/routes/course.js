@@ -1,8 +1,13 @@
 const express = require("express");
 const router = express.Router();
 const Course = require("../models/course");
+const User = require("../models/User");
 const protect = require("../config/middleware/authMiddleware");
 const adminOnly = require("../config/middleware/adminOnly");
+const {
+  canAccessCourse,
+  getAccessibleCourseFilter
+} = require("../services/courseMembershipService");
 
 // CREATE COURSE (admin only)
 router.post("/", protect, adminOnly, async (req, res) => {
@@ -21,37 +26,15 @@ router.post("/", protect, adminOnly, async (req, res) => {
   }
 });
 
-// GET ALL COURSES - with department/year filtering for students
+// GET courses the authenticated user is authorized to access.
 router.get("/", protect, async (req, res) => {
   try {
-    // If admin, return all courses
-    if (req.user && req.user.role === 'admin') {
-      const courses = await Course.find().populate('department');
-      return res.json({
-        success: true,
-        courses
-      });
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(401).json({ success: false, message: "Authenticated user not found." });
     }
 
-    // For students, filter by their department and year of study
-    const User = require('../models/User');
-    const user = await User.findById(req.user.id).populate('department');
-    
-    if (!user || !user.department || !user.yearOfStudy) {
-      return res.json({
-        success: true,
-        courses: [],
-        message: 'Please complete your profile with department and year of study'
-      });
-    }
-
-    const { normalizeAcademicLevel } = require('../utils/academicLevels');
-    const normalizedYear = normalizeAcademicLevel(user.yearOfStudy);
-    const courses = await Course.find({
-      department: user.department._id,
-      level: normalizedYear,
-      ...(user.semester ? { semester: user.semester } : {})
-    }).populate('department');
+    const courses = await Course.find(getAccessibleCourseFilter(user)).populate('department');
 
     res.json({
       success: true,
@@ -75,7 +58,7 @@ router.get("/all", async (req, res) => {
   });
 });
 
-// GET COURSE BY ID - with department/year validation for students
+// GET COURSE BY ID - requires explicit course access.
 router.get("/:id", protect, async (req, res) => {
   try {
     const course = await Course.findById(req.params.id).populate('department');
@@ -84,30 +67,11 @@ router.get("/:id", protect, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Course not found' });
     }
 
-    // Admin can access any course
-    if (req.user && req.user.role === 'admin') {
-      return res.json({ success: true, course });
-    }
-
-    // For students, verify they have access to this course (department & year match)
-    const User = require('../models/User');
-    const user = await User.findById(req.user.id).populate('department');
-    
-    if (!user || !user.department || !user.yearOfStudy) {
+    const user = await User.findById(req.user.id);
+    if (!canAccessCourse(user, course)) {
       return res.status(403).json({
         success: false,
-        message: 'Please complete your profile to access courses'
-      });
-    }
-
-    // Check if student's department and year match the course
-    if (user.department._id.toString() !== course.department._id.toString() ||
-      user.yearOfStudy !== course.level ||
-      (user.semester && user.semester !== course.semester)) {
-      return res.status(403).json({
-        success: false,
-        message: 'You do not have access to this course. It is only available to students in the ' + 
-                 course.department.name + ' department at ' + course.level + ' level.'
+        message: "You do not have access to this course."
       });
     }
 

@@ -1,22 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useParams, useNavigate, Link, useLocation } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import marketplaceService from '../services/marketplaceService';
-import purchaseService from '../services/purchaseService';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorState from '../components/ErrorState';
 import EmptyState from '../components/EmptyState';
 import NotificationBanner from '../components/NotificationBanner';
 import MaterialCard from '../components/MaterialCard';
-import CheckoutModal from '../components/CheckoutModal';
-import PurchaseReceipt from '../components/PurchaseReceipt';
 import PDFViewer from '../components/PDFViewer';
-import StudentProfileCompletionModal from '../components/StudentProfileCompletionModal';
-import { formatCurrency } from '../utils/formatters';
 import { useAuth } from '../utils/auth';
 import { useMarketplace } from '../context/MarketplaceContext';
-import { useLibrary } from '../context/LibraryContext';
-import { addRecentlyViewed, clearPendingPurchase, isWishlisted, loadPendingPurchase, loadLatestPurchase, saveLatestPurchase, savePendingPurchase, toggleWishlistEntry } from '../utils/libraryState';
-import { normalizeMaterialAccess } from '../utils/marketplaceAccess';
+import { addRecentlyViewed, isWishlisted, toggleWishlistEntry } from '../utils/libraryState';
 
 const buildList = (value) => {
   if (!value) return [];
@@ -30,23 +23,14 @@ const buildList = (value) => {
 export default function MarketplaceDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user, refreshUser } = useAuth();
+  const { user } = useAuth();
   const { materials, loadMaterials } = useMarketplace();
-  const { items: libraryItems = [], loadLibrary } = useLibrary();
   const [material, setMaterial] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [purchaseLoading, setPurchaseLoading] = useState(false);
-  const [purchaseMessage, setPurchaseMessage] = useState('');
-  const [access, setAccess] = useState(null);
-  const [accessLoading, setAccessLoading] = useState(false);
+  const [notice, setNotice] = useState('');
   const [wishlist, setWishlist] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [successState, setSuccessState] = useState(null);
-  const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [receipt, setReceipt] = useState(null);
-  const [pendingPurchase, setPendingPurchase] = useState(null);
-  const [profileCompletionOpen, setProfileCompletionOpen] = useState(false);
 
   const location = useLocation();
   const initialMaterial = location?.state?.material || null;
@@ -63,26 +47,6 @@ export default function MarketplaceDetail() {
       const response = await marketplaceService.getMaterialById(id);
       const nextMaterial = response.material || response;
       setMaterial(nextMaterial || initialMaterial);
-      if (user) {
-        setAccessLoading(true);
-        try {
-          const accessResponse = await purchaseService.getMaterialAccess(id);
-          setAccess(normalizeMaterialAccess(accessResponse));
-        } catch (accessErr) {
-          const libraryOwned = Array.isArray(libraryItems) && libraryItems.some((item) => {
-            const ownedId = item?.material?._id || item?.materialId || item?._id;
-            return Boolean(ownedId && ownedId === id);
-          });
-
-          setAccess(libraryOwned
-            ? { access: true, hasAccess: true, canView: true, canRead: true, canDownload: true, isPurchased: true, reason: 'Library purchase confirmed' }
-            : { access: false, hasAccess: false, canView: false, canRead: false, canDownload: false, isPurchased: false, reason: accessErr.message || 'Unable to verify access' });
-        } finally {
-          setAccessLoading(false);
-        }
-      } else {
-        setAccess(null);
-      }
     } catch (err) {
       setError(err.message || 'Unable to load material.');
     } finally {
@@ -100,7 +64,7 @@ export default function MarketplaceDetail() {
     return () => {
       isMounted = false;
     };
-  }, [id, user]);
+  }, [id]);
 
   useEffect(() => {
     if (!material) return;
@@ -108,186 +72,16 @@ export default function MarketplaceDetail() {
   }, [material]);
 
   useEffect(() => {
-    if (!material) return;
-
-    const params = new URLSearchParams(window.location.search);
-    const reference = params.get('reference') || params.get('trxref');
-    const status = params.get('status') || params.get('payment_status') || '';
-    const cancelled = status === 'cancel' || status === 'cancelled' || status === 'canceled' || params.get('cancel') === '1';
-    const failed = status === 'failed' || status === 'error' || params.get('success') === '0';
-    const pending = loadPendingPurchase();
-    const latest = loadLatestPurchase();
-
-    if (pending?.materialId && pending.materialId === material._id) {
-      setPendingPurchase(pending);
-      setCheckoutOpen(Boolean(pending?.status === 'pending'));
-      if (!reference && !cancelled && !failed) {
-        setPurchaseMessage(`Payment reference ${pending.reference} is still being processed. Please complete the payment or retry if needed.`);
-      }
-    }
-
-    if (latest && latest.materialId === material._id) {
-      setReceipt(latest);
-    }
-
-    if (cancelled && material) {
-      setPurchaseMessage('Payment was cancelled. You can try again anytime.');
-      clearPendingPurchase();
-      setPendingPurchase(null);
-      return;
-    }
-
-    if (failed && material) {
-      setPurchaseMessage('Payment verification failed. Please try again or contact support if the charge already went through.');
-      clearPendingPurchase();
-      setPendingPurchase(null);
-      return;
-    }
-
-    if (!reference || !user) return;
-
-    const alreadyHandled = latest?.reference === reference && latest?.status === 'Completed';
-    if (alreadyHandled) {
-      setSuccessState({ title: material.title, reference, date: new Date().toLocaleDateString() });
-      return;
-    }
-
-    const verifyAfterCallback = async () => {
-      setPurchaseLoading(true);
-      setPurchaseMessage('Verifying your payment. Please wait…');
-      try {
-        const response = await purchaseService.verifyPurchase(material._id, reference);
-        const transaction = response?.transaction || response;
-        const nextReceipt = {
-          materialId: material._id,
-          materialTitle: material.title,
-          lecturerName: material.lecturer?.name || 'Verified lecturer',
-          reference: transaction?.reference || reference,
-          receiptNumber: transaction?.reference || reference,
-          amount: Number(transaction?.amount || material.price || 0),
-          status: transaction?.status || 'Completed',
-          paymentDate: transaction?.paidAt || new Date().toISOString(),
-          paymentMethod: 'Card',
-          studentName: user?.name || user?.email || 'Student'
-        };
-        saveLatestPurchase(nextReceipt);
-        setReceipt(nextReceipt);
-        setSuccessState({ title: material.title, reference: nextReceipt.reference, date: new Date().toLocaleDateString() });
-        clearPendingPurchase();
-        setPendingPurchase(null);
-        setAccess({ access: true, reason: 'Access unlocked after successful verification' });
-
-        await Promise.allSettled([
-          refreshUser(),
-          loadLibrary({ limit: 20 }),
-          loadMaterials({ limit: 24 })
-        ]);
-
-        window.dispatchEvent(new Event('auth:updated'));
-        window.dispatchEvent(new Event('marketplace:updated'));
-        setPurchaseMessage('Payment verified. Your material is now available in your library.');
-      } catch (err) {
-        const message = err.message || 'Verification failed.';
-        setPurchaseMessage(message);
-        if (message.toLowerCase().includes('already')) {
-          const nextReceipt = {
-            materialId: material._id,
-            materialTitle: material.title,
-            lecturerName: material.lecturer?.name || 'Verified lecturer',
-            reference,
-            receiptNumber: reference,
-            amount: Number(material.price || 0),
-            status: 'Completed',
-            paymentDate: new Date().toISOString(),
-            paymentMethod: 'Card',
-            studentName: user?.name || user?.email || 'Student'
-          };
-          saveLatestPurchase(nextReceipt);
-          setReceipt(nextReceipt);
-          setSuccessState({ title: material.title, reference, date: new Date().toLocaleDateString() });
-          clearPendingPurchase();
-          setPendingPurchase(null);
-          setAccess({ access: true, reason: 'Access restored from an existing successful payment' });
-        }
-      } finally {
-        setPurchaseLoading(false);
-      }
-    };
-
-    verifyAfterCallback();
-  }, [material, user, loadLibrary, loadMaterials]);
-
-  useEffect(() => {
     if (materials.length === 0) {
       loadMaterials({ limit: 24 }).catch(() => undefined);
     }
   }, [loadMaterials, materials.length]);
 
-  const handlePurchase = async () => {
-    if (!user) {
-      navigate('/login');
-      return;
-    }
-
-    const alreadyOwned = Boolean(access?.access || material?.isPurchased || material?.hasAccess || material?.accessGranted || material?.canAccess || isFree || isOwner);
-    if (alreadyOwned) {
-      setPurchaseMessage('You already have access to this material. Opening the reader now.');
-      document.getElementById('preview-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      return;
-    }
-
-    if (isFree) {
-      setPurchaseMessage('This material is free. You can start reading it now.');
-      document.getElementById('preview-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      return;
-    }
-
-    setPurchaseLoading(true);
-    setPurchaseMessage('Checkout started. You will be redirected to the secure payment page.');
-    try {
-      const response = await purchaseService.initializePurchase(material._id);
-      const authorizationUrl = response?.data?.authorizationUrl || response?.authorizationUrl;
-      const reference = response?.data?.reference || response?.reference || 'pending';
-      const nextPending = {
-        materialId: material._id,
-        materialTitle: material.title,
-        reference,
-        status: 'pending',
-        amount: price,
-        lecturerName,
-        paymentMethod: 'Card'
-      };
-      savePendingPurchase(nextPending);
-      setPendingPurchase(nextPending);
-      setCheckoutOpen(true);
-      if (authorizationUrl) {
-        window.location.href = authorizationUrl;
-      } else {
-        setPurchaseMessage('Purchase request created.');
-      }
-    } catch (err) {
-      const message = err.message || 'Unable to start purchase.';
-      setPurchaseMessage(message);
-      
-      // Check if error requires profile completion
-      if (message.includes('complete your student profile')) {
-        setProfileCompletionOpen(true);
-      }
-    } finally {
-      setPurchaseLoading(false);
-    }
-  };
-
-  const handleProfileCompletion = async () => {
-    // After profile is completed, retry the purchase
-    await handlePurchase();
-  };
-
   const handleWishlistToggle = () => {
     if (!material) return;
     const nextWishlist = toggleWishlistEntry(material);
     setWishlist(nextWishlist.includes(material._id));
-    setPurchaseMessage(wishlist ? 'Removed from wishlist' : 'Saved to wishlist');
+    setNotice(wishlist ? 'Removed from wishlist' : 'Saved to wishlist');
   };
 
   const handleCopyLink = async () => {
@@ -297,7 +91,7 @@ export default function MarketplaceDetail() {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1800);
     } catch (err) {
-      setPurchaseMessage('Unable to copy link automatically.');
+      setNotice('Unable to copy link automatically.');
     }
   };
 
@@ -305,20 +99,13 @@ export default function MarketplaceDetail() {
     loadMaterial();
   };
 
-  const price = Number(material?.price || 0);
   const wishlistState = isWishlisted(material);
-  const isFree = material?.isFree || price === 0;
   const isOwner = Boolean(user && (material?.lecturer?._id === user._id || material?.lecturer?.id === user._id || material?.lecturer === user._id));
-  const libraryOwned = Array.isArray(libraryItems) && libraryItems.some((item) => {
-    const ownedId = item?.material?._id || item?.materialId || item?._id;
-    return Boolean(ownedId && ownedId === material?._id);
-  });
-  const hasAccess = Boolean(material?.isPurchased || material?.hasAccess || material?.accessGranted || material?.canAccess || access?.access || access?.hasAccess || access?.canView || access?.canRead || libraryOwned || isFree || isOwner);
+  const canView = Boolean(user && material?.access?.canView);
+  const canDownload = Boolean(user && material?.access?.canDownload);
   const previewPages = Number(material?.previewPages || material?.pageCount || 0);
-  const previewLimitPages = hasAccess ? 0 : previewPages;
   const rating = Number(material?.ratingAverage || 0);
   const reviewCount = Number(material?.ratingCount || 0);
-  const salesCount = Number(material?.sales || material?.purchases || 0);
   const viewsCount = Number(material?.views || 0);
   const downloadsCount = Number(material?.downloads || 0);
   const courseCode = material?.course?.code || material?.course?.title || 'General';
@@ -406,20 +193,19 @@ export default function MarketplaceDetail() {
           <div className="product-hero__badges">
             <span className="product-hero__badge">{material.materialType || 'Resource'}</span>
             {material.featured && <span className="product-hero__badge product-hero__badge--accent">Featured</span>}
-            {isFree && <span className="product-hero__badge product-hero__badge--success">Free</span>}
+            <span className="product-hero__badge product-hero__badge--success">Free</span>
           </div>
         </div>
 
         <div className="product-hero__content">
           <div className="product-hero__header">
             <div>
-              <div className="product-hero__eyebrow">Digital product</div>
+              <div className="product-hero__eyebrow">Course resource</div>
               <h2>{material.title}</h2>
               <p>{material.description || 'No description available.'}</p>
             </div>
-            <div className="product-hero__price-box">
-              <div className="product-hero__price">{formatCurrency(price)}</div>
-              {isFree ? <span className="product-hero__pill">Free access</span> : <span className="product-hero__pill">Premium resource</span>}
+            <div className="product-hero__access-box">
+              <div className="product-hero__pill">Free for authorized students</div>
             </div>
           </div>
 
@@ -437,78 +223,29 @@ export default function MarketplaceDetail() {
           <div className="product-hero__stats">
             <span>⭐ {rating.toFixed(1)} ({reviewCount} reviews)</span>
             <span>👁 {viewsCount.toLocaleString()} views</span>
-            <span>🛒 {salesCount.toLocaleString()} sales</span>
             <span>⬇️ {downloadsCount.toLocaleString()} downloads</span>
-            <span>📄 {previewPages > 0 ? `${previewPages} preview pages` : 'Full access'}</span>
+            <span>📄 {previewPages > 0 ? `${previewPages} pages` : canView ? 'Full access' : 'Course access required'}</span>
           </div>
 
           <div className="product-hero__actions">
-            {!user && !isFree && <span className="product-hero__note">Sign in to purchase</span>}
-            {isFree || hasAccess ? (
-              <button type="button" onClick={() => document.getElementById('preview-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Read now</button>
+            {canView ? (
+              <button type="button" onClick={() => document.getElementById('preview-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Read resource</button>
             ) : (
-              <button type="button" onClick={handlePurchase} disabled={purchaseLoading}>{purchaseLoading ? 'Preparing...' : 'Buy now'}</button>
+              <span className="product-hero__helper">Access is limited to students enrolled in the associated course.</span>
             )}
-            {!hasAccess && previewPages > 0 && <button type="button" className="button-ghost" onClick={() => document.getElementById('preview-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Preview</button>}
             <button type="button" className="button-ghost" onClick={handleCopyLink}>{copied ? 'Link copied' : 'Share'}</button>
             <button type="button" className="button-ghost" onClick={handleWishlistToggle}>{wishlist ? '★ Saved' : '☆ Wishlist'}</button>
             {isOwner && (
               <>
-                <button type="button" className="button-ghost" onClick={() => navigate('/lecturer-dashboard')}>Edit material</button>
-                <button type="button" className="button-ghost" onClick={() => navigate('/lecturer-dashboard')}>Analytics</button>
+                <button type="button" className="button-ghost" onClick={() => navigate('/lecturer')}>Manage materials</button>
               </>
             )}
           </div>
 
-          {purchaseMessage && <NotificationBanner type="info" message={purchaseMessage} onClose={() => setPurchaseMessage('')} autoDismissMs={2400} />}
-          {accessLoading && <p className="product-hero__helper">Checking access…</p>}
-          {!isFree && !isOwner && !hasAccess && access && <p className="product-hero__helper">{access.reason}</p>}
+          {notice && <NotificationBanner type="info" message={notice} onClose={() => setNotice('')} autoDismissMs={2400} />}
+          <p className="product-hero__helper">Access is subject to authentication and the associated course permissions.</p>
         </div>
       </div>
-
-      {successState && (
-        <div className="wp-section" style={{ marginBottom: '20px', border: '1px solid #a7f3d0', background: '#ecfdf3' }}>
-          <h3 style={{ marginTop: 0 }}>Purchase successful</h3>
-          <p style={{ marginBottom: '8px' }}>{successState.title}</p>
-          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-            <span className="nav-pill">Receipt: {successState.reference}</span>
-            <span className="nav-pill">Date: {successState.date}</span>
-          </div>
-          <div className="product-hero__actions" style={{ marginTop: '14px' }}>
-            <button type="button" onClick={() => navigate('/library')}>Go to library</button>
-            <button type="button" className="button-ghost" onClick={() => navigate('/marketplace')}>Continue browsing</button>
-          </div>
-        </div>
-      )}
-
-      {receipt && (
-        <div className="wp-section" style={{ marginBottom: '20px' }}>
-          <PurchaseReceipt
-            receipt={receipt}
-            onPrint={() => window.print()}
-            onDownload={() => setPurchaseMessage('Receipt download will be available in a future release.')} 
-          />
-        </div>
-      )}
-
-      <CheckoutModal
-        open={checkoutOpen}
-        material={material}
-        loading={purchaseLoading}
-        message={purchaseMessage || (pendingPurchase ? `Payment reference ${pendingPurchase.reference} is being processed.` : '')}
-        onClose={() => {
-          setCheckoutOpen(false);
-          setPurchaseMessage('You can return to this purchase anytime from the library.');
-        }}
-        onProceed={handlePurchase}
-      />
-
-      <StudentProfileCompletionModal
-        isOpen={profileCompletionOpen}
-        onClose={() => setProfileCompletionOpen(false)}
-        onSuccess={handleProfileCompletion}
-        materialId={material?._id}
-      />
 
       <div className="product-layout">
         <div className="product-layout__main">
@@ -555,15 +292,17 @@ export default function MarketplaceDetail() {
 
           <section id="preview-section" className="wp-section product-section">
             <h3>Preview</h3>
-            {material.fileUrl ? (
+            {canView && material.fileUrl ? (
               <PDFViewer
                 fileUrl={material.fileUrl}
                 fileName={material.title}
                 downloadUrl={material.downloadUrl || material.fileUrl}
-                canDownload={hasAccess || isFree}
-                maxPages={previewLimitPages}
-                disablePreviewLimit={hasAccess}
+                canDownload={canDownload}
+                maxPages={0}
+                disablePreviewLimit={canView}
               />
+            ) : !canView ? (
+              <p role="status">Sign in and ensure your account is assigned to this course to view this resource.</p>
             ) : (
               <EmptyState title="Preview unavailable" description="This material does not have a preview file attached yet." />
             )}
@@ -585,7 +324,7 @@ export default function MarketplaceDetail() {
                 )) : (
                   <div className="product-review-card">
                     <strong>Reviews are coming soon</strong>
-                    <p>Students will be able to leave feedback once this product is live.</p>
+                    <p>Student feedback will appear here when available.</p>
                   </div>
                 )}
               </div>
@@ -596,7 +335,7 @@ export default function MarketplaceDetail() {
             <h3>More from this lecturer</h3>
             <div className="marketplace-grid">
               {relatedMaterials.lecturer.length > 0 ? relatedMaterials.lecturer.map((item) => (
-                <MaterialCard key={item._id} material={item} onPreview={() => navigate(`/marketplace/${item._id}`)} onPurchase={() => navigate(`/marketplace/${item._id}`)} />
+                <MaterialCard key={item._id} material={item} onPreview={() => navigate(`/marketplace/${item._id}`)} />
               )) : <p>No other materials from this lecturer yet.</p>}
             </div>
           </section>
@@ -605,7 +344,7 @@ export default function MarketplaceDetail() {
             <h3>Related course materials</h3>
             <div className="marketplace-grid">
               {relatedMaterials.course.length > 0 ? relatedMaterials.course.map((item) => (
-                <MaterialCard key={item._id} material={item} onPreview={() => navigate(`/marketplace/${item._id}`)} onPurchase={() => navigate(`/marketplace/${item._id}`)} />
+                <MaterialCard key={item._id} material={item} onPreview={() => navigate(`/marketplace/${item._id}`)} />
               )) : <p>No related course materials yet.</p>}
             </div>
           </section>
@@ -614,32 +353,25 @@ export default function MarketplaceDetail() {
             <h3>Same department</h3>
             <div className="marketplace-grid">
               {relatedMaterials.department.length > 0 ? relatedMaterials.department.map((item) => (
-                <MaterialCard key={item._id} material={item} onPreview={() => navigate(`/marketplace/${item._id}`)} onPurchase={() => navigate(`/marketplace/${item._id}`)} />
+                <MaterialCard key={item._id} material={item} onPreview={() => navigate(`/marketplace/${item._id}`)} />
               )) : <p>No materials in this department yet.</p>}
             </div>
           </section>
         </div>
 
-        <aside className="product-purchase-panel">
-          <div className="product-purchase-panel__inner">
-            <div className="product-purchase-panel__price">{formatCurrency(price)}</div>
-            <div className="product-purchase-panel__meta">{rating.toFixed(1)} • {reviewCount} reviews</div>
-            <div className="product-purchase-panel__actions">
-              {!user && !isFree && <p>Sign in to continue</p>}
-              {isFree || hasAccess ? (
-                <button type="button" onClick={() => document.getElementById('preview-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Read now</button>
-              ) : (
-                <button type="button" onClick={handlePurchase} disabled={purchaseLoading}>{purchaseLoading ? 'Preparing...' : 'Buy now'}</button>
-              )}
-              {!hasAccess && previewPages > 0 && <button type="button" className="button-ghost" onClick={() => document.getElementById('preview-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Preview</button>}
+        <aside className="product-resource-panel">
+          <div className="product-resource-panel__inner">
+            <div className="product-resource-panel__meta">{rating.toFixed(1)} • {reviewCount} reviews</div>
+            <div className="product-resource-panel__actions">
+              {canView && <button type="button" onClick={() => document.getElementById('preview-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Read resource</button>}
               <button type="button" className="button-ghost" onClick={handleCopyLink}>{copied ? 'Link copied' : 'Share'}</button>
               <button type="button" className="button-ghost" onClick={handleWishlistToggle}>{wishlist ? 'Saved' : 'Wishlist'}</button>
             </div>
-            <div className="product-purchase-panel__meta">{tags.slice(0, 5).map((tag) => <span key={tag} className="product-hero__badge">{tag}</span>)}</div>
-            {material._id && (
+            <div className="product-resource-panel__meta">{tags.slice(0, 5).map((tag) => <span key={tag} className="product-hero__badge">{tag}</span>)}</div>
+            {material._id && canView && (
               <button
                 type="button"
-                className="product-purchase-panel__link"
+                className="product-resource-panel__link"
                 onClick={async () => {
                   try {
                     const response = await (await import('../services/fileService')).default.viewFile(material._id);

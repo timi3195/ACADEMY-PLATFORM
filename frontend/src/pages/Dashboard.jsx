@@ -50,7 +50,7 @@ export default function Dashboard() {
 
     return [
       { date: `${courses.length || 0}`, time: 'Courses', label: 'Your active course list', tone: 'soft' },
-      { date: `${libraryItems.length || 0}`, time: 'Library', label: 'Purchased materials', tone: 'muted' },
+      { date: `${libraryItems.length || 0}`, time: 'Library', label: 'Saved learning resources', tone: 'muted' },
       {
         date: overview ? `${overview.totalCompletedAttempts}` : '—',
         time: 'Examinations',
@@ -123,12 +123,10 @@ export default function Dashboard() {
             )}
           </div>
 
-          <Link to="/upgrade" className="premium-panel" aria-label="Upgrade to premium">
-            <div className="premium-graphic" aria-hidden="true" />
-            <span className="premium-panel-button">
-              {user?.subscriptionType === 'premium' ? 'Premium active' : 'Upgrade to Premium →'}
-            </span>
-          </Link>
+          <div className="free-resources-panel" aria-label="Free educational resources">
+            <div className="free-resources-graphic" aria-hidden="true" />
+            <span className="free-resources-message">Educational resources are free for authorized students</span>
+          </div>
         </aside>
       </div>
 

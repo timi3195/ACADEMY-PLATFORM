@@ -160,10 +160,11 @@ const createLecturerMaterial = async ({ user, body, file, coverImage }) => {
     language: body.language || "English",
     edition: body.edition || "",
     publisher: body.publisher || "",
-    price: Number(body.price || 0),
-    isFree: body.isFree === "true" || body.isFree === true || body.pricingMode === "free" || Number(body.price || 0) === 0,
-    isPaid: body.isPaid === "true" || body.isPaid === true || (body.pricingMode !== "free" && Number(body.price || 0) > 0),
-    premiumDiscount: Number(body.premiumDiscount || body.discount || 0),
+    price: 0,
+    isFree: true,
+    isPaid: false,
+    isPremium: false,
+    premiumDiscount: 0,
     tags: normalizeTags(body.tags),
     faculty: body.faculty || "",
     courseCode: body.courseCode || "",
@@ -214,7 +215,7 @@ const updateLecturerMaterial = async ({ user, materialId, body, file, coverImage
     category: body.category ?? material.category,
     materialType: body.materialType ?? material.materialType,
     semester: body.semester ?? material.semester,
-    price: body.price !== undefined ? Number(body.price) : material.price,
+    price: 0,
     tags: body.tags !== undefined ? normalizeTags(body.tags) : material.tags,
     visibility: body.visibility ?? material.visibility,
     previewPages: body.previewPages !== undefined ? Number(body.previewPages) : material.previewPages,
@@ -230,9 +231,10 @@ const updateLecturerMaterial = async ({ user, materialId, body, file, coverImage
     courseCode: body.courseCode !== undefined ? body.courseCode : material.courseCode,
     allowDownload: body.allowDownload !== undefined ? (body.allowDownload !== "false" && body.allowDownload !== false) : material.allowDownload,
     allowPreview: body.allowPreview !== undefined ? (body.allowPreview !== "false" && body.allowPreview !== false) : material.allowPreview,
-    isFree: body.isFree !== undefined ? (body.isFree === "true" || body.isFree === true || body.pricingMode === "free" || Number(body.price || 0) === 0) : material.isFree,
-    isPaid: body.isPaid !== undefined ? (body.isPaid === "true" || body.isPaid === true || (body.pricingMode !== "free" && Number(body.price || 0) > 0)) : material.isPaid,
-    premiumDiscount: body.premiumDiscount !== undefined ? Number(body.premiumDiscount || body.discount || 0) : material.premiumDiscount
+    isFree: true,
+    isPaid: false,
+    isPremium: false,
+    premiumDiscount: 0
   };
 
   if (coverImage) {

@@ -2,6 +2,8 @@ const express = require("express");
 const mongoose = require("mongoose");
 const router = express.Router();
 const User = require("../models/User");
+const Course = require("../models/course");
+const Department = require("../models/Department");
 const protect = require("../config/middleware/authMiddleware");
 const adminOnly = require("../config/middleware/adminOnly");
 
@@ -37,7 +39,6 @@ const selfEditableFields = new Set([
   "matricNumber",
   "yearOfStudy",
   "semester",
-  "department",
   "preferences",
   "bio"
 ]);
@@ -67,6 +68,7 @@ const forbiddenUserFields = new Set([
   "devices",
   "aiUsage",
   "subscriptionFeatures",
+  "department",
   "coursesEnrolled",
   "quizzesAttempted"
 ]);
@@ -171,8 +173,55 @@ router.put("/:id", protect, async (req, res) => {
       ? { ...req.body }
       : filterSelfUpdatePayload(req.body);
 
+    if (
+      req.user.role === "admin" &&
+      Object.prototype.hasOwnProperty.call(req.body || {}, "department") &&
+      req.body.department != null
+    ) {
+      const departmentId = String(req.body.department);
+      if (!mongoose.Types.ObjectId.isValid(departmentId)) {
+        return res.status(400).json({ success: false, message: "Department ID is invalid." });
+      }
+
+      const department = await Department.findById(departmentId).select("_id").lean();
+      if (!department) {
+        return res.status(400).json({ success: false, message: "Department does not exist." });
+      }
+
+      updates.department = department._id;
+    }
+
+    if (
+      req.user.role === "admin" &&
+      Object.prototype.hasOwnProperty.call(req.body || {}, "coursesEnrolled")
+    ) {
+      if (existingUser.role !== "student" || !Array.isArray(req.body.coursesEnrolled)) {
+        return res.status(400).json({
+          success: false,
+          message: "Course enrollment must be an array assigned to a student."
+        });
+      }
+
+      const courseIds = [...new Set(req.body.coursesEnrolled.map((courseId) => String(courseId)))];
+      if (courseIds.some((courseId) => !mongoose.Types.ObjectId.isValid(courseId))) {
+        return res.status(400).json({ success: false, message: "Course enrollment contains an invalid course ID." });
+      }
+
+      const existingCourses = await Course.find({ _id: { $in: courseIds } }).select("_id").lean();
+      if (existingCourses.length !== courseIds.length) {
+        return res.status(400).json({ success: false, message: "Course enrollment contains an unknown course ID." });
+      }
+
+      updates.coursesEnrolled = courseIds;
+    }
+
     Object.keys(updates).forEach((key) => {
-      if (forbiddenUserFields.has(key)) delete updates[key];
+      if (forbiddenUserFields.has(key) && !(
+        req.user.role === "admin" &&
+        ["coursesEnrolled", "department"].includes(key)
+      )) {
+        delete updates[key];
+      }
     });
 
     if (Object.keys(updates).length === 0) {

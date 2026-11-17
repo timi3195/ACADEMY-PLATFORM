@@ -1,24 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import marketplaceService from '../services/marketplaceService';
-import purchaseService from '../services/purchaseService';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorState from '../components/ErrorState';
 import PDFViewer from '../components/PDFViewer';
 import { useAuth } from '../utils/auth';
-import { useLibrary } from '../context/LibraryContext';
-import { normalizeMaterialAccess } from '../utils/marketplaceAccess';
 
 export default function Reader() {
   const { materialId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { items: libraryItems = [] } = useLibrary();
   const [material, setMaterial] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [access, setAccess] = useState(null);
-  const [accessLoading, setAccessLoading] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -34,57 +28,6 @@ export default function Reader() {
 
         if (!isMounted) return;
         setMaterial(nextMaterial);
-
-        // Check access
-        if (user) {
-          setAccessLoading(true);
-          try {
-            const accessResponse = await purchaseService.getMaterialAccess(materialId);
-            setAccess(normalizeMaterialAccess(accessResponse));
-          } catch (accessErr) {
-            // Fall back to library check
-            const libraryOwned = Array.isArray(libraryItems) && libraryItems.some((item) => {
-              const ownedId = item?.material?._id || item?.materialId || item?._id;
-              return Boolean(ownedId && ownedId === materialId);
-            });
-
-            if (isMounted) {
-              setAccess(
-                libraryOwned
-                  ? {
-                      access: true,
-                      hasAccess: true,
-                      canView: true,
-                      canRead: true,
-                      canDownload: true,
-                      isPurchased: true,
-                      reason: 'Library purchase confirmed'
-                    }
-                  : {
-                      access: false,
-                      hasAccess: false,
-                      canView: false,
-                      canRead: false,
-                      canDownload: false,
-                      isPurchased: false,
-                      reason: accessErr.message || 'Unable to verify access'
-                    }
-              );
-            }
-          } finally {
-            if (isMounted) setAccessLoading(false);
-          }
-        } else {
-          setAccess({
-            access: false,
-            hasAccess: false,
-            canView: false,
-            canRead: false,
-            canDownload: false,
-            isPurchased: false,
-            reason: 'Please log in to read this material'
-          });
-        }
       } catch (err) {
         if (isMounted) {
           setError(err.message || 'Unable to load material.');
@@ -99,13 +42,13 @@ export default function Reader() {
     return () => {
       isMounted = false;
     };
-  }, [materialId, user, libraryItems]);
+  }, [materialId]);
 
   const handleBack = () => {
     navigate('/library');
   };
 
-  if (loading || accessLoading) {
+  if (loading) {
     return <LoadingSpinner />;
   }
 
@@ -117,64 +60,13 @@ export default function Reader() {
     return <ErrorState message="Material not found." />;
   }
 
-  // Access denied state
-  if (!access?.hasAccess) {
+  const canView = Boolean(user && material.access?.canView);
+  const canDownload = Boolean(user && material.access?.canDownload);
+  if (!canView) {
     return (
-      <div className="reader-container" style={{ minHeight: '100vh', background: 'linear-gradient(to br, #f8fafc, #f1f5f9)' }}>
-        <div style={{ padding: '20px' }}>
-          <button
-            onClick={handleBack}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '8px 12px',
-              borderRadius: '8px',
-              border: '1px solid #cbd5e1',
-              background: '#fff',
-              cursor: 'pointer',
-              marginBottom: '20px'
-            }}
-          >
-            ← Back to Library
-          </button>
-        </div>
-
-        <div
-          style={{
-            maxWidth: '600px',
-            margin: '40px auto',
-            textAlign: 'center',
-            background: '#fff',
-            borderRadius: '16px',
-            padding: '40px 20px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-          }}
-        >
-          <h2 style={{ color: '#1f2937', marginBottom: '12px' }}>Access Denied</h2>
-          <p style={{ color: '#6b7280', marginBottom: '24px', fontSize: '15px' }}>
-            You don't have permission to read <strong>{material.title}</strong>
-          </p>
-          <p style={{ color: '#9ca3af', marginBottom: '24px', fontSize: '14px' }}>
-            {access?.reason || 'This material requires purchase or authorization.'}
-          </p>
-          <button
-            onClick={() => navigate(`/marketplace/${materialId}`)}
-            style={{
-              display: 'inline-block',
-              padding: '10px 20px',
-              background: '#2563eb',
-              color: '#fff',
-              borderRadius: '8px',
-              border: 'none',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: '15px'
-            }}
-          >
-            View Material Details
-          </button>
-        </div>
+      <div className="reader-container" style={{ minHeight: '100vh', background: '#f8fafc', padding: '24px' }}>
+        <ErrorState message="This resource is available only to students assigned to its course." />
+        <button type="button" onClick={handleBack}>Back to Library</button>
       </div>
     );
   }
@@ -211,7 +103,7 @@ export default function Reader() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          {access?.canDownload && <span style={{ fontSize: '12px', color: '#10b981', background: '#ecfdf5', padding: '4px 10px', borderRadius: '4px' }}>✓ Download available</span>}
+          {canDownload && <span style={{ fontSize: '12px', color: '#10b981', background: '#ecfdf5', padding: '4px 10px', borderRadius: '4px' }}>✓ Download available</span>}
         </div>
       </div>
 
@@ -220,7 +112,7 @@ export default function Reader() {
         <PDFViewer
           materialId={materialId}
           fileName={material.title}
-          canDownload={access?.canDownload}
+          canDownload={canDownload}
           disablePreviewLimit={true}
         />
       </div>

@@ -4,7 +4,7 @@ const router = express.Router();
 
 // Middleware
 const protect = require("../config/middleware/authMiddleware");
-const requirePremium = require("../config/middleware/planMiddleware");
+const questionAccess = require("../services/questionAccessService");
 
 // Models
 const StudentPerformance = require("../models/StudentPerformance");
@@ -48,7 +48,7 @@ router.get("/student", protect, async (req, res) => {
  * GET /api/analytics/performance/:courseId
  * Get comprehensive performance metrics for a course
  */
-router.get("/performance/:courseId", protect, requirePremium, async (req, res) => {
+router.get("/performance/:courseId", protect, async (req, res) => {
   try {
     const { courseId } = req.params;
 
@@ -57,6 +57,14 @@ router.get("/performance/:courseId", protect, requirePremium, async (req, res) =
     }
 
     const actingUserId = req.user?.id || req.user?._id;
+    const access = await questionAccess.getCourseAccess(actingUserId, courseId);
+    if (!access.allowed) {
+      return res.status(access.statusCode || 403).json({
+        success: false,
+        message: access.message || "You are not authorized to access this course."
+      });
+    }
+
     let performance = await StudentPerformance.findOne({
       user: actingUserId,
       course: courseId
@@ -65,7 +73,7 @@ router.get("/performance/:courseId", protect, requirePremium, async (req, res) =
     if (!performance) {
       // Create default performance record
       performance = new StudentPerformance({
-        user: req.user._id,
+        user: actingUserId,
         course: courseId
       });
       await performance.save();

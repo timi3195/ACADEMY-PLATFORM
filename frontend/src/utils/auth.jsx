@@ -150,7 +150,7 @@ export function AuthProvider({ children }) {
   }
 
   /**
-   * Update user profile (matricNumber, yearOfStudy, department, etc.)
+   * Update user-editable profile fields.
    */
   const updateProfile = async (updates) => {
     if (!user || !user._id) throw new Error('No user logged in')
@@ -161,22 +161,6 @@ export function AuthProvider({ children }) {
       return res.user
     }
     throw new Error('Profile update failed')
-  }
-
-  /**
-   * Upgrade to premium
-   */
-  const upgradeToPremium = async () => {
-    if (!user || !user._id) throw new Error('No user logged in')
-    const res = await apiPut(`/api/users/${user._id}`, { 
-      subscriptionType: 'premium' 
-    })
-    if (res && res.user) {
-      setUser(res.user)
-      emitAuthUpdated(res.user)
-      return res.user
-    }
-    throw new Error('Upgrade failed')
   }
 
   /**
@@ -221,7 +205,6 @@ export function AuthProvider({ children }) {
       resetPassword,
       changePassword,
       updateProfile,
-      upgradeToPremium, 
       refreshUser,
       isAuthenticated: !!user,
       API_BASE

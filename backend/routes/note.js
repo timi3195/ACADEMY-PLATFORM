@@ -1,70 +1,95 @@
 const express = require("express");
+const mongoose = require("mongoose");
 const router = express.Router();
 const Note = require("../models/note");
+const Course = require("../models/course");
+const User = require("../models/User");
 const protect = require("../config/middleware/authMiddleware");
-const requirePremium = require("../config/middleware/planMiddleware");
+const {
+  canAccessCourse,
+  getAccessibleCourseFilter
+} = require("../services/courseMembershipService");
 
-// CREATE NOTE (admin later)
-router.post("/", async (req, res) => {
+router.post("/", protect, async (req, res) => {
   try {
-    const note = await Note.create(req.body);
+    const { title, content, course: courseId } = req.body || {};
+    if (!title || !content || !mongoose.Types.ObjectId.isValid(String(courseId || ""))) {
+      return res.status(400).json({
+        success: false,
+        message: "A title, content, and valid course ID are required."
+      });
+    }
 
-    res.json({
-      success: true,
-      note
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(401).json({ success: false, message: "Authenticated user not found." });
+    }
+    const course = await Course.findById(courseId);
+    if (!course) {
+      return res.status(404).json({ success: false, message: "Course not found." });
+    }
+    if (!canAccessCourse(user, course)) {
+      return res.status(403).json({ success: false, message: "You do not have access to this course." });
+    }
+
+    const note = await Note.create({
+      title: String(title).trim(),
+      content: String(content).trim(),
+      course: courseId,
+      isPremium: false
     });
 
-  } catch (err) {
-    res.status(500).json({
-      success: false,
-      message: err.message
-    });
+    return res.status(201).json({ success: true, note });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// GET ALL NOTES
-router.get("/", async (req, res) => {
+router.get("/", protect, async (req, res) => {
   try {
-    const notes = await Note.find().populate("course");
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(401).json({ success: false, message: "Authenticated user not found." });
+    }
 
-    res.json({
-      success: true,
-      notes
-    });
+    const courseFilter = getAccessibleCourseFilter(user);
+    const courseIds = user.role === "admin"
+      ? null
+      : (await Course.find(courseFilter).select("_id").lean()).map((course) => course._id);
+    const notes = await Note.find(courseIds ? { course: { $in: courseIds } } : {})
+      .populate("course");
 
-  } catch (err) {
-    res.status(500).json({
-      success: false,
-      message: err.message
-    });
+    return res.json({ success: true, notes });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// GET NOTES BY COURSE
 router.get("/course/:courseId", protect, async (req, res) => {
   try {
-    const notes = await Note.find({
-      course: req.params.courseId
-    });
+    const { courseId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(courseId)) {
+      return res.status(400).json({ success: false, message: "Invalid course ID." });
+    }
 
-    const user = req.user;
+    const [user, course] = await Promise.all([
+      User.findById(req.user.id),
+      Course.findById(courseId)
+    ]);
+    if (!user) {
+      return res.status(401).json({ success: false, message: "Authenticated user not found." });
+    }
+    if (!course) {
+      return res.status(404).json({ success: false, message: "Course not found." });
+    }
+    if (!canAccessCourse(user, course)) {
+      return res.status(403).json({ success: false, message: "You do not have access to this course." });
+    }
 
-    // If user is free, filter premium notes
-    const filteredNotes =
-      user.plan === "premium"
-        ? notes
-        : notes.filter(note => note.isPremium === false);
-
-    res.json({
-      success: true,
-      notes: filteredNotes
-    });
-
-  } catch (err) {
-    res.status(500).json({
-      success: false,
-      message: err.message
-    });
+    const notes = await Note.find({ course: courseId });
+    return res.json({ success: true, notes });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
   }
 });
 

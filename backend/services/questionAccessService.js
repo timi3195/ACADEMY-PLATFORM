@@ -1,7 +1,7 @@
 const Course = require("../models/course");
 const User = require("../models/User");
 const crypto = require("crypto");
-const { normalizeAcademicLevel } = require("../utils/academicLevels");
+const { canAccessCourse } = require("./courseMembershipService");
 
 const idOf = (value) => String(value?._id || value || "");
 const normalizeText = (value) => String(value == null ? "" : value).trim().toLowerCase();
@@ -89,11 +89,8 @@ const getCourseAccess = async (userId, courseId) => {
     return { allowed: false, statusCode: 403, message: "You are not authorized to access this course's question bank." };
   }
 
-  const sameDepartment = idOf(user.department) === idOf(course.department);
-  const sameLevel = normalizeAcademicLevel(user.yearOfStudy) === normalizeAcademicLevel(course.level);
-  const sameSemester = !user.semester || user.semester === course.semester;
-  if (user.role === "student" && sameDepartment && sameLevel && sameSemester) {
-    return { allowed: true, manager: false, course, user };
+  if (canAccessCourse(user, course)) {
+    return { allowed: true, manager: user.role !== "student", course, user };
   }
 
   return { allowed: false, statusCode: 403, message: "You do not have access to this course's question bank." };

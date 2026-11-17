@@ -12,8 +12,6 @@ const emptyForm = {
   course: '',
   department: '',
   faculty: 'Engineering',
-  price: '0',
-  discount: '0',
   visibility: 'public',
   level: 'ND1',
   semester: 'First Semester',
@@ -30,12 +28,11 @@ const emptyForm = {
   session: '2025/2026',
   courseCode: '',
   isbn: '',
-  pricingMode: 'free',
   allowDownload: true,
   allowPreview: true
 };
 
-const stepLabels = ['Academic Information', 'Material Details', 'Files & Media', 'Pricing', 'Preview & Publish'];
+const stepLabels = ['Academic Information', 'Material Details', 'Files & Media', 'Preview & Publish'];
 const facultyOptions = ['Engineering', 'Science', 'Technology', 'Environmental', 'Management Sciences', 'Education', 'Arts', 'Social Sciences'];
 const departmentOptions = ['Computer Science', 'Electrical Engineering', 'Civil Engineering', 'Business Administration', 'Accounting', 'Mass Communication', 'Mathematics', 'Physics', 'Chemistry', 'Statistics'];
 const levelOptions = ['ND1', 'ND2', 'HND1', 'HND2'];
@@ -50,11 +47,6 @@ const validateForm = (form, file) => {
   if (!String(form.course || '').trim()) errors.push('Course title is required');
   if (!String(form.courseCode || '').trim()) errors.push('Course code is required');
   if (!file) errors.push('A primary material file is required');
-  const isPaid = form.pricingMode === 'paid';
-  if (isPaid) {
-    const price = Number(form.price || 0);
-    if (!Number.isFinite(price) || price <= 0) errors.push('Paid materials need a price greater than 0');
-  }
   return errors;
 };
 
@@ -76,8 +68,6 @@ const MaterialFormModal = React.memo(function MaterialFormModal({ isOpen, onClos
     const resetForm = {
       ...emptyForm,
       ...initialValues,
-      price: initialValues.price ?? '0',
-      discount: initialValues.discount ?? '0',
       previewPages: initialValues.previewPages ?? '5',
       visibility: initialValues.visibility || 'public',
       level: initialValues.level || 'ND1',
@@ -121,11 +111,6 @@ const MaterialFormModal = React.memo(function MaterialFormModal({ isOpen, onClos
     setIsDirty(true);
   }, []);
 
-  const handlePricingModeChange = useCallback((mode) => {
-    setForm((prev) => ({ ...prev, pricingMode: mode, price: mode === 'free' ? '0' : prev.price || '0' }));
-    setIsDirty(true);
-  }, []);
-
   const handleCloseRequest = useCallback(() => {
     if (isDirty) {
       setConfirmCloseOpen(true);
@@ -158,15 +143,7 @@ const MaterialFormModal = React.memo(function MaterialFormModal({ isOpen, onClos
   }, [coverImage, file, form, onClose, onSubmit]);
 
   const previewTitle = form.title || 'Untitled academic resource';
-  const previewPrice = Number(form.price || 0);
-  const previewDiscount = Number(form.discount || 0);
-  const previewIsFree = form.pricingMode === 'free' || previewPrice === 0;
-  const previewFinalAmount = previewIsFree ? 0 : Math.max(0, previewPrice - previewDiscount);
   const coverPreviewUrl = useMemo(() => (coverImage ? URL.createObjectURL(coverImage) : null), [coverImage]);
-  const summary = useMemo(() => {
-    const estimatedRevenue = previewIsFree ? 0 : Math.max(0, previewPrice - previewDiscount) * 0.92;
-    return { estimatedRevenue, previewPages: Number(form.previewPages || 0), assetType: form.materialType || 'Lecture Note' };
-  }, [form.discount, form.materialType, form.previewPages, form.price, previewIsFree]);
 
   const nextStep = useCallback(() => setStep((prev) => Math.min(prev + 1, stepLabels.length - 1)), []);
   const prevStep = useCallback(() => setStep((prev) => Math.max(prev - 1, 0)), []);
@@ -300,7 +277,7 @@ const MaterialFormModal = React.memo(function MaterialFormModal({ isOpen, onClos
             </div>
             <div style={{ display: 'grid', gap: '10px' }}>
               {renderDropZone('Material PDF', 'file', '.pdf,.doc,.docx,.ppt,.pptx,.zip', file, 'Primary resource file for students')} 
-              {renderDropZone('Cover image', 'cover', 'image/*', coverImage, 'A polished cover for the marketplace card')} 
+              {renderDropZone('Cover image', 'cover', 'image/*', coverImage, 'A cover image for the resource listing')}
               {renderDropZone('Preview PDF', 'sample', '.pdf', previewSample, 'Optional preview sample for students')} 
             </div>
             <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '12px', display: 'grid', gap: '8px' }}>
@@ -318,51 +295,9 @@ const MaterialFormModal = React.memo(function MaterialFormModal({ isOpen, onClos
       case 3:
         return (
           <div style={{ display: 'grid', gap: '12px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              <label style={{ display: 'grid', gap: '6px' }}>
-                <span style={{ fontWeight: 600 }}>Access Type</span>
-                <select value={form.pricingMode} onChange={(event) => handlePricingModeChange(event.target.value)}>
-                  <option value="free">Free</option>
-                  <option value="paid">Paid</option>
-                </select>
-              </label>
-              <label style={{ display: 'grid', gap: '6px' }}>
-                <span style={{ fontWeight: 600 }}>Price</span>
-                <input name="price" type="number" min="0" value={form.price} onChange={changeField} disabled={form.pricingMode === 'free'} />
-              </label>
+            <div style={{ background: '#ecfdf3', border: '1px solid #86efac', borderRadius: '12px', padding: '12px', color: '#166534' }}>
+              Materials are free for students who are authorized to access the associated course.
             </div>
-            <label style={{ display: 'grid', gap: '6px' }}>
-              <span style={{ fontWeight: 600 }}>Discount</span>
-              <input name="discount" type="number" min="0" value={form.discount} onChange={changeField} />
-            </label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              <label style={{ display: 'grid', gap: '6px' }}>
-                <span style={{ fontWeight: 600 }}>Preview Pages</span>
-                <input name="previewPages" type="number" min="0" value={form.previewPages} onChange={changeField} />
-              </label>
-              <label style={{ display: 'grid', gap: '6px' }}>
-                <span style={{ fontWeight: 600 }}>Allow Download</span>
-                <select value={form.allowDownload ? 'yes' : 'no'} onChange={(event) => setForm((prev) => ({ ...prev, allowDownload: event.target.value === 'yes' }))}>
-                  <option value="yes">Yes</option>
-                  <option value="no">No</option>
-                </select>
-              </label>
-            </div>
-            <label style={{ display: 'grid', gap: '6px' }}>
-              <span style={{ fontWeight: 600 }}>Allow Preview</span>
-              <select value={form.allowPreview ? 'yes' : 'no'} onChange={(event) => setForm((prev) => ({ ...prev, allowPreview: event.target.value === 'yes' }))}>
-                <option value="yes">Yes</option>
-                <option value="no">No</option>
-              </select>
-            </label>
-            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '12px', color: '#475569' }}>
-              Estimated earnings after platform charges: ₦{Math.round(summary.estimatedRevenue).toLocaleString()}
-            </div>
-          </div>
-        );
-      case 4:
-        return (
-          <div style={{ display: 'grid', gap: '12px' }}>
             <div style={{ borderRadius: '16px', border: '1px solid #e2e8f0', background: 'linear-gradient(135deg, #f8fbff, #ffffff)', padding: '16px', display: 'grid', gap: '10px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
                 <div>
@@ -370,10 +305,7 @@ const MaterialFormModal = React.memo(function MaterialFormModal({ isOpen, onClos
                   <h3 style={{ margin: '4px 0', fontSize: '1.1rem' }}>{previewTitle}</h3>
                   <div style={{ color: '#64748b' }}>{form.courseCode || 'Course Code'} • {form.department || 'Department'} • {form.level || 'Level'}</div>
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontWeight: 800, fontSize: '1.2rem' }}>₦{previewFinalAmount.toLocaleString()}</div>
-                  <div style={{ color: '#64748b', fontSize: '12px' }}>{previewIsFree ? 'Free resource' : 'Paid resource'}</div>
-                </div>
+                <div style={{ textAlign: 'right', fontWeight: 700, color: '#166534' }}>Free educational resource</div>
               </div>
               <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '12px' }}>
                 <div style={{ fontSize: '12px', color: '#0f3d91', fontWeight: 700, textTransform: 'uppercase' }}>Academic Resource</div>
@@ -390,7 +322,6 @@ const MaterialFormModal = React.memo(function MaterialFormModal({ isOpen, onClos
               <div><strong>Visibility:</strong> {form.visibility}</div>
               <div><strong>Status:</strong> {form.productStatus}</div>
               <div><strong>Preview pages:</strong> {form.previewPages || 0}</div>
-              <div><strong>Estimated earnings:</strong> ₦{Math.round(summary.estimatedRevenue).toLocaleString()}</div>
             </div>
           </div>
         );
@@ -439,7 +370,7 @@ const MaterialFormModal = React.memo(function MaterialFormModal({ isOpen, onClos
           <aside style={{ display: 'grid', gap: '12px', position: 'sticky', top: '24px' }}>
             <div style={{ borderRadius: '16px', border: '1px solid #e2e8f0', overflow: 'hidden', background: '#fff' }}>
               <div style={{ padding: '16px', borderBottom: '1px solid #e2e8f0', background: 'linear-gradient(135deg, #0f3d91, #2563eb)', color: '#fff' }}>
-                <div style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '.08em' }}>Live marketplace preview</div>
+                <div style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '.08em' }}>Student resource preview</div>
                 <div style={{ fontSize: '18px', fontWeight: 700, marginTop: '6px' }}>{previewTitle}</div>
               </div>
               <div style={{ padding: '16px', display: 'grid', gap: '12px' }}>

@@ -12,17 +12,21 @@ const User = require("../models/User");
 
 const STUDENT_A = "507f1f77bcf86cd799439011";
 const STUDENT_B = "507f1f77bcf86cd799439012";
+const STUDENT_WITHOUT_DEPARTMENT = "507f1f77bcf86cd799439015";
 const ADMIN = "507f1f77bcf86cd799439013";
 const LECTURER = "507f1f77bcf86cd799439014";
+const UNASSIGNED_LECTURER = "507f1f77bcf86cd799439016";
 const COURSE_ID = "507f1f77bcf86cd799439021";
 const DEPARTMENT_A = "507f1f77bcf86cd799439031";
 const DEPARTMENT_B = "507f1f77bcf86cd799439032";
 
 const users = {
-  [STUDENT_A]: { _id: STUDENT_A, id: STUDENT_A, role: "student", department: DEPARTMENT_A, yearOfStudy: "ND1", semester: "First" },
-  [STUDENT_B]: { _id: STUDENT_B, id: STUDENT_B, role: "student", department: DEPARTMENT_B, yearOfStudy: "ND1", semester: "First" },
+  [STUDENT_A]: { _id: STUDENT_A, id: STUDENT_A, role: "student", department: DEPARTMENT_A, yearOfStudy: "ND1", semester: "First", coursesEnrolled: [] },
+  [STUDENT_B]: { _id: STUDENT_B, id: STUDENT_B, role: "student", department: DEPARTMENT_B, yearOfStudy: "ND1", semester: "First", coursesEnrolled: [COURSE_ID] },
+  [STUDENT_WITHOUT_DEPARTMENT]: { _id: STUDENT_WITHOUT_DEPARTMENT, id: STUDENT_WITHOUT_DEPARTMENT, role: "student", coursesEnrolled: [COURSE_ID] },
   [ADMIN]: { _id: ADMIN, id: ADMIN, role: "admin" },
-  [LECTURER]: { _id: LECTURER, id: LECTURER, role: "lecturer", lecturerStatus: "approved" }
+  [LECTURER]: { _id: LECTURER, id: LECTURER, role: "lecturer", lecturerStatus: "approved" },
+  [UNASSIGNED_LECTURER]: { _id: UNASSIGNED_LECTURER, id: UNASSIGNED_LECTURER, role: "lecturer", lecturerStatus: "approved" }
 };
 
 const course = {
@@ -192,12 +196,40 @@ test("legacy questions are excluded from student results but retain deterministi
   });
 });
 
-test("students cannot access question banks for a different academic department", async () => {
+  test("students in the course department access the question bank without enrollment", async () => {
   await withQuestionMocks(async (state) => {
-    const response = await request(buildApp(STUDENT_B, "student"))
+      const response = await request(buildApp(STUDENT_A, "student"))
       .get(`/api/questions/course/${COURSE_ID}`);
-    assert.equal(response.status, 403);
-    assert.equal(state.query, null);
+      assert.equal(response.status, 200);
+      assert.equal(state.query.course, COURSE_ID);
+  });
+  });
+
+  test("students from another department are denied even with an enrolled course ID", async () => {
+    await withQuestionMocks(async (state) => {
+      const response = await request(buildApp(STUDENT_B, "student"))
+        .get(`/api/questions/course/${COURSE_ID}`);
+      assert.equal(response.status, 403);
+      assert.equal(state.query, null);
+  });
+  });
+
+  test("students without a valid department are denied", async () => {
+    await withQuestionMocks(async (state) => {
+      const response = await request(buildApp(STUDENT_WITHOUT_DEPARTMENT, "student"))
+        .get(`/api/questions/course/${COURSE_ID}`);
+      assert.equal(response.status, 403);
+      assert.equal(state.query, null);
+  });
+  });
+
+  test("administrators retain access to question-bank records", async () => {
+    await withQuestionMocks(async (state) => {
+      const response = await request(buildApp(ADMIN, "admin"))
+        .get(`/api/questions/course/${COURSE_ID}`);
+      assert.equal(response.status, 200);
+      assert.equal(state.query.approvalStatus, undefined);
+      assert.equal(response.body.questions.some((question) => question.answer === "A"), true);
   });
 });
 
@@ -208,6 +240,14 @@ test("approved assigned lecturers receive question-management records for their 
     assert.equal(response.status, 200);
     assert.equal(state.query.approvalStatus, undefined);
     assert.equal(response.body.questions.some((item) => item.answer === "A"), true);
+  });
+});
+
+test("approved lecturers cannot access question banks for unassigned courses", async () => {
+  await withQuestionMocks(async () => {
+    const response = await request(buildApp(UNASSIGNED_LECTURER, "lecturer"))
+      .get(`/api/questions/course/${COURSE_ID}`);
+    assert.equal(response.status, 403);
   });
 });
 

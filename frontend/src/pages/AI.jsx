@@ -85,6 +85,11 @@ export default function AI() {
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(false)
   const [conversationId, setConversationId] = useState(null)
+  const [conversations, setConversations] = useState([])
+  const [showHistory, setShowHistory] = useState(false)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState('')
+  const [historyReloadKey, setHistoryReloadKey] = useState(0)
   const [error, setError] = useState('')
   const [learningPath, setLearningPath] = useState(null)
   const [pathLoading, setPathLoading] = useState(false)
@@ -152,6 +157,37 @@ export default function AI() {
     }
   }, [selectedCourse, pathReloadKey])
 
+  useEffect(() => {
+    let active = true
+    setConversations([])
+    setHistoryError('')
+
+    if (!selectedCourse) {
+      setHistoryLoading(false)
+      return () => {
+        active = false
+      }
+    }
+
+    setHistoryLoading(true)
+    apiGet(`/api/ai/chat/${selectedCourse}`)
+      .then(response => {
+        if (active) setConversations(Array.isArray(response.conversations) ? response.conversations : [])
+      })
+      .catch(err => {
+        if (!active) return
+        console.error('Failed to load chat history', err)
+        setHistoryError(err.message || 'Unable to load chat history.')
+      })
+      .finally(() => {
+        if (active) setHistoryLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [selectedCourse, historyReloadKey])
+
   const handleGenerateLearningPath = async () => {
     const hours = Number(studyHoursPerDay)
     if (!selectedCourse) {
@@ -182,7 +218,7 @@ export default function AI() {
       setLearningPath(response.path)
     } catch (err) {
       setPathError(err.status === 403
-        ? 'Learning Path generation requires premium access. Upgrade your plan to generate a study timetable.'
+        ? 'Learning Path generation is not available for your account right now.'
         : err.message || 'Unable to generate your Learning Path. Please try again.')
     } finally {
       setPathGenerating(false)
@@ -239,8 +275,29 @@ export default function AI() {
     setSelectedCourse(courseId)
     setMessages([])
     setConversationId(null)
+    setShowHistory(false)
     setQuestion('')
     setError('')
+  }
+
+  const loadConversation = async (id) => {
+    try {
+      const response = await apiGet(`/api/ai/chat/conversation/${id}`)
+      if (!response.conversation) {
+        throw new Error('The server did not return this conversation.')
+      }
+      setMessages((response.conversation.messages || []).map(message => ({
+        ...message,
+        role: message.role === 'assistant' ? 'tutor' : 'student'
+      })))
+      setConversationId(response.conversation._id || id)
+      setQuestion('')
+      setError('')
+      setShowHistory(false)
+    } catch (err) {
+      console.error('Failed to load conversation', err)
+      setError(err.message || 'Unable to load this conversation.')
+    }
   }
 
   const sendMessage = async () => {
@@ -273,6 +330,7 @@ export default function AI() {
         content: res.message || res.response || 'I could not process your request. Please try again.'
       }
       setMessages(prev => [...prev, assistantMessage])
+      setHistoryReloadKey(key => key + 1)
     } catch (err) {
       console.error('AI request failed', err)
       const message = err?.response?.data?.message || err.message || 'Failed to get AI response'
@@ -298,6 +356,7 @@ export default function AI() {
     setMessages([])
     setConversationId(null)
     setQuestion('')
+    setShowHistory(false)
   }
 
   const schedule = Array.isArray(learningPath?.schedule) ? learningPath.schedule : []
@@ -326,9 +385,20 @@ export default function AI() {
               Guidance can use your completed CBT results for the selected course. Without completed attempts, you can still ask ordinary study questions.
             </p>
           </div>
-          <button className="btn-new-chat" onClick={startNewChat}>
-            ➕ New Chat
-          </button>
+          <div className="ai-header-actions">
+            <button
+              type="button"
+              className="btn-history"
+              onClick={() => setShowHistory(open => !open)}
+              disabled={!selectedCourse}
+              aria-expanded={showHistory}
+            >
+              📋 History
+            </button>
+            <button type="button" className="btn-new-chat" onClick={startNewChat}>
+              ➕ New Chat
+            </button>
+          </div>
         </div>
 
         <section className="learning-path-section" aria-labelledby="learning-path-heading">
@@ -538,6 +608,42 @@ export default function AI() {
           </div>
 
           <div className="ai-main">
+            {showHistory && (
+              <div className="chat-history" aria-label="Chat history">
+                <div className="chat-history-heading">
+                  <h3>Conversation history</h3>
+                  <button type="button" onClick={() => setShowHistory(false)} aria-label="Close chat history">
+                    ✕
+                  </button>
+                </div>
+                {historyLoading ? (
+                  <p className="chat-history-status" role="status">Loading conversations...</p>
+                ) : historyError ? (
+                  <p className="chat-history-error" role="alert">{historyError}</p>
+                ) : conversations.length === 0 ? (
+                  <p className="chat-history-status">No conversations for this course yet.</p>
+                ) : (
+                  <div className="chat-history-list">
+                    {conversations.map(conversation => (
+                      <button
+                        type="button"
+                        key={conversation._id}
+                        className={`chat-history-item${conversationId === conversation._id ? ' active' : ''}`}
+                        onClick={() => loadConversation(conversation._id)}
+                      >
+                        <span className="chat-history-title">{conversation.title || 'Untitled conversation'}</span>
+                        <span className="chat-history-meta">
+                          {conversation.createdAt
+                            ? new Date(conversation.createdAt).toLocaleDateString()
+                            : 'Date unavailable'}
+                          {Number.isFinite(conversation.totalMessages) && ` · ${conversation.totalMessages} messages`}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="chat-display">
               {messages.length === 0 ? (
                 <div className="empty-state">
@@ -922,6 +1028,12 @@ export default function AI() {
           gap: 2rem;
         }
 
+        .ai-header-actions {
+          display: flex;
+          gap: 0.6rem;
+          flex-shrink: 0;
+        }
+
         .ai-header h1 {
           font-size: 2rem;
           margin: 0;
@@ -953,6 +1065,22 @@ export default function AI() {
         .btn-new-chat:hover {
           transform: translateY(-2px);
           box-shadow: 0 8px 16px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-history {
+          padding: 0.75rem 1rem;
+          background: white;
+          color: #5c63b8;
+          border: 1px solid #c9cbed;
+          border-radius: 8px;
+          cursor: pointer;
+          font-weight: 600;
+          white-space: nowrap;
+        }
+
+        .btn-history:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
         }
 
         .ai-container {
@@ -1052,6 +1180,86 @@ export default function AI() {
           border-radius: 12px;
           border: 1px solid #e0e0e0;
           overflow: hidden;
+        }
+
+        .chat-history {
+          flex: 0 0 auto;
+          max-height: 220px;
+          overflow-y: auto;
+          padding: 0.75rem 1rem;
+          border-bottom: 1px solid #e8e8ee;
+          background: #fff;
+        }
+
+        .chat-history-heading {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 0.5rem;
+        }
+
+        .chat-history-heading h3 {
+          margin: 0;
+          font-size: 0.95rem;
+          color: #333;
+        }
+
+        .chat-history-heading button {
+          border: 0;
+          background: transparent;
+          color: #666;
+          cursor: pointer;
+          font-size: 1rem;
+        }
+
+        .chat-history-list {
+          display: flex;
+          flex-direction: column;
+          gap: 0.4rem;
+        }
+
+        .chat-history-item {
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+          width: 100%;
+          padding: 0.6rem 0.75rem;
+          border: 1px solid #e6e6ef;
+          border-radius: 7px;
+          background: #fafaff;
+          text-align: left;
+          cursor: pointer;
+        }
+
+        .chat-history-item:hover,
+        .chat-history-item.active {
+          border-color: #667eea;
+          background: #f0f1ff;
+        }
+
+        .chat-history-title {
+          overflow: hidden;
+          color: #333;
+          font-size: 0.85rem;
+          font-weight: 600;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .chat-history-meta,
+        .chat-history-status {
+          color: #777;
+          font-size: 0.78rem;
+        }
+
+        .chat-history-status,
+        .chat-history-error {
+          margin: 0.6rem 0;
+        }
+
+        .chat-history-error {
+          color: #b42318;
+          font-size: 0.82rem;
         }
 
         .chat-display {
@@ -1283,6 +1491,11 @@ export default function AI() {
         }
 
         @media (max-width: 768px) {
+          .ai-header {
+            flex-direction: column;
+            gap: 1rem;
+          }
+
           .learning-path-section {
             padding: 1rem;
           }

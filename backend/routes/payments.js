@@ -3,6 +3,7 @@ const router = express.Router();
 const axios = require("axios");
 const crypto = require("crypto");
 const protect = require("../config/middleware/authMiddleware");
+const commerceUnavailable = require("../middleware/commerceUnavailable");
 
 const User = require("../models/User");
 const Transaction = require("../models/Transaction");
@@ -79,8 +80,8 @@ const applySubscriptionAccess = async (transaction) => {
   return user;
 };
 
-// INITIALIZE PAYMENT - Semester based (Protected route)
-router.post("/initialize", protect, async (req, res) => {
+// The commerce middleware keeps this retained implementation unavailable in this release.
+router.post("/initialize", protect, commerceUnavailable, async (req, res) => {
   let pendingTransaction;
   try {
     const { semester, plan, currency } = req.body || {};
@@ -172,8 +173,7 @@ router.post("/initialize", protect, async (req, res) => {
   }
 });
 
-// VERIFY PAYMENT - Update user with semester subscription
-router.get("/verify/:reference", protect, async (req, res) => {
+router.get("/verify/:reference", protect, commerceUnavailable, async (req, res) => {
   let transaction;
   let paymentVerified = false;
   try {
@@ -320,6 +320,9 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
         !crypto.timingSafeEqual(expectedSignature, suppliedSignature)) {
       return res.status(401).json({ success: false, message: "Invalid Paystack webhook signature" });
     }
+
+    // Signed events are acknowledged, but the retained processing flow below is disabled.
+    return res.json({ success: true, ignored: true, commerceDisabled: true });
 
     const payload = JSON.parse(rawBody.toString("utf8"));
     const event = payload.event;

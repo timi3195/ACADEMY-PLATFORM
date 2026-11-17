@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../utils/auth'
 import { apiGet } from '../utils/api'
+import { isCourseAccessibleToUser } from '../utils/courseAccess'
 
 export default function Courses() {
   const { user } = useAuth()
@@ -26,25 +27,8 @@ export default function Courses() {
     }
   }
 
-  const canAccessCourse = (course) => {
-    if (!course.isPremium) return true
-    if (!user) return false
-    if (user.role === 'admin') return true
-    const isPremium = user.plan === 'premium' || user.subscriptionType === 'premium'
-    const notExpired = !user.subscriptionExpiresAt || new Date(user.subscriptionExpiresAt) > new Date()
-    return isPremium && notExpired
-  }
-
-  const visibleCourses = user && user.role !== 'admin' && user.department && user.yearOfStudy
-    ? courses.filter(course => {
-        const courseDeptId = course.department?._id?.toString?.() || course.department?._id
-        const userDeptId = (user.department._id || user.department)?.toString?.() || (user.department._id || user.department)
-        const { normalizeAcademicLevel } = require('../utils/academicLevels')
-        const userLevel = normalizeAcademicLevel(user.yearOfStudy)
-        const courseLevel = normalizeAcademicLevel(course.level)
-        return courseDeptId === userDeptId && courseLevel === userLevel
-      })
-    : courses
+  const canAccessCourse = (course) => isCourseAccessibleToUser(user, course)
+  const visibleCourses = courses.filter(canAccessCourse)
 
   const filteredCourses = visibleCourses.filter(course => {
     const matchesSearch = course.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -103,8 +87,8 @@ export default function Courses() {
         {/* Results Info */}
         <div className="mb-4 text-gray-600">
           <p>Showing <span className="font-bold">{filteredCourses.length}</span> of <span className="font-bold">{visibleCourses.length}</span> available courses</p>
-          {user && user.role !== 'admin' && user.department && user.yearOfStudy && (
-            <p className="text-sm text-gray-500">Only courses for {user.department.name} / {user.yearOfStudy} are shown.</p>
+          {user && user.role === 'student' && (
+            <p className="text-sm text-gray-500">Only courses assigned to your account are shown.</p>
           )}
         </div>
 
@@ -143,11 +127,6 @@ export default function Courses() {
                   <div className={`px-6 py-4 ${hasAccess ? 'bg-blue-50' : 'bg-red-50'}`}>
                     <div className="flex items-start justify-between mb-2">
                       <h3 className="text-lg font-bold text-gray-800 flex-1">{course.title}</h3>
-                      {course.isPremium && (
-                        <span className="bg-gradient-to-r from-yellow-400 to-yellow-500 text-yellow-900 text-xs font-bold px-2 py-1 rounded-full whitespace-nowrap ml-2">
-                          ⭐ Premium
-                        </span>
-                      )}
                     </div>
                     <p className="text-sm text-gray-600 font-semibold">Code: {course.code}</p>
                   </div>
@@ -185,15 +164,7 @@ export default function Courses() {
                         </Link>
                       </>
                     ) : (
-                      <>
-                        <span className="flex-1 text-center text-red-700 font-bold py-2">🔒 Locked</span>
-                        <Link
-                          to="/upgrade"
-                          className="bg-yellow-400 hover:bg-yellow-500 text-yellow-900 px-4 py-2 rounded-lg transition font-semibold"
-                        >
-                          Unlock
-                        </Link>
-                      </>
+                      <span className="flex-1 text-center text-red-700 font-bold py-2">Course access restricted</span>
                     )}
                   </div>
                 </div>

@@ -5,7 +5,6 @@ const router = express.Router();
 const Question = require("../models/Question");
 const QuizSession = require("../models/QuizSession");
 const protect = require("../config/middleware/authMiddleware");
-const requirePremium = require("../config/middleware/planMiddleware");
 const questionAccess = require("../services/questionAccessService");
 const shuffle = require("../utils/shuffle");
 const quizSessionService = require("../services/quizSessionService");
@@ -30,7 +29,7 @@ const hasCorrectOption = (question) =>
   question.question.trim().length > 0 &&
   question.options.filter((option) => normalizeText(option) === normalizeText(question.answer)).length === 1;
 
-router.post("/start", protect, requirePremium, async (req, res) => {
+router.post("/start", protect, async (req, res) => {
   try {
     const body = req.body || {};
     const allowedFields = ["courseId", "questionCount"];
@@ -232,7 +231,7 @@ router.get("/health", (req, res) => res.json({
   timestamp: new Date().toISOString()
 }));
 
-router.get("/active", protect, requirePremium, async (req, res) => {
+router.get("/active", protect, async (req, res) => {
   try {
     if (Object.keys(req.query || {}).some((key) => key !== "courseId")) {
       return res.status(400).json({ success: false, message: "Only courseId may be specified." });
@@ -277,7 +276,7 @@ router.get("/active", protect, requirePremium, async (req, res) => {
   }
 });
 
-router.get("/:attemptId", protect, requirePremium, async (req, res) => {
+router.get("/:attemptId", protect, async (req, res) => {
   try {
     const { attemptId } = req.params;
     if (!mongoose.Types.ObjectId.isValid(String(attemptId || ""))) {
@@ -301,7 +300,7 @@ router.get("/:attemptId", protect, requirePremium, async (req, res) => {
   }
 });
 
-router.patch("/:attemptId/answers", protect, requirePremium, async (req, res) => {
+router.patch("/:attemptId/answers", protect, async (req, res) => {
   try {
     const { attemptId } = req.params;
     const body = req.body || {};
@@ -382,7 +381,7 @@ router.patch("/:attemptId/answers", protect, requirePremium, async (req, res) =>
   }
 });
 
-router.post("/submit", protect, requirePremium, async (req, res) => {
+router.post("/submit", protect, async (req, res) => {
   try {
     const body = req.body || {};
     if (Object.keys(body).some((field) => !["attemptId", "answers"].includes(field))) {

@@ -6,28 +6,25 @@ const Course = require("../models/course");
 const Question = require("../models/Question");
 const Note = require("../models/note");
 const User = require("../models/User");
-const { normalizeAcademicLevel } = require("../utils/academicLevels");
+const { getValidAccessibleCourseIds } = require("../services/courseMembershipService");
 
-const getSearchableQuestionFilter = async (userId) => {
+const getSearchContext = async (userId) => {
   const user = await User.findById(userId);
+  if (!user) return { user: null, courseIds: [] };
+
+  return {
+    user,
+    courseIds: await getValidAccessibleCourseIds(user)
+  };
+};
+
+const getSearchableQuestionFilter = ({ user, courseIds }) => {
   if (!user) return { approvalStatus: "approved", course: { $in: [] } };
-
   if (user.role === "admin") return { approvalStatus: "approved" };
-
-  let courses = [];
-  if (user.role === "student" && user.department && user.yearOfStudy) {
-    courses = await Course.find({
-      department: user.department,
-      level: normalizeAcademicLevel(user.yearOfStudy),
-      ...(user.semester ? { semester: user.semester } : {})
-    }).select("_id");
-  } else if (user.role === "lecturer" && user.lecturerStatus === "approved") {
-    courses = await Course.find({ lecturers: user._id }).select("_id");
-  }
 
   return {
     approvalStatus: "approved",
-    course: { $in: courses.map((course) => course._id) }
+    course: { $in: courseIds || [] }
   };
 };
 
@@ -53,6 +50,7 @@ router.get("/", protect, async (req, res) => {
 
     const searchQuery = q.trim();
     const resultsLimit = Math.min(parseInt(limit) || 10, 50); // Max 50 per category
+    const searchContext = await getSearchContext(req.user.id);
 
     const results = {
       courses: [],
@@ -63,8 +61,12 @@ router.get("/", protect, async (req, res) => {
 
     // Search courses by title, code, description
     if (type === "all" || type === "courses") {
+      const courseFilter = { $text: { $search: searchQuery } };
+      if (searchContext.courseIds !== null) {
+        courseFilter._id = { $in: searchContext.courseIds || [] };
+      }
       results.courses = await Course.find(
-        { $text: { $search: searchQuery } },
+        courseFilter,
         { score: { $meta: "textScore" } }
       )
         .sort({ score: { $meta: "textScore" } })
@@ -75,7 +77,7 @@ router.get("/", protect, async (req, res) => {
 
     // Search questions by question text, topic
     if (type === "all" || type === "questions") {
-      const questionScope = await getSearchableQuestionFilter(req.user.id);
+      const questionScope = getSearchableQuestionFilter(searchContext);
       results.questions = await Question.find(
         { ...questionScope, $text: { $search: searchQuery } },
         { score: { $meta: "textScore" } }
@@ -89,8 +91,12 @@ router.get("/", protect, async (req, res) => {
 
     // Search notes
     if (type === "all" || type === "notes") {
+      const noteFilter = { $text: { $search: searchQuery } };
+      if (searchContext.courseIds !== null) {
+        noteFilter.course = { $in: searchContext.courseIds || [] };
+      }
       results.notes = await Note.find(
-        { $text: { $search: searchQuery } },
+        noteFilter,
         { score: { $meta: "textScore" } }
       )
         .sort({ score: { $meta: "textScore" } })
@@ -131,23 +137,31 @@ router.get("/advanced", protect, async (req, res) => {
       });
     }
 
-    // Build filter
-    const filter = { $text: { $search: q } };
+    const searchContext = await getSearchContext(req.user.id);
+    const courseFilter = { $text: { $search: q } };
+    if (level) courseFilter.level = level;
+    if (searchContext.user?.role === "admin" && department) {
+      courseFilter.department = department;
+    }
+    if (searchContext.courseIds !== null) {
+      courseFilter._id = { $in: searchContext.courseIds || [] };
+    }
 
-    if (department) filter.department = department;
-    if (level) filter.level = level;
-
-    const questionScope = await getSearchableQuestionFilter(req.user.id);
+    const questionFilter = { $text: { $search: q } };
+    if (year) questionFilter.year = year;
+    if (session) questionFilter.session = session;
+    if (searchContext.user?.role === "admin" && department) {
+      questionFilter.department = department;
+    }
+    const questionScope = getSearchableQuestionFilter(searchContext);
     const results = {
-      courses: await Course.find(filter)
+      courses: await Course.find(courseFilter)
         .limit(20)
         .populate("department", "name code")
         .lean(),
       questions: await Question.find({
         ...questionScope,
-        ...filter,
-        ...(year && { year }),
-        ...(session && { session })
+        ...questionFilter
       })
         .limit(20)
         .select("question topic course year session difficulty options")

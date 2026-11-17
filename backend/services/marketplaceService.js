@@ -72,12 +72,7 @@ const normalizeMaterialFileUrl = (material, req = null) => {
 
 const buildMaterialFilters = (query) => {
   const clauses = [
-    {
-      hidden: false,
-      productStatus: "published",
-      isDeleted: false,
-      visibility: "public"
-    }
+    materialAccessService.getMarketplacePublicationFilter({ publicOnly: true })
   ];
 
   const searchTerm = String(query.q || "").trim();
@@ -246,16 +241,16 @@ const getMaterialById = async (id, user = null) => {
 
   const material = await File.findById(id)
     .populate({ path: "lecturer", select: "name email" })
-    .select("-storageFilename -deletedAt")
+    .select("-storageFilename")
     .lean();
 
-  if (!material || material.isDeleted) {
+  if (!material || !materialAccessService.isMarketplaceMaterial(material)) {
     return null;
   }
 
   const normalizedMaterial = normalizeMaterialFileUrl(material);
 
-  if (!normalizedMaterial || normalizedMaterial.isDeleted) {
+  if (!normalizedMaterial || !materialAccessService.isMarketplaceMaterial(normalizedMaterial)) {
     return null;
   }
 
@@ -279,19 +274,21 @@ const getMaterialById = async (id, user = null) => {
     return normalizedMaterial;
   }
 
-  if (normalizedMaterial.hidden) {
-    return null;
+  let accessUser = userId ? { ...user, id: String(userId) } : null;
+  if (accessUser && materialAccessService.isCourseAssociatedMaterial(material)) {
+    accessUser = await User.findById(userId).lean() || accessUser;
+    accessUser.id = String(userId);
   }
 
   // Publicly visible materials are returned; for authenticated users, include access metadata
-  if ((normalizedMaterial.productStatus === "published" || normalizedMaterial.status === "approved") && ["public", "unlisted"].includes(normalizedMaterial.visibility)) {
+  if (materialAccessService.isMarketplaceMaterial(normalizedMaterial)) {
     if (!userId) {
       return normalizedMaterial;
     }
 
     // Determine access using the existing access-control service (do not duplicate transaction queries)
-    const viewAccess = await materialAccessService.canViewMaterial({ user: { id: userId }, material, restrictByCourse: false });
-    const downloadAccess = await materialAccessService.canDownloadMaterial({ user: { id: userId }, material, restrictByCourse: false });
+    const viewAccess = await materialAccessService.canViewMaterial({ user: accessUser, material, restrictByCourse: true });
+    const downloadAccess = await materialAccessService.canDownloadMaterial({ user: accessUser, material, restrictByCourse: true });
 
     return {
       ...normalizedMaterial,
@@ -300,7 +297,7 @@ const getMaterialById = async (id, user = null) => {
         canView: Boolean(viewAccess.allowed),
         canRead: Boolean(viewAccess.allowed),
         canDownload: Boolean(downloadAccess.allowed),
-        isPurchased: viewAccess.reason === 'purchased' || downloadAccess.allowed,
+        isPurchased: false,
         reason: viewAccess.reason || null
       },
       allowDownload: Boolean(downloadAccess.allowed),
@@ -389,7 +386,7 @@ const deleteMaterial = async (materialId, user) => {
 
 const getFeaturedMaterials = async (query) => {
   const limit = Math.min(Number(query.limit) || 12, 50);
-  const materials = await File.find({ productStatus: "published", visibility: "public", hidden: false, isDeleted: false })
+  const materials = await File.find(materialAccessService.getMarketplacePublicationFilter({ publicOnly: true }))
     .populate({ path: "lecturer", select: "name email" })
     .sort({ purchases: -1, ratingAverage: -1, createdAt: -1 })
     .limit(limit)
@@ -400,7 +397,7 @@ const getFeaturedMaterials = async (query) => {
 
 const getNewMaterials = async (query) => {
   const limit = Math.min(Number(query.limit) || 12, 50);
-  const materials = await File.find({ productStatus: "published", visibility: "public", hidden: false, isDeleted: false })
+  const materials = await File.find(materialAccessService.getMarketplacePublicationFilter({ publicOnly: true }))
     .populate({ path: "lecturer", select: "name email" })
     .sort({ createdAt: -1 })
     .limit(limit)
@@ -418,7 +415,10 @@ const getCourseMaterials = async (courseId, query) => {
     ? await Course.findById(courseId).select("title code").lean()
     : null;
   const courseValues = [courseId, course?.title, course?.code].filter(Boolean);
-  const materials = await File.find({ course: { $in: courseValues }, productStatus: "published", visibility: "public", hidden: false, isDeleted: false })
+  const materials = await File.find({
+    course: { $in: courseValues },
+    ...materialAccessService.getMarketplacePublicationFilter({ publicOnly: true })
+  })
     .populate({ path: "lecturer", select: "name email" })
     .sort({ createdAt: -1 })
     .skip(skip)
@@ -437,7 +437,10 @@ const getDepartmentMaterials = async (departmentId, query) => {
     ? await Department.findById(departmentId).select("name code").lean()
     : null;
   const departmentValues = [departmentId, department?.name, department?.code].filter(Boolean);
-  const materials = await File.find({ department: { $in: departmentValues }, productStatus: "published", visibility: "public", hidden: false, isDeleted: false })
+  const materials = await File.find({
+    department: { $in: departmentValues },
+    ...materialAccessService.getMarketplacePublicationFilter({ publicOnly: true })
+  })
     .populate({ path: "lecturer", select: "name email" })
     .sort({ createdAt: -1 })
     .skip(skip)
@@ -590,10 +593,13 @@ const getMaterialAccess = async (userId, materialId) => {
     throw error;
   }
 
+  const accessUser = materialAccessService.isCourseAssociatedMaterial(material)
+    ? await User.findById(userId).lean() || { id: String(userId) }
+    : { id: String(userId) };
   const access = await materialAccessService.canViewMaterial({
-    user: { id: userId },
+    user: accessUser,
     material,
-    restrictByCourse: false
+    restrictByCourse: true
   });
 
   return {

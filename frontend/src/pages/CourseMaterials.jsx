@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { apiGet } from '../utils/api'
 import { useAuth } from '../utils/auth'
 import PDFViewer from '../components/PDFViewer'
+import { isCourseAccessibleToUser } from '../utils/courseAccess'
 
 export default function CourseMaterials() {
   const { courseId } = useParams()
@@ -42,16 +43,7 @@ export default function CourseMaterials() {
   }
 
   const hasCourseAccess = () => {
-    if (!course) return false
-    if (user?.role === 'admin') return true
-    if (!user?.department || !user?.yearOfStudy) return false
-    const courseDeptId = course.department?._id?.toString?.() || course.department?._id
-    const userDeptId = (user.department._id || user.department)?.toString?.() || (user.department._id || user.department)
-    // Normalize legacy ND/HND values on the client as well
-    const { normalizeAcademicLevel } = require('../utils/academicLevels')
-    const userLevel = normalizeAcademicLevel(user.yearOfStudy)
-    const courseLevel = normalizeAcademicLevel(course.level)
-    return courseDeptId === userDeptId && courseLevel === userLevel && (!user.semester || user.semester === course.semester)
+    return isCourseAccessibleToUser(user, course)
   }
 
   if (loading && !course) {
@@ -75,7 +67,7 @@ export default function CourseMaterials() {
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center px-6 py-12">
         <div className="max-w-xl w-full bg-white rounded-3xl shadow-xl border border-gray-200 p-10 text-center">
           <h1 className="text-3xl font-bold text-gray-900 mb-4">Materials Access Restricted</h1>
-          <p className="text-gray-600 mb-6">This course's materials are restricted to students in the assigned department and year.</p>
+          <p className="text-gray-600 mb-6">This course's materials are available to students in its assigned department.</p>
           <p className="text-sm text-gray-500 mb-6">Contact an administrator if you need access.</p>
           <Link to="/courses" className="inline-flex items-center justify-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
             Back to Courses
@@ -99,7 +91,7 @@ export default function CourseMaterials() {
           {files.map(f => {
             // Use backend 'accessible' field if available
             const isAccessible = 'accessible' in f ? f.accessible : true
-            const canDownload = user && (user.role === 'admin' || ((user.plan === 'premium' || user.subscriptionType === 'premium') && (!user.subscriptionExpiresAt || new Date(user.subscriptionExpiresAt) > new Date())));
+            const canDownload = Boolean(user)
             return (
               <div key={f._id} className={`p-4 rounded-lg border ${isAccessible ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}>
                 <div className="flex items-center justify-between mb-3">
@@ -128,14 +120,9 @@ export default function CourseMaterials() {
                             window.alert(message);
                           }
                         }} className="bg-blue-600 text-white px-3 py-2 rounded">Download</button>
-                      ) : (
-                        <Link to="/upgrade" className="bg-yellow-400 text-yellow-900 px-3 py-2 rounded">Upgrade</Link>
-                      ))
+                      ) : null)
                     ) : (
-                      <>
-                        <span className="text-sm text-red-700 font-bold">Premium</span>
-                        <Link to="/upgrade" className="bg-yellow-400 text-yellow-900 px-3 py-2 rounded">Upgrade</Link>
-                      </>
+                      <span className="text-sm text-red-700 font-bold">Not available to this account</span>
                     )}
                   </div>
                 </div>

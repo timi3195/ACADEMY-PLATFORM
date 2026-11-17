@@ -159,7 +159,8 @@ test('client-supplied user IDs cannot override authenticated identity in chat re
     role: 'student',
     department: courseDoc.department._id,
     yearOfStudy: 'ND1',
-    semester: 'First'
+    semester: 'First',
+    coursesEnrolled: [courseDoc._id]
   });
   StudentPerformance.findOne = async () => {
     throw new Error('AI chat must not read legacy student performance');

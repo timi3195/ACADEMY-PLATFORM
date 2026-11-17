@@ -322,7 +322,7 @@ test('legacy material URLs remain available through the protected file endpoint'
   });
 });
 
-test('past-question file route rejects students outside the paper course profile', async () => {
+test('past-question files without an explicit course ID fail closed', async () => {
   await withMocks(async () => {
     const response = await request(buildApp()).get('/api/files/past-questions/paper-1');
     assert.equal(response.status, 403);

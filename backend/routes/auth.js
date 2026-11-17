@@ -345,7 +345,8 @@ router.post("/login", rateLimitLogin, async (req, res) => {
         subscriptionExpiresAt: user.subscriptionExpiresAt,
         department: user.department,
         yearOfStudy: user.yearOfStudy,
-        semester: user.semester
+        semester: user.semester,
+        coursesEnrolled: user.coursesEnrolled
       }
     });
 
@@ -663,7 +664,8 @@ router.post("/refresh", async (req, res) => {
         subscriptionExpiresAt: user.subscriptionExpiresAt,
         department: user.department,
         yearOfStudy: user.yearOfStudy,
-        semester: user.semester
+        semester: user.semester,
+        coursesEnrolled: user.coursesEnrolled
       }
     });
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useAuth } from '../utils/auth'
 import { useNavigate } from 'react-router-dom'
-import { apiGet, apiPost } from '../utils/api'
+import { apiGet, apiPost, apiPut } from '../utils/api'
 
 export default function AdminPanel() {
   const { user, loading } = useAuth()
@@ -12,11 +12,17 @@ export default function AdminPanel() {
   const [materials, setMaterials] = useState([])
   const [questions, setQuestions] = useState([])
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [students, setStudents] = useState([])
+  const [selectedDepartmentStudentId, setSelectedDepartmentStudentId] = useState('')
+  const [selectedStudentDepartmentId, setSelectedStudentDepartmentId] = useState('')
+  const [studentDepartmentLoading, setStudentDepartmentLoading] = useState(false)
+  const [studentDepartmentSaving, setStudentDepartmentSaving] = useState(false)
+  const [studentDepartmentError, setStudentDepartmentError] = useState('')
+  const [studentDepartmentNotice, setStudentDepartmentNotice] = useState('')
 
   const [selectedCourse, setSelectedCourse] = useState('')
   const [materialTitle, setMaterialTitle] = useState('')
   const [materialFile, setMaterialFile] = useState(null)
-  const [materialIsPremium, setMaterialIsPremium] = useState(false)
   const [pastQuestionTitle, setPastQuestionTitle] = useState('')
   const [pastQuestionFile, setPastQuestionFile] = useState(null)
   const [pastQuestionLevel, setPastQuestionLevel] = useState('ND1')
@@ -59,7 +65,6 @@ export default function AdminPanel() {
   const [courseSemester, setCourseSemester] = useState('First')
   const [courseCreditUnits, setCourseCreditUnits] = useState(3)
   const [courseDescription, setCourseDescription] = useState('')
-  const [courseIsPremium, setCourseIsPremium] = useState(false)
 
   const [cbtCourse, setCbtCourse] = useState('')
   const [cbtJson, setCbtJson] = useState('')
@@ -75,6 +80,12 @@ export default function AdminPanel() {
     fetchMaterials()
     fetchQuestions()
   }, [user, loading, navigate])
+
+  useEffect(() => {
+    if (activeTab === 'manageStudentDepartments' && user?.role === 'admin') {
+      fetchStudentsForDepartments()
+    }
+  }, [activeTab, user])
 
   const fetchDepartments = async () => {
     try {
@@ -112,6 +123,64 @@ export default function AdminPanel() {
     }
   }
 
+  const fetchStudentsForDepartments = async () => {
+    setStudentDepartmentLoading(true)
+    setStudentDepartmentError('')
+    try {
+      const res = await apiGet('/api/users')
+      const nextStudents = (res.users || []).filter((item) => item.role === 'student')
+      const selectedStudent = nextStudents.find(
+        (item) => String(item._id) === String(selectedDepartmentStudentId)
+      ) || nextStudents[0]
+      setStudents(nextStudents)
+      setSelectedDepartmentStudentId(selectedStudent?._id || '')
+      setSelectedStudentDepartmentId(String(
+        selectedStudent?.department?._id || selectedStudent?.department || ''
+      ))
+    } catch (err) {
+      console.error('Error fetching students for department management:', err)
+      setStudentDepartmentError(err.message || 'Unable to load students.')
+    } finally {
+      setStudentDepartmentLoading(false)
+    }
+  }
+
+  const handleDepartmentStudentChange = (studentId) => {
+    setSelectedDepartmentStudentId(studentId)
+    setStudentDepartmentNotice('')
+    const selectedStudent = students.find((item) => String(item._id) === String(studentId))
+    setSelectedStudentDepartmentId(String(
+      selectedStudent?.department?._id || selectedStudent?.department || ''
+    ))
+  }
+
+  const handleStudentDepartmentSave = async () => {
+    if (!selectedDepartmentStudentId || !selectedStudentDepartmentId) return
+    setStudentDepartmentSaving(true)
+    setStudentDepartmentError('')
+    setStudentDepartmentNotice('')
+    try {
+      const res = await apiPut(`/api/users/${selectedDepartmentStudentId}`, {
+        department: selectedStudentDepartmentId
+      })
+      if (!res.user) {
+        throw new Error('The server did not return the updated student record.')
+      }
+      setStudents((current) => current.map((item) =>
+        String(item._id) === String(res.user._id) ? res.user : item
+      ))
+      setSelectedStudentDepartmentId(String(
+        res.user.department?._id || res.user.department || ''
+      ))
+      setStudentDepartmentNotice('Student department updated. Course access now follows the department.')
+    } catch (err) {
+      console.error('Error updating student department:', err)
+      setStudentDepartmentError(err.message || 'Unable to update student department.')
+    } finally {
+      setStudentDepartmentSaving(false)
+    }
+  }
+
   const handleCreateCourse = async (e) => {
     e.preventDefault()
     if (!courseTitle || !courseCode || !courseDepartment) {
@@ -129,7 +198,7 @@ export default function AdminPanel() {
         semester: courseSemester,
         creditUnits: Number(courseCreditUnits),
         description: courseDescription,
-        isPremium: courseIsPremium
+        isPremium: false
       }
 
       const res = await apiPost('/api/courses', payload)
@@ -142,7 +211,6 @@ export default function AdminPanel() {
         setCourseSemester('First')
         setCourseCreditUnits(3)
         setCourseDescription('')
-        setCourseIsPremium(false)
         fetchCourses()
       }
     } catch (err) {
@@ -165,14 +233,13 @@ export default function AdminPanel() {
       formData.append('file', materialFile)
       formData.append('title', materialTitle)
       formData.append('course', selectedCourse)
-      formData.append('isPremium', materialIsPremium)
+      formData.append('isPremium', 'false')
 
       const res = await apiPost('/api/files/upload', formData)
       if (res.success) {
         alert('Material uploaded successfully!')
         setMaterialTitle('')
         setMaterialFile(null)
-        setMaterialIsPremium(false)
         setSelectedCourse('')
         fetchMaterials()
       }
@@ -215,7 +282,7 @@ export default function AdminPanel() {
         session: questionData.session,
         marks: questionData.marks,
         difficulty: questionData.difficulty,
-        isPremium: questionData.isPremium,
+        isPremium: false,
         subQuestions: hasSubQuestions ? subQuestions.map((sub) => ({
           label: sub.label,
           question: sub.question,
@@ -226,7 +293,7 @@ export default function AdminPanel() {
           session: sub.session,
           marks: sub.marks,
           difficulty: sub.difficulty,
-          isPremium: sub.isPremium
+          isPremium: false
         })) : [],
         course: questionCourse,
         department: courses.find(c => c._id === questionCourse)?.department?._id || ''
@@ -245,7 +312,6 @@ export default function AdminPanel() {
           session: 'Rain',
           marks: 2,
           difficulty: 'medium',
-          isPremium: false
         })
         setQuestionCourse('')
         setHasSubQuestions(false)
@@ -260,7 +326,6 @@ export default function AdminPanel() {
             session: 'Rain',
             marks: 2,
             difficulty: 'medium',
-            isPremium: false
           }
         ])
         fetchQuestions()
@@ -369,7 +434,6 @@ export default function AdminPanel() {
         session: 'Rain',
         marks: 2,
         difficulty: 'medium',
-        isPremium: false
       }
     ])
   }
@@ -419,7 +483,7 @@ export default function AdminPanel() {
 
       <div className="max-w-6xl mx-auto px-6 py-8">
         <div className="flex gap-2 mb-6 flex-wrap">
-          {['addCourse', 'uploadMaterial', 'uploadPastQuestion', 'uploadCBT', 'viewCourses', 'viewMaterials', 'viewQuestions'].map(tab => (
+          {['addCourse', 'uploadMaterial', 'uploadPastQuestion', 'uploadCBT', 'viewCourses', 'manageStudentDepartments', 'viewMaterials', 'viewQuestions'].map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -434,6 +498,7 @@ export default function AdminPanel() {
               {tab === 'uploadPastQuestion' && '📝 Upload Past Question'}
               {tab === 'uploadCBT' && '🧠 Upload CBT Set'}
               {tab === 'viewCourses' && '📚 View Courses'}
+              {tab === 'manageStudentDepartments' && '🎓 Student Departments'}
               {tab === 'viewMaterials' && '📋 View Materials'}
               {tab === 'viewQuestions' && '📝 View Questions'}
             </button>
@@ -523,13 +588,7 @@ export default function AdminPanel() {
                   />
                 </div>
                 <div className="flex items-center mt-6">
-                  <input
-                    type="checkbox"
-                    checked={courseIsPremium}
-                    onChange={(e) => setCourseIsPremium(e.target.checked)}
-                    className="w-4 h-4 mr-3"
-                  />
-                  <label className="text-sm font-semibold text-gray-700">Mark course as Premium</label>
+                  <p className="text-sm text-green-700">Course resources are free for students authorized by course membership.</p>
                 </div>
               </div>
 
@@ -612,7 +671,7 @@ export default function AdminPanel() {
                       <th className="px-4 py-2 text-left">Code</th>
                       <th className="px-4 py-2 text-left">Department</th>
                       <th className="px-4 py-2 text-left">Level</th>
-                      <th className="px-4 py-2 text-left">Premium</th>
+                      <th className="px-4 py-2 text-left">Materials access</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -622,12 +681,75 @@ export default function AdminPanel() {
                         <td className="px-4 py-2">{course.code}</td>
                         <td className="px-4 py-2">{course.department?.name || 'N/A'}</td>
                         <td className="px-4 py-2">{course.level}</td>
-                        <td className="px-4 py-2">{course.isPremium ? '⭐ Yes' : '✓ Free'}</td>
+                        <td className="px-4 py-2">Free for authorized students</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'manageStudentDepartments' && (
+          <div className="bg-white rounded-lg shadow-lg p-8">
+            <h2 className="text-2xl font-bold mb-2">Manage Student Departments</h2>
+            <p className="text-sm text-gray-600 mb-6">
+              Students automatically access courses and materials in their registered department. Correct a student's department here when needed; course-by-course enrollment is not required.
+            </p>
+            {studentDepartmentError && <p role="alert" className="mb-4 text-sm text-red-700">{studentDepartmentError}</p>}
+            {studentDepartmentNotice && <p role="status" className="mb-4 text-sm text-green-700">{studentDepartmentNotice}</p>}
+            {studentDepartmentLoading ? (
+              <p className="text-sm text-gray-600">Loading students...</p>
+            ) : students.length === 0 ? (
+              <p className="text-sm text-gray-600">No student accounts are available.</p>
+            ) : (
+              <>
+                <label htmlFor="department-student" className="mb-2 block text-sm font-semibold text-gray-700">
+                  Student
+                </label>
+                <select
+                  id="department-student"
+                  value={selectedDepartmentStudentId}
+                  onChange={(event) => handleDepartmentStudentChange(event.target.value)}
+                  className="mb-6 w-full rounded-lg border border-gray-300 px-4 py-2"
+                >
+                  {students.map((student) => (
+                    <option key={student._id} value={student._id}>
+                      {student.name} ({student.email})
+                    </option>
+                  ))}
+                </select>
+
+                <label htmlFor="student-department" className="mb-2 block text-sm font-semibold text-gray-700">
+                  Registered department
+                </label>
+                <select
+                  id="student-department"
+                  value={selectedStudentDepartmentId}
+                  onChange={(event) => {
+                    setSelectedStudentDepartmentId(event.target.value)
+                    setStudentDepartmentNotice('')
+                  }}
+                  className="mb-6 w-full rounded-lg border border-gray-300 px-4 py-2"
+                >
+                  <option value="">Select department</option>
+                  {departments.map((department) => (
+                    <option key={department._id} value={department._id}>
+                      {department.name}
+                    </option>
+                  ))}
+                </select>
+
+                <button
+                  type="button"
+                  onClick={handleStudentDepartmentSave}
+                  disabled={studentDepartmentSaving || !selectedDepartmentStudentId || !selectedStudentDepartmentId}
+                  className="rounded-lg bg-blue-600 px-5 py-3 font-semibold text-white hover:bg-blue-700 disabled:bg-gray-400"
+                >
+                  {studentDepartmentSaving ? 'Saving...' : 'Save Department'}
+                </button>
+              </>
             )}
           </div>
         )}
@@ -674,15 +796,7 @@ export default function AdminPanel() {
                 <p className="text-xs text-gray-500 mt-1">Supported: PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX (max 50MB)</p>
               </div>
 
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={materialIsPremium}
-                  onChange={(e) => setMaterialIsPremium(e.target.checked)}
-                  className="w-4 h-4 mr-3"
-                />
-                <label className="text-sm font-semibold text-gray-700">Mark as Premium (only premium users can access)</label>
-              </div>
+              <p className="text-sm text-green-700">Course materials are free for students authorized by course membership.</p>
 
               <button
                 type="submit"
@@ -891,15 +1005,6 @@ export default function AdminPanel() {
                           </select>
                         </div>
 
-                        <div className="flex items-center mt-6">
-                          <input
-                            type="checkbox"
-                            checked={sub.isPremium}
-                            onChange={(e) => handleSubQuestionChange(idx, 'isPremium', e.target.checked)}
-                            className="w-4 h-4 mr-3"
-                          />
-                          <label className="text-sm font-semibold text-gray-700">Premium</label>
-                        </div>
                       </div>
                     </div>
                   ))}
@@ -997,16 +1102,6 @@ export default function AdminPanel() {
                 </div>
               </div>
 
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={questionData.isPremium}
-                  onChange={(e) => setQuestionData({ ...questionData, isPremium: e.target.checked })}
-                  className="w-4 h-4 mr-3"
-                />
-                <label className="text-sm font-semibold text-gray-700">Mark as Premium</label>
-              </div>
-
               <button
                 type="submit"
                 disabled={isSubmitting}
@@ -1030,7 +1125,7 @@ export default function AdminPanel() {
                     <tr>
                       <th className="px-4 py-2 text-left">Title</th>
                       <th className="px-4 py-2 text-left">Course</th>
-                      <th className="px-4 py-2 text-left">Premium</th>
+                      <th className="px-4 py-2 text-left">Access</th>
                       <th className="px-4 py-2 text-left">Uploaded</th>
                     </tr>
                   </thead>
@@ -1039,7 +1134,7 @@ export default function AdminPanel() {
                       <tr key={m._id} className="border-b hover:bg-gray-50">
                         <td className="px-4 py-2">{m.title}</td>
                         <td className="px-4 py-2">{m.course?.title || 'N/A'}</td>
-                        <td className="px-4 py-2">{m.isPremium ? '⭐ Yes' : '✓ Free'}</td>
+                        <td className="px-4 py-2">Course authorization</td>
                         <td className="px-4 py-2">{new Date(m.uploadedAt || m.createdAt).toLocaleDateString()}</td>
                       </tr>
                     ))}
@@ -1065,7 +1160,6 @@ export default function AdminPanel() {
                       <th className="px-4 py-2 text-left">Year</th>
                       <th className="px-4 py-2 text-left">Session</th>
                       <th className="px-4 py-2 text-left">Difficulty</th>
-                      <th className="px-4 py-2 text-left">Premium</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1084,7 +1178,6 @@ export default function AdminPanel() {
                             {q.difficulty}
                           </span>
                         </td>
-                        <td className="px-4 py-2">{q.isPremium ? '⭐' : '✓'}</td>
                       </tr>
                     ))}
                   </tbody>

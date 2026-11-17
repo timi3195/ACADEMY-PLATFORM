@@ -38,11 +38,12 @@ const buildApp = ({ authenticated = true, role = "student" } = {}) => {
 const makeUser = (role = "student", department = DEPARTMENT_ID) => ({
   _id: STUDENT_ID,
   role,
-  plan: "premium",
-  subscriptionType: "premium",
+  plan: "free",
+  subscriptionType: "free",
   department,
   yearOfStudy: "ND1",
-  semester: "First"
+  semester: "First",
+  coursesEnrolled: []
 });
 
 const makeCourse = (department = DEPARTMENT_ID) => ({
@@ -254,18 +255,16 @@ test("progress update cannot access another user's learning path", async () => {
   }, { path: null });
 });
 
-test("premium access restriction remains enforced", async () => {
+test("free students can generate a learning path for a same-department course without enrollment", async () => {
   await withGenerationMocks(async (state) => {
     const response = await requestGeneration(buildApp(), { courseId: COURSE_ID });
-    assert.equal(response.status, 403);
-    assert.equal(state.courseLookups, 0);
-    assert.equal(state.generationCalls, 0);
-  }, {
-    user: { ...makeUser(), plan: "basic", subscriptionType: "free" }
+    assert.equal(response.status, 200);
+    assert.equal(state.generationCalls, 1);
+    assert.equal(state.saveCalls, 1);
   });
 });
 
-test("administrator retains generation access under existing premium middleware", async () => {
+test("administrator retains generation access", async () => {
   await withGenerationMocks(async (state) => {
     const response = await requestGeneration(buildApp({ role: "admin" }));
     assert.equal(response.status, 200);
@@ -273,18 +272,18 @@ test("administrator retains generation access under existing premium middleware"
     assert.equal(String(state.savedPath.user), STUDENT_ID);
   }, {
     role: "admin",
-    user: { ...makeUser("admin", OTHER_DEPARTMENT_ID), plan: "basic", subscriptionType: "free" },
+    user: makeUser("admin", OTHER_DEPARTMENT_ID),
     course: makeCourse(OTHER_DEPARTMENT_ID)
   });
 });
 
-test("unauthorized students are rejected before Gemini or persistence", async () => {
+test("students from another department are rejected despite a manually enrolled course ID", async () => {
   await withGenerationMocks(async (state) => {
     const response = await requestGeneration(buildApp());
     assert.equal(response.status, 403);
     assert.equal(state.generationCalls, 0);
     assert.equal(state.saveCalls, 0);
-  }, { user: makeUser("student", OTHER_DEPARTMENT_ID) });
+  }, { user: { ...makeUser("student", OTHER_DEPARTMENT_ID), coursesEnrolled: [COURSE_ID] } });
 });
 
 test("invalid course IDs are rejected before course lookup", async () => {

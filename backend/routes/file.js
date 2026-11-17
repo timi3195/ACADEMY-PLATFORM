@@ -5,12 +5,17 @@ const path = require("path");
 const fs = require("fs");
 const mongoose = require("mongoose");
 const File = require("../models/File");
+const Course = require("../models/course");
 const PastQuestionPaper = require("../models/PastQuestionPaper");
 const StudentNote = require("../models/StudentNote");
 const User = require("../models/User");
 const protect = require("../config/middleware/authMiddleware");
 const adminOnly = require("../config/middleware/adminOnly");
 const materialAccessService = require("../services/materialAccessService");
+const {
+  canAccessCourse,
+  getAccessibleCourseFilter
+} = require("../services/courseMembershipService");
 const storageService = require("../services/storageService");
 
 const uploadDir = storageService.getUploadDir();
@@ -173,6 +178,7 @@ router.post("/upload", protect, adminOnly, upload.single("file"), async (req, re
       title,
       description: req.body.description || "",
       course: course.title,
+      courseCode: course.code,
       department: course.department?.toString?.() || course.department,
       semester: req.body.semester || course.semester,
       level: req.body.level || course.level,
@@ -253,21 +259,19 @@ router.post("/past-questions/upload", protect, adminOnly, upload.single("file"),
 });
 
 router.get("/past-questions", protect, async (req, res) => {
-  const User = require("../models/User");
-  const Course = require("../models/course");
   const user = await User.findById(req.user.id).lean();
   const filters = {};
   if (req.query.course) filters.course = req.query.course;
   if (req.query.level) filters.level = req.query.level;
   if (req.query.semester) filters.semester = req.query.semester;
   if (user?.role !== "admin") {
-    if (!user?.department || !user?.yearOfStudy || !user?.semester) {
-      return res.json({ success: true, papers: [], message: "Complete your department, academic level, and semester profile first." });
-    }
-    const courses = await Course.find({ department: user.department, level: user.yearOfStudy, semester: user.semester }).select("_id");
-    filters.course = { $in: courses.map((course) => course._id) };
-    filters.level = user.yearOfStudy;
-    filters.semester = user.semester;
+    const courses = await Course.find(getAccessibleCourseFilter(user)).select("_id").lean();
+    const courseIds = courses.map((course) => String(course._id));
+    filters.course = {
+      $in: req.query.course
+        ? courseIds.filter((courseId) => courseId === String(req.query.course))
+        : courseIds
+    };
   }
   const papers = await PastQuestionPaper.find(filters).populate("course", "title code").sort({ examinationYear: -1 }).lean();
   res.json({ success: true, papers });
@@ -281,16 +285,13 @@ router.get("/past-questions/:id", protect, async (req, res) => {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(401).json({ success: false, message: "Not authorized." });
 
-    if (user.role !== "admin") {
-      const { normalizeAcademicLevel } = require("../utils/academicLevels");
-      const normalizeSemester = (semester) => String(semester || "").toLowerCase().replace(/\s*semester\s*/g, "").trim();
-      const userDepartment = user.department?._id || user.department;
-      if (!userDepartment ||
-          String(userDepartment) !== String(paper.department) ||
-          normalizeAcademicLevel(user.yearOfStudy) !== normalizeAcademicLevel(paper.level) ||
-          normalizeSemester(user.semester) !== normalizeSemester(paper.semester)) {
-        return res.status(403).json({ success: false, message: "You do not have access to this past question paper." });
-      }
+    if (!paper.course || !mongoose.Types.ObjectId.isValid(String(paper.course))) {
+      return res.status(403).json({ success: false, message: "You do not have access to this past question paper." });
+    }
+
+    const course = await Course.findById(paper.course);
+    if (!canAccessCourse(user, course)) {
+      return res.status(403).json({ success: false, message: "You do not have access to this past question paper." });
     }
 
     const stream = await storageService.getObjectReadStream(paper);
@@ -322,28 +323,13 @@ const getMimeType = (filename) => {
 const loadMaterial = async (identifier) => {
   if (mongoose.Types.ObjectId.isValid(identifier)) {
     const material = await File.findById(identifier);
-    if (material) {
-      if (typeof material.populate === 'function') {
-        await material.populate('course');
-      }
-      return material;
-    }
+    if (material) return material;
   }
 
   const fileByUrlRecord = await File.findOne({ fileUrl: `/api/files/download/${identifier}` });
-  if (fileByUrlRecord) {
-    if (typeof fileByUrlRecord.populate === 'function') {
-      await fileByUrlRecord.populate('course');
-    }
-    return fileByUrlRecord;
-  }
+  if (fileByUrlRecord) return fileByUrlRecord;
 
   const allFiles = await File.find();
-  await Promise.all(allFiles.map(async (file) => {
-    if (file && typeof file.populate === 'function' && file.course) {
-      await file.populate('course').catch(() => {});
-    }
-  }));
   return allFiles.find((f) => f.fileUrl?.endsWith(identifier) || f.fileUrl?.endsWith(`-${identifier}`));
 };
 
@@ -450,7 +436,7 @@ router.get('/download/:id', protect, async (req, res) => {
   }
 });
 
-// Get files handler - with department/year filtering for students
+// Get files handler - restricts results to courses the user can access.
 const getFilesHandler = async (req, res) => {
   try {
     const User = require('../models/User');
@@ -469,21 +455,13 @@ const getFilesHandler = async (req, res) => {
       return res.json({ success: true, files: mapped });
     }
 
-    // Students only see files from their department and year
-    if (user && user.department && user.yearOfStudy) {
-      const Course = require('../models/course');
-      const { normalizeAcademicLevel } = require('../utils/academicLevels');
-      const normalizedYear = normalizeAcademicLevel(user.yearOfStudy);
-      const courses = await Course.find({
-        department: user.department._id,
-        level: normalizedYear
-      }).select('_id');
-
-      const courseRecords = await Course.find({
-        department: user.department._id,
-        level: normalizedYear
-      }).select('_id title code');
+    // Students and lecturers only see files from courses they can access.
+    if (user) {
+      const courseRecords = await Course.find(getAccessibleCourseFilter(user)).select('_id title code');
       const courseValues = courseRecords.flatMap((course) => [course._id.toString(), course.title, course.code]);
+      if (courseValues.length === 0) {
+        return res.json({ success: true, files: [], filterApplied: true });
+      }
       const allFiles = await File.find({ course: { $in: courseValues } });
       const accessibleFiles = await Promise.all(
         allFiles.map(async (f) => {
@@ -509,11 +487,11 @@ const getFilesHandler = async (req, res) => {
       return res.json({ success: true, files: mapped, filterApplied: true });
     }
 
-    // If no profile info or no matching course, return empty
+    // Users without an assigned or taught course have no course files to list.
     res.json({
       success: true,
       files: [],
-      message: 'Please complete your profile'
+      message: 'No course access has been assigned to this account.'
     });
   } catch (err) {
     res.status(500).json({
@@ -523,13 +501,10 @@ const getFilesHandler = async (req, res) => {
   }
 };
 
-// Get files for a specific course - with department/year validation
+// Get files for a specific course - requires explicit course access.
 router.get('/course/:courseId', protect, async (req, res) => {
   try {
     const courseId = req.params.courseId;
-    const Course = require('../models/course');
-    const User = require('../models/User');
-    
     const course = await Course.findById(courseId).populate('department');
     if (!course) {
       return res.status(404).json({
@@ -538,20 +513,12 @@ router.get('/course/:courseId', protect, async (req, res) => {
       });
     }
 
-    const user = req.user && req.user.id ? await User.findById(req.user.id).populate('department') : null;
-
-    // Admin can access any course materials
-    if (!(user && user.role === 'admin')) {
-      // Students can only access materials from their own department and year
-      const { normalizeAcademicLevel } = require('../utils/academicLevels');
-      const userLevel = normalizeAcademicLevel(user.yearOfStudy);
-      const courseLevel = normalizeAcademicLevel(course.level);
-      if (!user || !user.department || user.department._id.toString() !== course.department._id.toString() || userLevel !== courseLevel) {
-        return res.status(403).json({
-          success: false,
-          message: 'You do not have access to this course materials'
-        });
-      }
+    const user = req.user && req.user.id ? await User.findById(req.user.id) : null;
+    if (!canAccessCourse(user, course)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have access to this course materials'
+      });
     }
 
     const files = await File.find({ course: { $in: [courseId, course.title, course.code] } });
@@ -582,7 +549,7 @@ router.get('/course/:courseId', protect, async (req, res) => {
   }
 });
 
-// Protected route - get files (requires authentication for premium content)
+// Protected route - get files (requires authentication).
 router.get("/", protect, getFilesHandler);
 
 // Admin route - get all files without filtering

@@ -1,7 +1,5 @@
 import React, { memo, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import PremiumBadge from './PremiumBadge';
-import PriceTag from './PriceTag';
 import { useAuth } from '../utils/auth';
 import { useLibrary } from '../context/LibraryContext';
 
@@ -35,26 +33,21 @@ const buildCoverFallback = (material) => {
 const formatCount = (value) => Number(value || 0).toLocaleString();
 
 const buildBadges = (material) => {
-  const badges = [];
-  const isFree = material?.isFree || Number(material?.price || 0) === 0;
+  const badges = ['FREE'];
   const rating = Number(material?.ratingAverage || 0);
-  const sales = Number(material?.sales || material?.purchases || 0);
   const views = Number(material?.views || 0);
   const createdAt = material?.createdAt ? new Date(material.createdAt) : null;
   const isNew = createdAt && Date.now() - createdAt.getTime() < 1000 * 60 * 60 * 24 * 14;
 
-  if (isFree) badges.push('FREE');
   if (isNew) badges.push('NEW');
-  if (views > 100 || sales > 10) badges.push('TRENDING');
-  if (sales > 20) badges.push('BEST SELLER');
+  if (views > 100) badges.push('TRENDING');
   if (rating >= 4.5) badges.push('TOP RATED');
-  if (material?.isPremium || material?.isPaid || Number(material?.price || 0) > 0) badges.push('PREMIUM');
   if (material?.featured) badges.push('FEATURED');
 
   return badges.slice(0, 4);
 };
 
-function MaterialCard({ material, onPurchase, onPreview, searchTerm = '', progressPercent, showWishlist = false, isWishlisted = false, onWishlistToggle, variant = 'full' }) {
+function MaterialCard({ material, onPreview, searchTerm = '', progressPercent, showWishlist = false, isWishlisted = false, onWishlistToggle, variant = 'full' }) {
   const { user } = useAuth();
   const { items: libraryItems = [] } = useLibrary();
   const [imageLoading, setImageLoading] = useState(Boolean(material?.coverImageUrl));
@@ -64,7 +57,6 @@ function MaterialCard({ material, onPurchase, onPreview, searchTerm = '', progre
   const description = material?.description || 'Academic resource';
   const fallbackCover = useMemo(() => buildCoverFallback(material), [material]);
   const badges = useMemo(() => buildBadges(material), [material]);
-  const isFree = material?.isFree || Number(material?.price || 0) === 0;
   const isPurchased = Boolean(
     material?.isPurchased ||
     material?.hasAccess ||
@@ -84,7 +76,6 @@ function MaterialCard({ material, onPurchase, onPreview, searchTerm = '', progre
   const readerHref = material?._id ? `/reader/${material._id}` : undefined;
   const rating = Number(material?.ratingAverage || 0);
   const reviewCount = Number(material?.ratingCount || 0);
-  const salesCount = Number(material?.sales || material?.purchases || 0);
   const viewsCount = Number(material?.views || 0);
   const pages = Number(material?.pageCount || material?.previewPages || 0);
   const courseCode = material?.course?.code || material?.course?.title || 'General';
@@ -136,8 +127,7 @@ function MaterialCard({ material, onPurchase, onPreview, searchTerm = '', progre
 
           <div className="product-card__compact-meta">
             <div className="product-card__compact-course">{courseCode}</div>
-            {!isFree && <span className="product-card__compact-price">{material?.price ? `₦${Number(material.price).toLocaleString()}` : 'Free'}</span>}
-            {isFree && <span className="product-card__compact-price">FREE</span>}
+            <span className="product-card__compact-price">FREE</span>
           </div>
 
           <div className="product-card__compact-status">
@@ -159,14 +149,9 @@ function MaterialCard({ material, onPurchase, onPreview, searchTerm = '', progre
                 Read
               </Link>
             )}
-            {onPurchase && !isPurchased && !isOwner && !isUnavailable && (
-              <button type="button" className="product-card__button product-card__button--compact" onClick={() => onPurchase(material)}>
-                {isFree ? 'Get' : 'Buy'}
-              </button>
-            )}
-            {!isPurchased && !isOwner && detailHref && !onPurchase && (
+            {!isPurchased && !isOwner && detailHref && (
               <Link className="product-card__button product-card__button--compact" to={detailHref} state={{ material }}>
-                View
+                View resource
               </Link>
             )}
             {showWishlist && onWishlistToggle && (
@@ -218,7 +203,7 @@ function MaterialCard({ material, onPurchase, onPreview, searchTerm = '', progre
       <div className="product-card__content">
         <div className="product-card__top-row">
           <span className="product-card__type">{material?.materialType || 'Resource'}</span>
-          <PremiumBadge active={material?.isPremium || material?.isPaid || !isFree} />
+          <span className="product-card__free-pill">FREE</span>
         </div>
 
         <div>
@@ -249,7 +234,6 @@ function MaterialCard({ material, onPurchase, onPreview, searchTerm = '', progre
 
         <div className="product-card__stats-row">
           <span>👁 {formatCount(viewsCount)}</span>
-          <span>🛒 {formatCount(salesCount)}</span>
           <span>📄 {pages || '—'}</span>
         </div>
 
@@ -262,10 +246,7 @@ function MaterialCard({ material, onPurchase, onPreview, searchTerm = '', progre
           </div>
         )}
 
-        <div className="product-card__price-row">
-          <PriceTag price={material?.price} isFree={isFree} discountedPrice={material?.discountedPrice} />
-          {isFree && <span className="product-card__free-pill">FREE</span>}
-        </div>
+        <div className="product-card__price-row"><span className="product-card__free-pill">Free for authorized students</span></div>
 
         <div className="product-card__state-row">
           {material?.status === 'draft' && <span className="product-card__status">Draft</span>}
@@ -287,11 +268,6 @@ function MaterialCard({ material, onPurchase, onPreview, searchTerm = '', progre
                 Preview
               </button>
             )}
-            {onPurchase && !isPurchased && !isOwner && !isUnavailable && (
-              <button type="button" className="product-card__button" onClick={() => onPurchase(material)}>
-                {isFree ? 'Get now' : 'Buy now'}
-              </button>
-            )}
             {isPurchased && readerHref && (
               <Link className="product-card__button" to={readerHref} state={{ material }}>
                 Read now
@@ -302,9 +278,9 @@ function MaterialCard({ material, onPurchase, onPreview, searchTerm = '', progre
                 Continue reading
               </Link>
             )}
-            {!isPurchased && !isOwner && detailHref && !onPurchase && (
+            {!isPurchased && !isOwner && detailHref && (
               <Link className="product-card__button" to={detailHref} state={{ material }}>
-                View details
+                View resource
               </Link>
             )}
           </div>

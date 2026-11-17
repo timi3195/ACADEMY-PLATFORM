@@ -12,7 +12,7 @@ describe('normalizeMaterialFormValue', () => {
 });
 
 describe('buildMaterialPayload', () => {
-  it('converts price fields and derives paid/free flags', () => {
+  it('forces materials to be free regardless of legacy pricing fields', () => {
     const payload = buildMaterialPayload({
       title: 'Notes',
       subtitle: 'A short guide',
@@ -38,7 +38,7 @@ describe('buildMaterialPayload', () => {
 
     expect(payload.course).toBe('course-123');
     expect(payload.department).toBe('dept-456');
-    expect(payload.price).toBe(150);
+    expect(payload.price).toBe(0);
     expect(payload.previewPages).toBe(3);
     expect(payload.subtitle).toBe('A short guide');
     expect(payload.authorName).toBe('Ada Lovelace');
@@ -46,8 +46,9 @@ describe('buildMaterialPayload', () => {
     expect(payload.publisher).toBe('Campus Press');
     expect(payload.fileSize).toBe(1024000);
     expect(payload.fileType).toBe('application/pdf');
-    expect(payload.isFree).toBe(false);
-    expect(payload.isPaid).toBe(true);
+    expect(payload.isFree).toBe(true);
+    expect(payload.isPaid).toBe(false);
+    expect(payload.pricingMode).toBe('free');
     expect(payload.semester).toBe('Second');
     expect(payload.materialType).toBe('PDF');
     expect(payload.tags).toBe('math,exam');

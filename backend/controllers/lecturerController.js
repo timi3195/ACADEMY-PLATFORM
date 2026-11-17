@@ -1,5 +1,28 @@
 const lecturerService = require("../services/lecturerService");
 const lecturerValidator = require("../validators/lecturerValidator");
+const commerceUnavailable = require("../middleware/commerceUnavailable");
+
+const hasPaidPricing = (body) =>
+  body.isPaid === true ||
+  body.isPaid === "true" ||
+  body.isPremium === true ||
+  body.isPremium === "true" ||
+  body.pricingMode === "paid" ||
+  Number(body.price || 0) > 0 ||
+  Number(body.premiumDiscount || body.discount || 0) > 0;
+
+exports.rejectPaidMaterialOperation = async (req, res, next) => {
+  if (!hasPaidPricing(req.body || {})) return next();
+
+  const uploadedFiles = Object.values(req.files || {}).flat();
+  try {
+    await Promise.all(uploadedFiles.map((file) => require("node:fs/promises").unlink(file.path)));
+  } catch (error) {
+    console.error("Unable to clean up rejected commerce upload:", error.message);
+    return res.status(500).json({ success: false, message: "Unable to process uploaded file." });
+  }
+  return commerceUnavailable.send(res);
+};
 
 exports.getDashboard = async (req, res) => {
   try {

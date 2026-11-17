@@ -1,36 +1,18 @@
 const express = require("express");
-const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
 const protect = require("../config/middleware/authMiddleware");
 const optionalAuth = require("../config/middleware/optionalAuth");
 const lecturerOnly = require("../config/middleware/lecturerOnly");
-const adminOnly = require("../config/middleware/adminOnly");
 const marketplaceController = require("../controllers/marketplaceController");
-const storageService = require("../services/storageService");
+const commerceUnavailable = require("../middleware/commerceUnavailable");
 
 const router = express.Router();
-
-const uploadDir = storageService.getUploadDir();
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadDir),
-  filename: (req, file, cb) => {
-    const timestamp = Date.now();
-    const sanitizedFilename = file.originalname.replace(/[^a-zA-Z0-9_.-]/g, "-");
-    cb(null, `${timestamp}-${sanitizedFilename}`);
-  }
-});
-
-const upload = multer({ storage });
 
 // Lecturer uploads a marketplace material
 router.post(
   "/materials",
   protect,
   lecturerOnly,
-  upload.single("file"),
-  marketplaceController.createMaterial
+  commerceUnavailable
 );
 
 // Public marketplace listing
@@ -48,8 +30,7 @@ router.put(
   "/materials/:id",
   protect,
   lecturerOnly,
-  upload.single("file"),
-  marketplaceController.updateMaterial
+  commerceUnavailable
 );
 router.delete(
   "/materials/:id",
@@ -72,12 +53,12 @@ router.get("/library", protect, marketplaceController.getLibrary);
 router.post(
   "/materials/:id/purchase/initialize",
   protect,
-  marketplaceController.initializePurchase
+  commerceUnavailable
 );
 router.get(
   "/materials/:id/purchase/verify/:reference",
   protect,
-  marketplaceController.verifyPurchase
+  commerceUnavailable
 );
 
 // Admin moderation removed: approval workflow deprecated.

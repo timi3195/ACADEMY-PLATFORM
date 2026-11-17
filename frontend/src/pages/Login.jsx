@@ -57,12 +57,12 @@ export default function Login() {
           <p className="auth-visual__eyebrow">Your study hub</p>
           <h2 className="auth-visual__title">Welcome back to smarter learning.</h2>
           <p className="auth-visual__text">
-            Sign in to access your courses, notes, practice quizzes, and premium learning tools in one place.
+            Sign in to access your courses, notes, practice quizzes, and learning tools in one place.
           </p>
           <ul className="auth-visual__list">
             <li>Continue your course progress</li>
             <li>Review saved lesson materials</li>
-            <li>Unlock premium academic support</li>
+            <li>Access learning resources for your courses</li>
           </ul>
         </div>
       </div>

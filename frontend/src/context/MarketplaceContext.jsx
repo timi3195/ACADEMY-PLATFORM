@@ -21,7 +21,6 @@ export function MarketplaceProvider({ children }) {
       level: params.level || '',
       semester: params.semester || '',
       materialType: params.materialType || '',
-      price: params.price || '',
       sortBy: params.sortBy || 'newest'
     };
     const requestKey = JSON.stringify(normalizedParams);

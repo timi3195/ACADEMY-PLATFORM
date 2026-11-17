@@ -9,14 +9,20 @@ const searchRouter = require("../routes/search");
 const Question = require("../models/Question");
 const Course = require("../models/course");
 const User = require("../models/User");
+const Note = require("../models/note");
+const Department = require("../models/Department");
 
 const STUDENT_ID = "507f1f77bcf86cd799439011";
 const COURSE_ID = "507f1f77bcf86cd799439021";
+const OTHER_COURSE_ID = "507f1f77bcf86cd799439022";
 const DEPARTMENT_ID = "507f1f77bcf86cd799439031";
+const OTHER_DEPARTMENT_ID = "507f1f77bcf86cd799439032";
+const LECTURER_ID = "507f1f77bcf86cd799439041";
+const OTHER_LECTURER_ID = "507f1f77bcf86cd799439042";
 
-const buildApp = () => {
+const buildApp = ({ userId = STUDENT_ID, role = "student" } = {}) => {
   const app = express();
-  const token = generateAccessToken(STUDENT_ID, { role: "student" });
+  const token = generateAccessToken(userId, { role });
   app.use((req, res, next) => {
     req.headers.authorization = "Bearer".concat(" ", token);
     next();
@@ -25,29 +31,90 @@ const buildApp = () => {
   return app;
 };
 
-const withSearchMocks = async (run) => {
+const courses = [
+  {
+    _id: COURSE_ID,
+    title: "Department Mathematics",
+    code: "MATH101",
+    department: DEPARTMENT_ID,
+    lecturers: [LECTURER_ID]
+  },
+  {
+    _id: OTHER_COURSE_ID,
+    title: "Other Department Mathematics",
+    code: "MATH201",
+    department: OTHER_DEPARTMENT_ID,
+    lecturers: [OTHER_LECTURER_ID]
+  }
+];
+const notes = [
+  {
+    _id: "507f1f77bcf86cd799439051",
+    title: "Department Algebra Notes",
+    content: "Department-only note content",
+    course: COURSE_ID
+  },
+  {
+    _id: "507f1f77bcf86cd799439052",
+    title: "Other Department Algebra Notes",
+    content: "PRIVATE_OTHER_DEPARTMENT_SNIPPET",
+    course: OTHER_COURSE_ID
+  }
+];
+
+const query = (value) => ({
+  select() { return this; },
+  sort() { return this; },
+  limit() { return this; },
+  populate() { return this; },
+  lean: async () => value
+});
+
+const withSearchMocks = async (run, {
+  user = {
+    _id: STUDENT_ID,
+    id: STUDENT_ID,
+    role: "student",
+    department: DEPARTMENT_ID,
+    coursesEnrolled: [OTHER_COURSE_ID]
+  },
+  departmentRecords = [
+    { _id: DEPARTMENT_ID },
+    { _id: OTHER_DEPARTMENT_ID }
+  ],
+  courseRecords = courses
+} = {}) => {
   const originals = {
     questionFind: Question.find,
     courseFind: Course.find,
-    userFindById: User.findById
+    userFindById: User.findById,
+    noteFind: Note.find,
+    departmentFind: Department.find
   };
-  const state = { filter: null, projection: null, courseFilter: null };
-  User.findById = async () => ({
-    _id: STUDENT_ID,
-    role: "student",
-    department: DEPARTMENT_ID,
-    yearOfStudy: "ND1",
-    semester: "First"
-  });
+  const state = {
+    filter: null,
+    projection: null,
+    courseFilter: null,
+    noteFilter: null,
+    departmentFilter: null
+  };
+  User.findById = async () => user;
   Course.find = (filter) => {
     state.courseFilter = filter;
-    return {
-      select: async () => [{ _id: COURSE_ID }],
-      sort() { return this; },
-      limit() { return this; },
-      populate() { return this; },
-      lean: async () => []
-    };
+    const matches = courseRecords.filter((course) => {
+      if (filter.department && String(filter.department) !== String(course.department)) return false;
+      if (filter.lecturers && !course.lecturers.some((id) => String(id) === String(filter.lecturers))) return false;
+      if (filter._id?.$in && !filter._id.$in.some((id) => String(id) === String(course._id))) return false;
+      return true;
+    });
+    return query(matches);
+  };
+  Department.find = (filter) => {
+    state.departmentFilter = filter;
+    const matches = departmentRecords.filter((department) =>
+      filter._id.$in.some((id) => String(id) === String(department._id))
+    );
+    return query(matches);
   };
   Question.find = (filter, projection) => {
     state.filter = filter;
@@ -66,9 +133,19 @@ const withSearchMocks = async (run) => {
         topic: "Algebra",
         course: COURSE_ID,
         options: ["A", "B"]
-      }]
+      }].filter((question) => {
+        const courseIds = filter.course?.$in;
+        return !courseIds || courseIds.some((id) => String(id) === String(question.course));
+      })
     };
     return query;
+  };
+  Note.find = (filter) => {
+    state.noteFilter = filter;
+    const courseIds = filter.course?.$in;
+    return query(notes.filter((note) =>
+      !courseIds || courseIds.some((id) => String(id) === String(note.course))
+    ));
   };
 
   try {
@@ -77,10 +154,12 @@ const withSearchMocks = async (run) => {
     Question.find = originals.questionFind;
     Course.find = originals.courseFind;
     User.findById = originals.userFindById;
+    Note.find = originals.noteFind;
+    Department.find = originals.departmentFind;
   }
 };
 
-test("global question search is limited to approved questions in the student's courses", async () => {
+test("global question search is limited to approved questions in the student's department", async () => {
   await withSearchMocks(async (state) => {
     const response = await request(buildApp())
       .get("/api/search?q=algebra&type=questions");
@@ -93,16 +172,110 @@ test("global question search is limited to approved questions in the student's c
   });
 });
 
-test("advanced question search applies the same approval, course, and safe-field restrictions", async () => {
+test("advanced search ignores student-supplied departments and keeps results in their department", async () => {
   await withSearchMocks(async (state) => {
     const response = await request(buildApp())
       .get("/api/search/advanced?q=algebra&department=507f1f77bcf86cd799439099&level=HND2");
     assert.equal(response.status, 200);
     assert.equal(state.filter.approvalStatus, "approved");
     assert.deepEqual(state.filter.course.$in, [COURSE_ID]);
-    assert.equal(state.filter.department, "507f1f77bcf86cd799439099");
-    assert.equal(state.filter.level, "HND2");
+    assert.equal(state.filter.department, undefined);
+    assert.deepEqual(state.courseFilter._id.$in, [COURSE_ID]);
     assert.match(state.projection, /question topic course year session difficulty options/);
     assert.equal(Object.prototype.hasOwnProperty.call(response.body.questions[0], "answer"), false);
+  });
+});
+
+test("student note search returns only in-department notes, snippets, and course metadata", async () => {
+  await withSearchMocks(async (state) => {
+    const response = await request(buildApp()).get("/api/search?q=algebra&type=notes");
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body.notes.map((note) => note._id), ["507f1f77bcf86cd799439051"]);
+    assert.deepEqual(state.noteFilter.course.$in, [COURSE_ID]);
+    assert.equal(JSON.stringify(response.body).includes("PRIVATE_OTHER_DEPARTMENT_SNIPPET"), false);
+    assert.equal(JSON.stringify(response.body).includes(OTHER_COURSE_ID), false);
+  });
+});
+
+test("global student search limits course and note results to the registered department", async () => {
+  await withSearchMocks(async () => {
+    const response = await request(buildApp()).get("/api/search?q=mathematics");
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body.courses.map((course) => course._id), [COURSE_ID]);
+    assert.deepEqual(response.body.notes.map((note) => note._id), ["507f1f77bcf86cd799439051"]);
+  });
+});
+
+test("missing and deleted student departments fail closed in search", async (t) => {
+  await t.test("missing department reference", async () => {
+    await withSearchMocks(async () => {
+      const response = await request(buildApp()).get("/api/search?q=algebra&type=notes");
+      assert.equal(response.status, 200);
+      assert.deepEqual(response.body.notes, []);
+    }, { user: { _id: STUDENT_ID, role: "student" } });
+  });
+
+  await t.test("deleted department record", async () => {
+    await withSearchMocks(async (state) => {
+      const response = await request(buildApp()).get("/api/search?q=algebra&type=notes");
+      assert.equal(response.status, 200);
+      assert.deepEqual(response.body.notes, []);
+      assert.deepEqual(state.noteFilter.course.$in, []);
+    }, { departmentRecords: [{ _id: OTHER_DEPARTMENT_ID }] });
+  });
+});
+
+test("lecturer search includes only assigned courses with existing departments", async (t) => {
+  await t.test("approved lecturer sees assigned-course notes only", async () => {
+    await withSearchMocks(async () => {
+      const response = await request(buildApp({ userId: LECTURER_ID, role: "lecturer" }))
+        .get("/api/search?q=algebra&type=notes");
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(response.body.notes.map((note) => note._id), ["507f1f77bcf86cd799439051"]);
+    }, {
+      user: {
+        _id: LECTURER_ID,
+        id: LECTURER_ID,
+        role: "lecturer",
+        lecturerStatus: "approved"
+      }
+    });
+  });
+
+  await t.test("deleted course department fails closed", async () => {
+    await withSearchMocks(async () => {
+      const response = await request(buildApp({ userId: LECTURER_ID, role: "lecturer" }))
+        .get("/api/search?q=algebra&type=notes");
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(response.body.notes, []);
+    }, {
+      user: {
+        _id: LECTURER_ID,
+        id: LECTURER_ID,
+        role: "lecturer",
+        lecturerStatus: "approved"
+      },
+      courseRecords: [{ ...courses[0], department: OTHER_DEPARTMENT_ID }],
+      departmentRecords: []
+    });
+  });
+});
+
+test("administrators retain global search access", async () => {
+  await withSearchMocks(async () => {
+    const response = await request(buildApp({ role: "admin" }))
+      .get("/api/search?q=algebra&type=notes");
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body.notes.map((note) => note._id), [
+      "507f1f77bcf86cd799439051",
+      "507f1f77bcf86cd799439052"
+    ]);
+  }, {
+    user: { _id: STUDENT_ID, id: STUDENT_ID, role: "admin" }
   });
 });

@@ -23,7 +23,6 @@ export default function Sidebar() {
 
   if (isApprovedLecturer || user?.role === 'admin') {
     links.splice(8, 0, { to: '/lecturer', label: 'Lecturer', icon: '▣' });
-    links.splice(9, 0, { to: '/lecturer/payment-settings', label: 'Payment Settings', icon: '₦' });
   } else if (user?.role === 'student') {
     links.splice(8, 0, { to: '/lecturer/register', label: 'Become Lecturer', icon: '▣' });
   }

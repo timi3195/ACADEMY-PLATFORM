@@ -5,8 +5,6 @@ export { default as SearchBar } from './SearchBar';
 export { default as LoadingSpinner } from './LoadingSpinner';
 export { default as EmptyState } from './EmptyState';
 export { default as ErrorState } from './ErrorState';
-export { default as PremiumBadge } from './PremiumBadge';
-export { default as PriceTag } from './PriceTag';
 export { default as MaterialCard } from './MaterialCard';
 export { default as CourseBadge } from './CourseBadge';
 export { default as DepartmentBadge } from './DepartmentBadge';

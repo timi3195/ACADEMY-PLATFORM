@@ -1,6 +1,141 @@
 const mongoose = require("mongoose");
 const Transaction = require("../models/Transaction");
 const { normalizeAcademicLevel } = require('../utils/academicLevels');
+const { canAccessCourse } = require("./courseMembershipService");
+
+const idOf = (value) => String(value?._id || value || "");
+const ACADEMIC_LEVELS = new Set(["ND1", "ND2", "HND1", "HND2"]);
+const MARKETPLACE_PUBLICATION = Object.freeze({
+  productStatus: "published",
+  approved: true,
+  statuses: Object.freeze(["published", "approved"]),
+  visibilities: Object.freeze(["public", "unlisted"])
+});
+
+const getMarketplacePublicationFilter = ({ publicOnly = false } = {}) => ({
+  productStatus: MARKETPLACE_PUBLICATION.productStatus,
+  approved: MARKETPLACE_PUBLICATION.approved,
+  status: { $in: [...MARKETPLACE_PUBLICATION.statuses] },
+  visibility: publicOnly
+    ? "public"
+    : { $in: [...MARKETPLACE_PUBLICATION.visibilities] },
+  hidden: false,
+  isDeleted: false,
+  deletedAt: null
+});
+
+const normalizeSemester = (semester) => {
+  if (typeof semester !== "string") return "";
+  const normalized = semester.trim().toLowerCase().replace(/\s+semester$/, "");
+  if (normalized === "first") return "First";
+  if (normalized === "second") return "Second";
+  return "";
+};
+
+const isRecognizedSemester = (semester) => Boolean(normalizeSemester(semester));
+
+const hasCourseAssociatedMetadata = (material) =>
+  Boolean(material.course && material.department) &&
+  ACADEMIC_LEVELS.has(normalizeAcademicLevel(material.level));
+
+const isCourseMaterial = (material) =>
+  Boolean(material.courseCode) ||
+  hasCourseAssociatedMetadata(material);
+
+const isLegacyCourseMaterial = (material) =>
+  (
+    material.materialType === "Lecture Note" &&
+    material.category === "Lecture Notes"
+  );
+
+const isCourseAssociatedMaterial = (material) =>
+  isCourseMaterial(material) || isLegacyCourseMaterial(material);
+
+const isMarketplaceMaterial = (material) =>
+  Boolean(material) &&
+  material.productStatus === MARKETPLACE_PUBLICATION.productStatus &&
+  material.approved === MARKETPLACE_PUBLICATION.approved &&
+  MARKETPLACE_PUBLICATION.statuses.includes(material.status) &&
+  MARKETPLACE_PUBLICATION.visibilities.includes(material.visibility) &&
+  material.hidden === false &&
+  material.isDeleted === false &&
+  material.deletedAt == null;
+
+const classifyMaterial = (material) => {
+  if (isCourseMaterial(material)) return "course";
+  if (isLegacyCourseMaterial(material)) return "course";
+  if (isMarketplaceMaterial(material)) return "marketplace";
+  return "unknown";
+};
+
+const resolveCourseDepartmentId = async (departmentValue, expectedId) => {
+  if (mongoose.Types.ObjectId.isValid(idOf(departmentValue))) {
+    const departmentId = idOf(departmentValue);
+    return !expectedId || departmentId === expectedId ? departmentId : null;
+  }
+  if (typeof departmentValue !== "string" || !departmentValue.trim()) return null;
+
+  const Department = require("../models/Department");
+  const departments = await Department.find({ name: departmentValue.trim() });
+  return departments.length === 1 && (!expectedId || idOf(departments[0]._id) === expectedId)
+    ? idOf(departments[0]._id)
+    : null;
+};
+
+const resolveCourseForMaterial = async (material) => {
+  if (!isCourseMaterial(material) || !material.course) {
+    return null;
+  }
+
+  const Course = require("../models/course");
+  if (typeof material.courseCode === "string" && material.courseCode.trim()) {
+    const courses = await Course.find({ code: material.courseCode.trim() });
+    if (courses.length !== 1) return null;
+    const [course] = courses;
+    if (!course.title || course.title !== material.course || !course.department || !course.level) {
+      return null;
+    }
+    const departmentId = await resolveCourseDepartmentId(
+      material.department,
+      idOf(course.department)
+    );
+    if (
+      !departmentId ||
+      normalizeAcademicLevel(course.level) !== normalizeAcademicLevel(material.level) ||
+      (material.semester &&
+        (!isRecognizedSemester(material.semester) ||
+          normalizeSemester(course.semester) !== normalizeSemester(material.semester)))
+    ) {
+      return null;
+    }
+    return course;
+  }
+
+  if (!material.department || !material.level || !isRecognizedSemester(material.semester)) return null;
+  const departmentId = await resolveCourseDepartmentId(material.department);
+  if (!departmentId) return null;
+  const query = {
+    title: material.course,
+    department: departmentId,
+    level: material.level,
+    semester: normalizeSemester(material.semester)
+  };
+  const candidates = await Course.find(query);
+  if (candidates.length !== 1) return null;
+  const [course] = candidates;
+
+  if (
+    !course ||
+    course.title !== material.course ||
+    idOf(course.department) !== departmentId ||
+    normalizeAcademicLevel(course.level) !== normalizeAcademicLevel(material.level) ||
+    normalizeSemester(course.semester) !== normalizeSemester(material.semester)
+  ) {
+    return null;
+  }
+
+  return course;
+};
 
 /**
  * Determine whether a user is an admin.
@@ -23,14 +158,6 @@ const isOwner = (user, material) => {
 /**
  * Determine whether a user has an active premium subscription.
  */
-const hasPremiumAccess = (user) => {
-  if (!user) return false;
-  const isPremium =
-    (user.plan === "premium" || user.subscriptionType === "premium");
-  const expiresAt = user.subscriptionExpiresAt;
-  return isPremium && expiresAt && new Date(expiresAt) > new Date();
-};
-
 /**
  * Check whether the user has already purchased the material.
  */
@@ -51,26 +178,23 @@ const userHasPurchasedMaterial = async (user, material) => {
  * Optional course membership restriction for course materials.
  * Marketplace materials are not restricted by course membership.
  */
-const verifyCourseMembership = ({ user, material }) => {
-  if (!material.course || !material.course.department || !material.course.level) {
+const verifyCourseMembership = async ({ user, material }) => {
+  const classification = classifyMaterial(material);
+  if (classification === "marketplace") {
     return { allowed: true };
   }
-
-  if (!user || !user.department || !user.yearOfStudy) {
-    return { allowed: false, reason: "complete_profile" };
+  if (classification === "unknown") {
+    return { allowed: false, reason: "course_unresolved" };
   }
 
-  if (user.department._id.toString() !== material.course.department._id.toString()) {
-    return { allowed: false, reason: "department_mismatch" };
+  const course = await resolveCourseForMaterial(material);
+  if (!course) {
+    return { allowed: false, reason: "course_unresolved" };
   }
 
-  const userLevel = normalizeAcademicLevel(user.yearOfStudy);
-  const courseLevel = normalizeAcademicLevel(material.course.level);
-  if (userLevel !== courseLevel) {
-    return { allowed: false, reason: "year_mismatch" };
-  }
-
-  return { allowed: true };
+  return canAccessCourse(user, course)
+    ? { allowed: true }
+    : { allowed: false, reason: "course_membership_required" };
 };
 
 /**
@@ -98,30 +222,17 @@ const canViewMaterial = async ({ user, material, restrictByCourse = false }) => 
   }
 
   if (restrictByCourse) {
-    const membership = verifyCourseMembership({ user, material });
+    if (!isMarketplaceMaterial(material)) {
+      return { allowed: false, reason: "unpublished" };
+    }
+
+    const membership = await verifyCourseMembership({ user, material });
     if (!membership.allowed) {
       return { allowed: false, reason: membership.reason };
     }
   }
 
-  if (material.isFree || (!material.isPaid && !material.isPremium)) {
-    return { allowed: true, reason: "free" };
-  }
-
-  if (material.isPremium) {
-    return hasPremiumAccess(user)
-      ? { allowed: true, reason: "premium" }
-      : { allowed: false, reason: "premium_required" };
-  }
-
-  if (material.isPaid) {
-    const purchased = await userHasPurchasedMaterial(user, material);
-    return purchased
-      ? { allowed: true, reason: "purchased" }
-      : { allowed: false, reason: "purchase_required" };
-  }
-
-  return { allowed: true, reason: "default_allowed" };
+  return { allowed: true, reason: "available_without_purchase" };
 };
 
 /**
@@ -314,6 +425,9 @@ const recordPurchaseWithSplit = async ({ user, material, reference, amount, disc
 };
 
 module.exports = {
+  getMarketplacePublicationFilter,
+  isMarketplaceMaterial,
+  isCourseAssociatedMaterial,
   canViewMaterial,
   canDownloadMaterial,
   canPurchaseMaterial,

@@ -18,7 +18,6 @@ export function LibraryProvider({ children }) {
       semester: params.semester || '',
       level: params.level || '',
       materialType: params.materialType || '',
-      price: params.price || '',
       page: Number(params.page || 1),
       limit: Number(params.limit || 8)
     };

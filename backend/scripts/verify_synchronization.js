@@ -1,7 +1,7 @@
 /**
  * Course Synchronization Verification Script
  * Tests that admin uploads are properly synchronized with student portal
- * Verifies department-based visibility is working correctly
+ * Verifies admin-managed course enrollment is working correctly
  * 
  * Run with: node scripts/verify_synchronization.js
  */
@@ -14,6 +14,7 @@ const Course = require('../models/course');
 const File = require('../models/File');
 const User = require('../models/User');
 const Department = require('../models/Department');
+const { canAccessCourse } = require('../services/courseMembershipService');
 
 async function verifySynchronization() {
   try {
@@ -89,45 +90,35 @@ async function verifySynchronization() {
       });
     }
 
-    // Step 5: Simulate student access
+    // Step 5: Check access using the same admin-managed course IDs as the API.
     console.log('\n🔐 Step 5: Simulating Access Control');
     if (courses.length > 0 && students.length > 0) {
       const testStudent = students[0];
       const testCourse = courses[0];
 
       console.log(`  Testing access for: ${testStudent.name}`);
-      console.log(`  Student Department: ${testStudent.department?.name}`);
-      console.log(`  Student Year: ${testStudent.yearOfStudy}`);
       console.log(`  Test Course: "${testCourse.title}"`);
-      console.log(`  Course Department: ${testCourse.department?.name}`);
-      console.log(`  Course Level: ${testCourse.level}`);
-
-      const deptMatch = testStudent.department?._id.toString() === testCourse.department._id.toString();
-      const yearMatch = testStudent.yearOfStudy === testCourse.level;
-
-      console.log(`\n  Access Rules:`);
-      console.log(`    Department Match: ${deptMatch ? '✅ YES' : '❌ NO'}`);
-      console.log(`    Year Match: ${yearMatch ? '✅ YES' : '❌ NO'}`);
-      console.log(`    Can Access Course: ${deptMatch && yearMatch ? '✅ YES' : '❌ NO'}`);
+      console.log(`  Assigned course IDs: ${(testStudent.coursesEnrolled || []).map(id => id.toString()).join(', ') || 'none'}`);
+      console.log(`  Can Access Course: ${canAccessCourse(testStudent, testCourse) ? '✅ YES' : '❌ NO'}`);
     }
 
     // Step 6: Synchronization Summary
     console.log('\n📋 Step 6: Synchronization Summary');
     console.log('  ✅ Course-Department Binding: Active');
-    console.log('  ✅ Student-Department Binding: Active');
+    console.log('  ✅ Admin-Managed Student Course Enrollment: Active');
     console.log('  ✅ Material-Course Binding: Active');
     console.log('  ✅ Access Control: Enforced on backend');
-    console.log('  ✅ Frontend Filtering: Applied client-side');
+    console.log('  ✅ Frontend Filtering: Uses assigned course IDs and backend access metadata');
 
     console.log('\n🔄 How Synchronization Works:');
     console.log('  1. Admin uploads course with department & level');
     console.log('  2. Backend automatically stores department reference');
-    console.log('  3. Student logs in with department & year of study');
-    console.log('  4. GET /api/courses filters by student\'s dept & year');
+    console.log('  3. An admin assigns course IDs to each student');
+    console.log('  4. GET /api/courses filters by the student\'s assigned course IDs');
     console.log('  5. Only matching courses appear in student portal');
     console.log('  6. Accessing course directly also validates access');
     console.log('  7. Materials inherit course visibility rules');
-    console.log('  8. NO manual intervention required!');
+    console.log('  8. Students without assigned course IDs remain denied until an admin assigns them');
 
     console.log('\n✅ Synchronization verification complete!');
 

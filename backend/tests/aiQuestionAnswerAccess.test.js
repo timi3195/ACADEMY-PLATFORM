@@ -58,7 +58,8 @@ const withAiQuestionMocks = async (run) => {
     role: "student",
     department: DEPARTMENT_ID,
     yearOfStudy: "ND1",
-    semester: "First"
+    semester: "First",
+    coursesEnrolled: [COURSE_ID]
   });
   Course.findById = async () => ({
     _id: COURSE_ID,

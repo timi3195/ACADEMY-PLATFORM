@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useAuth } from '../utils/auth';
 import NotificationBanner from './NotificationBanner';
 
@@ -6,31 +6,10 @@ export default function StudentProfileCompletionModal({ isOpen, onClose, onSucce
   const { user, updateProfile } = useAuth();
   const [formData, setFormData] = useState({
     matricNumber: user?.matricNumber || '',
-    yearOfStudy: user?.yearOfStudy || '',
-    department: user?.department?._id || user?.department || ''
+    yearOfStudy: user?.yearOfStudy || ''
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [departments, setDepartments] = useState([]);
-
-  // Load departments on mount
-  React.useEffect(() => {
-    if (isOpen) {
-      loadDepartments();
-    }
-  }, [isOpen]);
-
-  const loadDepartments = async () => {
-    try {
-      const response = await fetch('/api/departments');
-      const result = await response.json();
-      if (result.success && Array.isArray(result.departments)) {
-        setDepartments(result.departments);
-      }
-    } catch (err) {
-      console.error('Failed to load departments:', err);
-    }
-  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -53,11 +32,6 @@ export default function StudentProfileCompletionModal({ isOpen, onClose, onSucce
       setError('Academic level is required');
       return;
     }
-    if (!formData.department) {
-      setError('Department is required');
-      return;
-    }
-
     try {
       setLoading(true);
       await updateProfile(formData);
@@ -100,6 +74,9 @@ export default function StudentProfileCompletionModal({ isOpen, onClose, onSucce
         <h2 style={{ marginTop: 0, marginBottom: '8px' }}>Complete Your Student Profile</h2>
         <p style={{ color: '#64748b', marginBottom: '16px' }}>
           Before purchasing this material, please provide your student information.
+        </p>
+        <p style={{ color: '#64748b', marginBottom: '16px' }}>
+          Your department is set during registration. Contact an administrator if it needs correction.
         </p>
 
         {error && <NotificationBanner type="error" message={error} onClose={() => setError('')} />}
@@ -146,31 +123,6 @@ export default function StudentProfileCompletionModal({ isOpen, onClose, onSucce
               <option value="ND2">ND2</option>
               <option value="HND1">HND1</option>
               <option value="HND2">HND2</option>
-            </select>
-          </div>
-
-          <div style={{ marginBottom: '16px' }}>
-            <label style={{ display: 'block', marginBottom: '6px', fontWeight: 600, fontSize: '14px' }}>Department</label>
-            <select
-              name="department"
-              value={formData.department}
-              onChange={handleChange}
-              required
-              style={{
-                width: '100%',
-                padding: '10px',
-                border: '1px solid #d1d5db',
-                borderRadius: '6px',
-                fontSize: '14px',
-                fontFamily: 'inherit'
-              }}
-            >
-              <option value="">-- Select your department --</option>
-              {departments.map((dept) => (
-                <option key={dept._id} value={dept._id}>
-                  {dept.name}
-                </option>
-              ))}
             </select>
           </div>
 

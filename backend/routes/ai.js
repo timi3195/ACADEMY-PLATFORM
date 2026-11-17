@@ -7,7 +7,6 @@ const router = express.Router();
 
 // Middleware
 const protect = require("../config/middleware/authMiddleware");
-const requirePremium = require("../config/middleware/planMiddleware");
 
 // Models
 const AIConversation = require("../models/AIConversation");
@@ -243,33 +242,6 @@ router.post("/chat", protect, async (req, res) => {
 });
 
 /**
- * GET /api/ai/chat/:courseId
- * Get chat history for a course
- */
-router.get("/chat/:courseId", protect, async (req, res) => {
-  try {
-    const { courseId } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(courseId)) {
-      return res.status(400).json({ success: false, message: "Invalid course ID" });
-    }
-
-    const conversations = await AIConversation.find({
-      user: req.user.id,
-      course: courseId
-    }).sort({ createdAt: -1 });
-
-    res.json({
-      success: true,
-      conversations,
-      count: conversations.length
-    });
-  } catch (error) {
-    res.status(error.statusCode || 500).json({ success: false, message: error.message });
-  }
-});
-
-/**
  * GET /api/ai/chat/conversation/:conversationId
  * Get full conversation details
  */
@@ -294,6 +266,33 @@ router.get("/chat/conversation/:conversationId", protect, async (req, res) => {
     }
 
     res.json({ success: true, conversation });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * GET /api/ai/chat/:courseId
+ * Get chat history for a course
+ */
+router.get("/chat/:courseId", protect, async (req, res) => {
+  try {
+    const { courseId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(courseId)) {
+      return res.status(400).json({ success: false, message: "Invalid course ID" });
+    }
+
+    const conversations = await AIConversation.find({
+      user: req.user.id,
+      course: courseId
+    }).sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      conversations,
+      count: conversations.length
+    });
   } catch (error) {
     res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
@@ -334,7 +333,7 @@ router.delete("/chat/:conversationId", protect, async (req, res) => {
  * POST /api/ai/notes/upload
  * Upload and process lecture notes
  */
-router.post("/notes/upload", protect, requirePremium, upload.single("file"), async (req, res) => {
+router.post("/notes/upload", protect, upload.single("file"), async (req, res) => {
   try {
     const { courseId, title } = req.body;
 
@@ -345,11 +344,18 @@ router.post("/notes/upload", protect, requirePremium, upload.single("file"), asy
       });
     }
 
-    // Validate course
-    const course = await Course.findById(courseId);
-    if (!course) {
-      return res.status(404).json({ success: false, message: "Course not found" });
+    if (!mongoose.Types.ObjectId.isValid(String(courseId))) {
+      return res.status(400).json({ success: false, message: "Invalid course ID" });
     }
+
+    const access = await questionAccess.getCourseAccess(req.user.id, courseId);
+    if (!access.allowed) {
+      return res.status(access.statusCode || 403).json({
+        success: false,
+        message: access.message || "You are not authorized to access this course."
+      });
+    }
+    const course = access.course;
 
     // In production, extract text from PDF/image using OCR library
     let extractedContent = `[File uploaded: ${req.file.originalname}]\n`;
@@ -749,7 +755,7 @@ router.get("/user/usage", protect, async (req, res) => {
  * POST /api/ai/learning-path/generate
  * Generate personalized learning path
  */
-router.post("/learning-path/generate", protect, requirePremium, async (req, res) => {
+router.post("/learning-path/generate", protect, async (req, res) => {
   try {
     const { courseId, targetExamDate, studyHoursPerDay } = req.body;
 

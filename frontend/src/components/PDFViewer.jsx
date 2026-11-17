@@ -89,7 +89,7 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload,
         }
 
         if (active) {
-          setError(new Error('Preview unavailable for this file type. You can still download the original file.'));
+          setError(new Error('Preview unavailable for this file type.'));
         }
       } catch (loadError) {
         const message = loadError?.response?.data?.message || loadError?.message || 'Unable to load this file.';
@@ -130,6 +130,7 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload,
   };
 
   const handleDownload = async () => {
+    if (!canDownload) return;
     if (!resolvedMaterialId && !downloadUrl) return;
 
     try {
@@ -200,14 +201,14 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload,
   }
 
   if (error) {
-    const isAuthError = error.message && (error.message.includes('403') || error.message.includes('unauthorized') || error.message.includes('premium') || error.message.includes('subscription'));
+    const isAuthError = error.message && (error.message.includes('403') || error.message.includes('unauthorized'));
 
     return (
       <div style={{ border: '1px solid #fecaca', background: '#fef2f2', borderRadius: '12px', padding: '16px', textAlign: 'center' }}>
         <p style={{ color: '#991b1b', fontWeight: 700, marginBottom: '8px' }}>{isUnsupported ? 'Preview unavailable' : 'Unable to load this file'}</p>
         <p style={{ color: '#7f1d1d', marginBottom: '10px' }}>{error.message || 'This file could not be opened in the browser.'}</p>
         {isAuthError && <p style={{ color: '#b45309', marginBottom: '12px' }}>This material may require access permission.</p>}
-        {(canDownload || resolvedMaterialId || downloadUrl) && (
+        {canDownload && (resolvedMaterialId || downloadUrl) && (
           <button type="button" onClick={handleDownload} style={{ display: 'inline-block', padding: '8px 12px', background: '#2563eb', color: '#fff', borderRadius: '8px', border: 'none', cursor: 'pointer' }}>
             Download file
           </button>
@@ -256,7 +257,7 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload,
           <div style={{ padding: '20px', textAlign: 'center', color: '#475569' }}>
             <p style={{ fontWeight: 700, marginBottom: '8px' }}>Preview unavailable</p>
             <p>This file format cannot be displayed in the browser.</p>
-            {(canDownload || resolvedMaterialId || downloadUrl) && (
+            {canDownload && (resolvedMaterialId || downloadUrl) && (
               <button type="button" onClick={handleDownload} style={{ marginTop: '12px', display: 'inline-block', padding: '8px 12px', background: '#2563eb', color: '#fff', borderRadius: '8px', border: 'none', cursor: 'pointer' }}>
                 Download file
               </button>
@@ -267,7 +268,7 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload,
 
       {fileKind === 'pdf' && effectiveMaxPages > 0 && pageNumber >= effectiveMaxPages && numPages > effectiveMaxPages && (
         <div style={{ borderRadius: '10px', padding: '12px 14px', background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>
-          This preview has ended. Purchase to unlock the full material.
+          This preview has reached its page limit.
         </div>
       )}
 

@@ -32,7 +32,6 @@
 │                                                                 │
 │  Components:                                                    │
 │  • ChatInterface.jsx       - Chat UI                           │
-│  • PremiumGate.jsx         - Access Control                    │
 │                                                                 │
 └────────────────────┬────────────────────────────────────────────┘
                      │ HTTP/REST + JWT

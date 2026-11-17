@@ -20,11 +20,12 @@ import {
 vi.mock('../components/PDFViewer', () => ({ default: () => null }))
 
 describe('CBT access and delivery helpers', () => {
-  it('allows premium students and administrators but not other users to access CBT practice', () => {
+  it('allows students and administrators to access CBT practice without a premium plan', () => {
     expect(canAccessCbtPractice({ role: 'student', plan: 'premium' })).toBe(true)
     expect(canAccessCbtPractice({ role: 'student', subscriptionType: 'premium' })).toBe(true)
     expect(canAccessCbtPractice({ role: 'admin' })).toBe(true)
-    expect(canAccessCbtPractice({ role: 'student', plan: 'basic' })).toBe(false)
+    expect(canAccessCbtPractice({ role: 'student', plan: 'basic' })).toBe(true)
+    expect(canAccessCbtPractice({ role: 'student' })).toBe(true)
     expect(canAccessCbtPractice({ role: 'lecturer', plan: 'premium' })).toBe(false)
     expect(canAccessCbtPractice(null)).toBe(false)
   })

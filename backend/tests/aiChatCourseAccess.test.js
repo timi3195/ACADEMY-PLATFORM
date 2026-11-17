@@ -85,6 +85,7 @@ const asQuery = (result) => ({
 const withChatMocks = async (run, {
   role = "student",
   course = makeCourse(DEPARTMENT_ID),
+  coursesEnrolled = [COURSE_ID],
   analytics = analyticsWithCourseResults
 } = {}) => {
   const originals = {
@@ -114,7 +115,8 @@ const withChatMocks = async (run, {
       role,
       department: DEPARTMENT_ID,
       yearOfStudy: "ND1",
-      semester: "First"
+      semester: "First",
+      coursesEnrolled
     };
   };
   Course.findById = async (courseId) => {
@@ -247,7 +249,8 @@ test("student cannot access a restricted course by supplying its ID", async () =
     assert.equal(state.analyticsCalls, 0);
     assert.equal(state.geminiCalls, 0);
   }, {
-    course: makeCourse("507f1f77bcf86cd799439099", "HND2", "Second")
+    course: makeCourse("507f1f77bcf86cd799439099", "HND2", "Second"),
+    coursesEnrolled: []
   });
 });
 

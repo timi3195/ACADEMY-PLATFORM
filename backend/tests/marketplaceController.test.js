@@ -41,8 +41,12 @@ test('getMaterialById returns preview for unauthenticated user (no access object
     pageCount: 10,
     isPaid: true,
     productStatus: 'published',
+    status: 'published',
+    approved: true,
     visibility: 'public',
     hidden: false,
+    isDeleted: false,
+    deletedAt: null,
     lecturer: { _id: 'lect1' }
   };
 

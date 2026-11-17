@@ -7,7 +7,7 @@ export function isValidCbtQuestionCount(value) {
 export function canAccessCbtPractice(user) {
   if (!user) return false
   if (user.role === 'admin') return true
-  return user.role === 'student' && (user.plan === 'premium' || user.subscriptionType === 'premium')
+  return user.role === 'student'
 }
 
 export function cbtPathForCourse(courseId) {
