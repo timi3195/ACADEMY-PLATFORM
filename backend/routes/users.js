@@ -19,6 +19,14 @@ const sanitizeUserRecord = (userRecord) => {
   delete source.emailVerificationExpires;
   delete source.resetPasswordToken;
   delete source.resetPasswordExpires;
+  delete source.plan;
+  delete source.subscriptionType;
+  delete source.subscriptionSemester;
+  delete source.subscriptionExpiresAt;
+  delete source.subscriptionFeatures;
+  delete source.paystackPayment;
+  delete source.bankDetails;
+  delete source.marketplaceSuspended;
   delete source.__v;
 
   return source;
@@ -92,7 +100,7 @@ const filterSelfUpdatePayload = (payload = {}) => {
 
 router.post("/", protect, adminOnly, async (req, res) => {
   try {
-    const { name, email, plan, devices } = req.body || {};
+    const { name, email, devices } = req.body || {};
 
     if (!name || !email) {
       return res.status(400).json({ success: false, message: "Name and email are required." });
@@ -107,7 +115,6 @@ router.post("/", protect, adminOnly, async (req, res) => {
     const user = await User.create({
       name: String(name).trim(),
       email: normalizedEmail,
-      plan,
       devices
     });
 

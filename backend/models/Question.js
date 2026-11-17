@@ -144,6 +144,14 @@ const questionSchema = new mongoose.Schema({
 
 }, { timestamps: true });
 
+questionSchema.set("toJSON", {
+  transform: (_document, value) => {
+    delete value.isPremium;
+    for (const subQuestion of value.subQuestions || []) delete subQuestion.isPremium;
+    return value;
+  }
+});
+
 // INDEXES FOR LARGE-SCALE PERFORMANCE
 questionSchema.index({ course: 1 });
 questionSchema.index({ department: 1 });

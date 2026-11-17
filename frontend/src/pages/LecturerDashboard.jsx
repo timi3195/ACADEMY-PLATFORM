@@ -10,6 +10,7 @@ import NotificationBanner from '../components/NotificationBanner';
 
 export default function LecturerDashboard() {
   const [materials, setMaterials] = useState([]);
+  const [courses, setCourses] = useState([]);
   const [dashboard, setDashboard] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -22,12 +23,14 @@ export default function LecturerDashboard() {
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [materialsResponse, dashboardResponse] = await Promise.all([
+      const [materialsResponse, dashboardResponse, coursesResponse] = await Promise.all([
         lecturerService.getMaterials(),
-        lecturerService.getDashboard()
+        lecturerService.getDashboard(),
+        lecturerService.getCourses()
       ]);
       setMaterials(materialsResponse.materials || materialsResponse || []);
       setDashboard(dashboardResponse.dashboard || dashboardResponse);
+      setCourses(coursesResponse.courses || []);
       setError('');
     } catch (err) {
       setError(err.message || 'Unable to load lecturer materials.');
@@ -73,8 +76,6 @@ export default function LecturerDashboard() {
         await lecturerService.createMaterial(payload, file, coverImage);
         setFeedback('Material published successfully and is now available to authorized students for free.');
       }
-      window.dispatchEvent(new Event('marketplace:updated'));
-      window.localStorage.setItem('marketplace:updated', String(Date.now()));
       setModalOpen(false);
       await loadData();
     } catch (err) {
@@ -102,14 +103,14 @@ export default function LecturerDashboard() {
     <div className="page">
       <div className="wp-section" style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap', background: 'linear-gradient(135deg, #f8fbff, #ffffff)', border: '1px solid #dbeafe' }}>
         <div>
-          <div style={{ color: '#0f3d91', fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em' }}>Academic Publishing Portal</div>
+          <div style={{ color: '#0f3d91', fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em' }}>Teaching Portal</div>
           <h2 style={{ marginBottom: '8px' }}>Course Material Studio</h2>
-          <p style={{ margin: 0, color: '#64748b' }}>Publish lecture notes, guides, past questions, and other academic resources for your students.</p>
+          <p style={{ margin: 0, color: '#64748b' }}>Upload and manage course materials for courses assigned to you.</p>
           <p style={{ margin: '8px 0 0', color: '#166534', fontWeight: 600 }}>All lecturer materials are free for students authorized to access their course in this release.</p>
         </div>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <Link to="/lecturer/question-extractions" style={{ padding: '8px 12px', border: '1px solid #2563eb', borderRadius: '6px', color: '#2563eb', textDecoration: 'none', fontWeight: 600 }}>Extract Past Questions</Link>
-          <button type="button" onClick={openCreateModal}>Create New Material</button>
+          <button type="button" onClick={openCreateModal} disabled={!courses.length}>Add Course Material</button>
         </div>
       </div>
 
@@ -133,17 +134,13 @@ export default function LecturerDashboard() {
                 <div style={{ color: '#64748b', fontSize: '13px' }}>Views</div>
                 <div style={{ fontSize: '24px', fontWeight: 700 }}>{dashboard.totalViews || 0}</div>
               </div>
-              <div style={{ background: '#fff', borderRadius: '12px', padding: '14px', border: '1px solid #e2e8f0' }}>
-                <div style={{ color: '#64748b', fontSize: '13px' }}>Avg. Rating</div>
-                <div style={{ fontSize: '24px', fontWeight: 700 }}>{Number(dashboard.averageRating || 0).toFixed(1)}</div>
-              </div>
             </div>
       )}
 
       {loading && <LoadingSpinner label="Loading lecturer materials" />}
       {error && <ErrorState message={error} />}
       {!loading && !error && (!materials || materials.length === 0) && (
-        <EmptyState title="No course materials yet" description="Create your first academic resource to support your students and build a trusted library of course content." />
+        <EmptyState title="No course materials yet" description={courses.length ? "Upload a learning resource for one of your assigned courses." : "No courses are currently assigned to your lecturer account."} />
       )}
 
       {!loading && !error && materials?.length > 0 && (
@@ -165,6 +162,7 @@ export default function LecturerDashboard() {
         onClose={() => setModalOpen(false)}
         mode={modalMode}
         initialValues={modalInitialValues}
+        courses={courses}
         onSubmit={handleSubmit}
         loading={submitting}
         error={error}

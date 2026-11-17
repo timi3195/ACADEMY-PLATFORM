@@ -293,10 +293,6 @@ router.get("/analytics/stats", protect, adminOnly, async (req, res) => {
     const totalQuestions = await Question.countDocuments();
     const totalDepartments = await Department.countDocuments();
 
-    const premiumUsers = await User.countDocuments({
-      subscriptionType: { $in: ["premium", "basic"] }
-    });
-
     res.json({
       success: true,
       stats: {
@@ -305,9 +301,7 @@ router.get("/analytics/stats", protect, adminOnly, async (req, res) => {
         totalLecturers,
         totalCourses,
         totalQuestions,
-        totalDepartments,
-        premiumUsers,
-        freeUsers: totalUsers - premiumUsers
+        totalDepartments
       }
     });
   } catch (err) {

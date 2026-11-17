@@ -10,8 +10,6 @@ export default function Sidebar() {
   const links = [
     { to: '/', label: 'Dashboard', icon: '◫' },
     { to: '/courses', label: 'Courses', icon: '◔' },
-    { to: '/marketplace', label: 'Marketplace', icon: '✦' },
-    { to: '/library', label: 'Library', icon: '⌂' },
     { to: '/notes', label: 'Notes', icon: '✎' },
     { to: '/past-questions', label: 'Past Questions', icon: '✓' },
     { to: '/examination-history', label: 'Exam History', icon: '▤' },

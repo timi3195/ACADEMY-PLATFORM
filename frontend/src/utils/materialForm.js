@@ -1,30 +1,19 @@
 export function normalizeMaterialFormValue(value) {
-  if (value && typeof value === 'object' && value._id) {
-    return value._id;
-  }
-
+  if (value && typeof value === 'object' && value._id) return value._id;
   return value ?? '';
 }
 
 export function buildMaterialPayload(form) {
-  const previewPages = Number(form?.previewPages || 0);
-  const pageCount = Number(form?.pageCount || previewPages || 0);
-  const fileSize = Number(form?.fileSize || 0);
-
   return {
-    ...form,
+    title: String(form?.title || '').trim(),
+    description: String(form?.description || '').trim(),
     course: normalizeMaterialFormValue(form?.course),
-    department: normalizeMaterialFormValue(form?.department),
-    price: 0,
-    discount: 0,
-    previewPages,
-    pageCount,
-    fileSize: Number.isFinite(fileSize) ? fileSize : 0,
+    materialType: form?.materialType || 'Lecture Note',
+    category: form?.category || 'Lecture Notes',
     tags: form?.tags || '',
-    isFree: true,
-    isPaid: false,
-    pricingMode: 'free',
-    allowDownload: form?.allowDownload !== 'false' && form?.allowDownload !== false,
-    allowPreview: form?.allowPreview !== 'false' && form?.allowPreview !== false
+    language: form?.language || 'English',
+    previewPages: Math.max(0, Number(form?.previewPages || 0)),
+    pageCount: Math.max(0, Number(form?.pageCount || 0)),
+    status: form?.status === 'draft' ? 'draft' : 'published'
   };
 }

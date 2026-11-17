@@ -8,21 +8,21 @@ const courseColors = ['sand', 'lavender', 'sea', 'nude']
 export default function Dashboard() {
   const { user } = useAuth()
   const [courses, setCourses] = useState([])
-  const [libraryItems, setLibraryItems] = useState([])
+  const [courseMaterials, setCourseMaterials] = useState([])
   const [analytics, setAnalytics] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const loadDashboard = async () => {
       try {
-        const [coursesRes, libraryRes, analyticsRes] = await Promise.all([
+        const [coursesRes, filesRes, analyticsRes] = await Promise.all([
           apiGet('/api/courses'),
-          apiGet('/api/library'),
+          apiGet('/api/files'),
           apiGet('/api/analytics/student').catch(() => null)
         ])
 
         setCourses(Array.isArray(coursesRes?.courses) ? coursesRes.courses : [])
-        setLibraryItems(Array.isArray(libraryRes?.library) ? libraryRes.library : [])
+        setCourseMaterials(Array.isArray(filesRes?.files) ? filesRes.files : [])
         setAnalytics(analyticsRes || null)
       } catch (error) {
         console.error('Failed to load dashboard data:', error)
@@ -50,7 +50,7 @@ export default function Dashboard() {
 
     return [
       { date: `${courses.length || 0}`, time: 'Courses', label: 'Your active course list', tone: 'soft' },
-      { date: `${libraryItems.length || 0}`, time: 'Library', label: 'Saved learning resources', tone: 'muted' },
+      { date: `${courseMaterials.length || 0}`, time: 'Materials', label: 'Resources in your accessible courses', tone: 'muted' },
       {
         date: overview ? `${overview.totalCompletedAttempts}` : '—',
         time: 'Examinations',
@@ -64,7 +64,7 @@ export default function Dashboard() {
         tone: 'soft'
       },
     ]
-  }, [analytics, courses.length, libraryItems.length])
+  }, [analytics, courseMaterials.length, courses.length])
 
   const progressData = useMemo(() => {
     const topics = Array.isArray(analytics?.analytics?.topics) ? analytics.analytics.topics : []

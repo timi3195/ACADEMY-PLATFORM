@@ -1,27 +1,11 @@
 const lecturerService = require("../services/lecturerService");
 const lecturerValidator = require("../validators/lecturerValidator");
-const commerceUnavailable = require("../middleware/commerceUnavailable");
+const serializeAcademicMaterial = require("../utils/academicMaterialSerializer");
+const { unlink } = require("node:fs/promises");
 
-const hasPaidPricing = (body) =>
-  body.isPaid === true ||
-  body.isPaid === "true" ||
-  body.isPremium === true ||
-  body.isPremium === "true" ||
-  body.pricingMode === "paid" ||
-  Number(body.price || 0) > 0 ||
-  Number(body.premiumDiscount || body.discount || 0) > 0;
-
-exports.rejectPaidMaterialOperation = async (req, res, next) => {
-  if (!hasPaidPricing(req.body || {})) return next();
-
-  const uploadedFiles = Object.values(req.files || {}).flat();
-  try {
-    await Promise.all(uploadedFiles.map((file) => require("node:fs/promises").unlink(file.path)));
-  } catch (error) {
-    console.error("Unable to clean up rejected commerce upload:", error.message);
-    return res.status(500).json({ success: false, message: "Unable to process uploaded file." });
-  }
-  return commerceUnavailable.send(res);
+const cleanupUploadedFiles = async (req) => {
+  const files = Object.values(req.files || {}).flat();
+  await Promise.all(files.map((file) => unlink(file.path).catch(() => {})));
 };
 
 exports.getDashboard = async (req, res) => {
@@ -30,6 +14,16 @@ exports.getDashboard = async (req, res) => {
     res.json({ success: true, dashboard });
   } catch (error) {
     console.error("Lecturer dashboard error:", error);
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+};
+
+exports.getCourses = async (req, res) => {
+  try {
+    const courses = await lecturerService.getLecturerCourses(req.user.id);
+    res.json({ success: true, courses });
+  } catch (error) {
+    console.error("Lecturer courses error:", error);
     res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 };
@@ -55,11 +49,9 @@ const getUploadedFiles = (req) => {
 exports.createMaterial = async (req, res) => {
   try {
     const { file, coverImage } = getUploadedFiles(req);
-    if (!['Book', 'Textbook'].includes(req.body.materialType)) {
-      return res.status(403).json({ success: false, message: "Lecturers can publish books only. Admins upload course materials." });
-    }
     const errors = lecturerValidator.validateCreateMaterial(req.body, file);
     if (errors.length) {
+      await cleanupUploadedFiles(req);
       return res.status(400).json({ success: false, errors });
     }
 
@@ -69,9 +61,9 @@ exports.createMaterial = async (req, res) => {
       file,
       coverImage
     });
-
-    res.status(201).json({ success: true, material });
+    res.status(201).json({ success: true, material: serializeAcademicMaterial(material) });
   } catch (error) {
+    await cleanupUploadedFiles(req);
     console.error("Lecturer create material error:", error);
     res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
@@ -79,30 +71,24 @@ exports.createMaterial = async (req, res) => {
 
 exports.updateMaterial = async (req, res) => {
   try {
-    const materialId = req.params.id;
     const { file, coverImage } = getUploadedFiles(req);
-    if (req.body.materialType && !['Book', 'Textbook'].includes(req.body.materialType)) {
-      return res.status(403).json({ success: false, message: "Lecturers can publish books only. Admins upload course materials." });
-    }
     const errors = lecturerValidator.validateUpdateMaterial(req.body, file);
     if (errors.length) {
+      await cleanupUploadedFiles(req);
       return res.status(400).json({ success: false, errors });
     }
 
     const material = await lecturerService.updateLecturerMaterial({
       user: req.user,
-      materialId,
+      materialId: req.params.id,
       body: req.body,
       file,
       coverImage
     });
-
-    if (!material) {
-      return res.status(404).json({ success: false, message: "Material not found" });
-    }
-
-    res.json({ success: true, material });
+    if (!material) return res.status(404).json({ success: false, message: "Material not found" });
+    res.json({ success: true, material: serializeAcademicMaterial(material) });
   } catch (error) {
+    await cleanupUploadedFiles(req);
     console.error("Lecturer update material error:", error);
     res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
@@ -110,118 +96,21 @@ exports.updateMaterial = async (req, res) => {
 
 exports.deleteMaterial = async (req, res) => {
   try {
-    const materialId = req.params.id;
-    const material = await lecturerService.softDeleteMaterial(materialId, req.user);
-    if (!material) {
-      return res.status(404).json({ success: false, message: "Material not found or not authorized" });
-    }
-
+    const material = await lecturerService.softDeleteMaterial(req.params.id, req.user);
+    if (!material) return res.status(404).json({ success: false, message: "Material not found or not authorized" });
     res.json({ success: true, message: "Material deleted successfully" });
   } catch (error) {
-    console.error("Lecturer delete material error:", error);
+    console.error("Lecturer material delete error:", error);
     res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 };
 
 exports.getMaterialAnalytics = async (req, res) => {
   try {
-    const materialId = req.params.id;
-    const analytics = await lecturerService.getMaterialAnalytics(req.user.id, materialId);
+    const analytics = await lecturerService.getMaterialAnalytics(req.user.id, req.params.id);
     res.json({ success: true, analytics });
   } catch (error) {
     console.error("Lecturer material analytics error:", error);
     res.status(error.statusCode || 500).json({ success: false, message: error.message });
-  }
-};
-
-exports.getEarnings = async (req, res) => {
-  try {
-    const earnings = await lecturerService.getLecturerEarnings(req.user.id);
-    res.json({ success: true, earnings });
-  } catch (error) {
-    console.error("Lecturer earnings error:", error);
-    res.status(error.statusCode || 500).json({ success: false, message: error.message });
-  }
-};
-
-exports.getWithdrawalHistory = async (req, res) => {
-  try {
-    const withdrawals = await lecturerService.getLecturerWithdrawals(req.user.id);
-    res.json({ success: true, withdrawals });
-  } catch (error) {
-    console.error("Lecturer withdrawal history error:", error);
-    res.status(error.statusCode || 500).json({ success: false, message: error.message });
-  }
-};
-
-exports.requestWithdrawal = async (req, res) => {
-  try {
-    const errors = lecturerValidator.validateWithdrawalRequest(req.body);
-    if (errors.length) {
-      return res.status(400).json({ success: false, errors });
-    }
-
-    const withdrawal = await lecturerService.requestLecturerWithdrawal(req.user.id, req.body);
-    res.status(201).json({ success: true, withdrawal });
-  } catch (error) {
-    console.error("Lecturer withdrawal request error:", error);
-    res.status(error.statusCode || 500).json({ success: false, message: error.message });
-  }
-};
-
-exports.getSales = async (req, res) => {
-  try {
-    const sales = await lecturerService.getLecturerSales(req.user.id, req.query);
-    res.json({ success: true, sales });
-  } catch (error) {
-    console.error("Lecturer sales error:", error);
-    res.status(error.statusCode || 500).json({ success: false, message: error.message });
-  }
-};
-
-exports.getSalesExport = async (req, res) => {
-  try {
-    const csvContent = await lecturerService.exportLecturerSalesAsCSV(req.user.id, req.query);
-    res.setHeader("Content-Type", "text/csv");
-    res.setHeader("Content-Disposition", 'attachment; filename="sales.csv"');
-    res.send(csvContent);
-  } catch (error) {
-    console.error("Lecturer sales export error:", error);
-    res.status(error.statusCode || 500).json({ success: false, message: error.message });
-  }
-};
-
-exports.getPaymentSettings = async (req, res) => {
-  try {
-    const settings = await lecturerService.getPaymentSettings(req.user.id);
-    res.json({ success: true, settings });
-  } catch (error) {
-    console.error("Lecturer payment settings error:", error);
-    res.status(error.statusCode || 500).json({ success: false, message: error.message });
-  }
-};
-
-exports.updatePaymentSettings = async (req, res) => {
-  try {
-    const errors = lecturerValidator.validatePaymentSettings(req.body);
-    if (errors.length) {
-      return res.status(400).json({ success: false, errors });
-    }
-
-    const settings = await lecturerService.updatePaymentSettings(req.user.id, req.body);
-    res.json({ success: true, settings });
-  } catch (error) {
-    console.error("Lecturer payment settings update error:", error);
-    res.status(error.statusCode || 500).json({ success: false, message: error.message });
-  }
-};
-
-exports.getAvailableBanks = async (req, res) => {
-  try {
-    const banks = await lecturerService.getAvailableBanks();
-    res.json({ success: true, banks });
-  } catch (error) {
-    console.error("Available banks error:", error);
-    res.status(500).json({ success: false, message: error.message });
   }
 };

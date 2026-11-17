@@ -5,10 +5,8 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 const MAX_PROMPT_LENGTH = 12000;
 const MAX_OUTPUT_TOKENS = 800;
-const FREE_DAILY_LIMIT = 5;
-const FREE_MONTHLY_LIMIT = 100;
-const PREMIUM_DAILY_LIMIT = 50;
-const PREMIUM_MONTHLY_LIMIT = 1000;
+const DAILY_REQUEST_LIMIT = 50;
+const MONTHLY_REQUEST_LIMIT = 1000;
 const MIN_REQUEST_INTERVAL_MS = 10000;
 const LEARNING_PATH_ACTIVITY_TYPES = new Set([
   "read-notes",
@@ -29,7 +27,7 @@ const consumeQuota = async (userId, prompt = "", maxPromptLength = MAX_PROMPT_LE
     throw quotaError(`AI prompt is too long. Maximum length is ${maxPromptLength} characters.`, 400);
   }
 
-  const user = await User.findById(userId).select("role subscriptionType plan aiUsage");
+  const user = await User.findById(userId).select("role aiUsage");
   if (!user) throw quotaError("Authenticated user not found.", 401);
 
   const now = new Date();
@@ -38,9 +36,8 @@ const consumeQuota = async (userId, prompt = "", maxPromptLength = MAX_PROMPT_LE
   const usage = user.aiUsage || {};
   const dailyRequests = usage.dailyRequestDate === day ? usage.dailyRequests || 0 : 0;
   const monthlyRequests = usage.monthlyRequestMonth === month ? usage.monthlyRequests || 0 : 0;
-  const isPremium = user.role === "admin" || user.subscriptionType === "premium" || user.plan === "premium";
-  const dailyLimit = isPremium ? PREMIUM_DAILY_LIMIT : FREE_DAILY_LIMIT;
-  const monthlyLimit = isPremium ? PREMIUM_MONTHLY_LIMIT : FREE_MONTHLY_LIMIT;
+  const dailyLimit = DAILY_REQUEST_LIMIT;
+  const monthlyLimit = MONTHLY_REQUEST_LIMIT;
 
   if (usage.lastRequestAt && now.getTime() - new Date(usage.lastRequestAt).getTime() < MIN_REQUEST_INTERVAL_MS) {
     throw quotaError("Please wait a few seconds before sending another AI request.");

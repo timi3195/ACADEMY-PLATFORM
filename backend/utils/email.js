@@ -414,58 +414,6 @@ const sendPasswordResetEmail = async (
 };
 
 /**
- * Send subscription confirmation email
- */
-const sendSubscriptionConfirmation = async (email, userName, plan, semester, expiresAt) => {
-  const provider = getConfiguredProvider();
-  const fromEmail = process.env.EMAIL_FROM || (process.env.NODE_ENV === "production" ? "" : "noreply@academyplatform.com");
-
-  const mailOptions = {
-    from: fromEmail,
-    to: email,
-    subject: "Subscription Activated - Academy Platform",
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2>🎉 Subscription Activated!</h2>
-        <p>Hi ${userName},</p>
-        <p>Thank you for upgrading. Your subscription is now active.</p>
-        
-        <div style="background-color: #f0f0f0; padding: 20px; border-radius: 5px; margin: 20px 0;">
-          <p><strong>Plan:</strong> ${plan.charAt(0).toUpperCase() + plan.slice(1)}</p>
-          <p><strong>Semester:</strong> ${semester}</p>
-          <p><strong>Expires:</strong> ${new Date(expiresAt).toLocaleDateString()}</p>
-        </div>
-        
-        <p>You now have access to:</p>
-        <ul>
-          <li>✅ Premium quiz content</li>
-          <li>✅ AI-generated quizzes</li>
-          <li>✅ Advanced analytics</li>
-          <li>✅ Course downloads</li>
-        </ul>
-        
-        <p>Happy learning!</p>
-      </div>
-    ` 
-  };
-
-  try {
-    const result = await deliverTransactionalEmail(mailOptions, provider);
-    return { success: true, accepted: true, delivered: false, messageId: result.messageId };
-  } catch (error) {
-    const safeError = getSafeProviderError(error);
-    logger.error("subscription_email_provider_failed", {
-      requestId: buildRequestId(),
-      provider,
-      code: safeError.code,
-      outcome: safeError.outcome,
-      description: safeError.description
-    });
-    return { success: false, error: safeError.description };
-  }
-};
-
-/**
  * Send quiz result email
  */
 const sendQuizResultEmail = async (email, userName, score, total, topic) => {
@@ -518,6 +466,5 @@ module.exports = {
   initializeMailer,
   sendVerificationEmail,
   sendPasswordResetEmail,
-  sendSubscriptionConfirmation,
   sendQuizResultEmail
 };

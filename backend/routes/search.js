@@ -72,6 +72,7 @@ router.get("/", protect, async (req, res) => {
         .sort({ score: { $meta: "textScore" } })
         .limit(resultsLimit)
         .populate("department", "name code")
+        .select("-isPremium")
         .lean();
     }
 
@@ -158,6 +159,7 @@ router.get("/advanced", protect, async (req, res) => {
       courses: await Course.find(courseFilter)
         .limit(20)
         .populate("department", "name code")
+        .select("-isPremium")
         .lean(),
       questions: await Question.find({
         ...questionScope,

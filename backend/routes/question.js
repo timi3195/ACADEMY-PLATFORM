@@ -113,7 +113,6 @@ router.post("/bulk", protect, adminOnly, async (req, res) => {
         session: item.session || "Rain",
         marks: item.marks != null ? Number(item.marks) : 2,
         difficulty: item.difficulty || "medium",
-        isPremium: Boolean(item.isPremium),
         approvalStatus: "approved",
         approvedBy: req.user.id,
         approvedAt: new Date()

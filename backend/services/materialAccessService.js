@@ -1,29 +1,9 @@
 const mongoose = require("mongoose");
-const Transaction = require("../models/Transaction");
 const { normalizeAcademicLevel } = require('../utils/academicLevels');
 const { canAccessCourse } = require("./courseMembershipService");
 
 const idOf = (value) => String(value?._id || value || "");
 const ACADEMIC_LEVELS = new Set(["ND1", "ND2", "HND1", "HND2"]);
-const MARKETPLACE_PUBLICATION = Object.freeze({
-  productStatus: "published",
-  approved: true,
-  statuses: Object.freeze(["published", "approved"]),
-  visibilities: Object.freeze(["public", "unlisted"])
-});
-
-const getMarketplacePublicationFilter = ({ publicOnly = false } = {}) => ({
-  productStatus: MARKETPLACE_PUBLICATION.productStatus,
-  approved: MARKETPLACE_PUBLICATION.approved,
-  status: { $in: [...MARKETPLACE_PUBLICATION.statuses] },
-  visibility: publicOnly
-    ? "public"
-    : { $in: [...MARKETPLACE_PUBLICATION.visibilities] },
-  hidden: false,
-  isDeleted: false,
-  deletedAt: null
-});
-
 const normalizeSemester = (semester) => {
   if (typeof semester !== "string") return "";
   const normalized = semester.trim().toLowerCase().replace(/\s+semester$/, "");
@@ -39,7 +19,7 @@ const hasCourseAssociatedMetadata = (material) =>
   ACADEMIC_LEVELS.has(normalizeAcademicLevel(material.level));
 
 const isCourseMaterial = (material) =>
-  Boolean(material.courseCode) ||
+  Boolean(material.courseRef || material.courseCode) ||
   hasCourseAssociatedMetadata(material);
 
 const isLegacyCourseMaterial = (material) =>
@@ -51,20 +31,9 @@ const isLegacyCourseMaterial = (material) =>
 const isCourseAssociatedMaterial = (material) =>
   isCourseMaterial(material) || isLegacyCourseMaterial(material);
 
-const isMarketplaceMaterial = (material) =>
-  Boolean(material) &&
-  material.productStatus === MARKETPLACE_PUBLICATION.productStatus &&
-  material.approved === MARKETPLACE_PUBLICATION.approved &&
-  MARKETPLACE_PUBLICATION.statuses.includes(material.status) &&
-  MARKETPLACE_PUBLICATION.visibilities.includes(material.visibility) &&
-  material.hidden === false &&
-  material.isDeleted === false &&
-  material.deletedAt == null;
-
 const classifyMaterial = (material) => {
   if (isCourseMaterial(material)) return "course";
   if (isLegacyCourseMaterial(material)) return "course";
-  if (isMarketplaceMaterial(material)) return "marketplace";
   return "unknown";
 };
 
@@ -83,6 +52,10 @@ const resolveCourseDepartmentId = async (departmentValue, expectedId) => {
 };
 
 const resolveCourseForMaterial = async (material) => {
+  if (material?.courseRef && mongoose.Types.ObjectId.isValid(idOf(material.courseRef))) {
+    return require("../models/course").findById(idOf(material.courseRef));
+  }
+
   if (!isCourseMaterial(material) || !material.course) {
     return null;
   }
@@ -155,35 +128,9 @@ const isOwner = (user, material) => {
   );
 };
 
-/**
- * Determine whether a user has an active premium subscription.
- */
-/**
- * Check whether the user has already purchased the material.
- */
-const userHasPurchasedMaterial = async (user, material) => {
-  if (!user || !user.id || !material || !material._id) return false;
-
-  const existing = await Transaction.findOne({
-    user: user.id,
-    material: material._id,
-    plan: "material",
-    status: "success"
-  });
-
-  return Boolean(existing);
-};
-
-/**
- * Optional course membership restriction for course materials.
- * Marketplace materials are not restricted by course membership.
- */
+/** Resolve a material's academic course before applying shared course access. */
 const verifyCourseMembership = async ({ user, material }) => {
-  const classification = classifyMaterial(material);
-  if (classification === "marketplace") {
-    return { allowed: true };
-  }
-  if (classification === "unknown") {
+  if (!isCourseAssociatedMaterial(material)) {
     return { allowed: false, reason: "course_unresolved" };
   }
 
@@ -205,7 +152,7 @@ const canViewMaterial = async ({ user, material, restrictByCourse = false }) => 
     return { allowed: false, reason: "material_not_found" };
   }
 
-  if (material.isDeleted) {
+  if (material.isDeleted || material.deletedAt) {
     return { allowed: false, reason: "deleted" };
   }
 
@@ -222,7 +169,11 @@ const canViewMaterial = async ({ user, material, restrictByCourse = false }) => 
   }
 
   if (restrictByCourse) {
-    if (!isMarketplaceMaterial(material)) {
+    if (!["published", "approved"].includes(material.status) || material.approved === false) {
+      return { allowed: false, reason: "unpublished" };
+    }
+
+    if (!isCourseAssociatedMaterial(material)) {
       return { allowed: false, reason: "unpublished" };
     }
 
@@ -232,7 +183,7 @@ const canViewMaterial = async ({ user, material, restrictByCourse = false }) => 
     }
   }
 
-  return { allowed: true, reason: "available_without_purchase" };
+  return { allowed: true, reason: "course_access_granted" };
 };
 
 /**
@@ -241,30 +192,6 @@ const canViewMaterial = async ({ user, material, restrictByCourse = false }) => 
 const canDownloadMaterial = async ({ user, material, restrictByCourse = false }) => {
   // Download rules mirror view rules.
   return await canViewMaterial({ user, material, restrictByCourse });
-};
-
-/**
- * Determine whether a user can purchase a material.
- */
-const canPurchaseMaterial = async ({ user, material }) => {
-  if (!material) {
-    return { allowed: false, reason: "material_not_found" };
-  }
-
-  if (isAdmin(user) || isOwner(user, material)) {
-    return { allowed: false, reason: "owner_or_admin" };
-  }
-
-  if (!material.isPaid) {
-    return { allowed: false, reason: "not_for_sale" };
-  }
-
-  const purchased = await userHasPurchasedMaterial(user, material);
-  if (purchased) {
-    return { allowed: false, reason: "already_purchased" };
-  }
-
-  return { allowed: true, reason: "purchase_allowed" };
 };
 
 /**
@@ -315,126 +242,14 @@ const recordDownload = async ({ material }) => {
   return material;
 };
 
-/**
- * Record a successful material purchase and grant ownership through transaction history.
- */
-const recordPurchase = async ({ user, material, reference, amount, discount = 0 }) => {
-  if (!material) {
-    throw new Error("Material is required to record purchase");
-  }
-  if (!user || !user.id) {
-    throw new Error("User is required to record purchase");
-  }
-  if (!reference) {
-    throw new Error("Payment reference is required to record purchase");
-  }
-
-  const existing = await Transaction.findOne({ reference });
-  if (existing) {
-    if (
-      existing.user.toString() !== user.id.toString() ||
-      existing.material?.toString() !== material._id.toString()
-    ) {
-      const error = new Error("Payment reference already in use");
-      error.statusCode = 409;
-      throw error;
-    }
-    return existing;
-  }
-
-  const transaction = await Transaction.create({
-    user: user.id,
-    email: user.email,
-    amount,
-    reference,
-    status: "success",
-    plan: "material",
-    paymentType: "material",
-    semester: null,
-    expiresAt: null,
-    paidAt: new Date(),
-    material: material._id,
-    materialPrice: material.price,
-    discount
-  });
-
-  material.purchases = (material.purchases || 0) + 1;
-  material.sales = (material.sales || 0) + 1;
-  await material.save();
-
-  return transaction;
-};
-
-/**
- * Record a successful material purchase with payment split information.
- */
-const recordPurchaseWithSplit = async ({ user, material, reference, amount, discount = 0, lecturer, platformFee, lecturerAmount, paystackTransactionId }) => {
-  if (!material) {
-    throw new Error("Material is required to record purchase");
-  }
-  if (!user || !user.id) {
-    throw new Error("User is required to record purchase");
-  }
-  if (!reference) {
-    throw new Error("Payment reference is required to record purchase");
-  }
-
-  const existing = await Transaction.findOne({ reference });
-  if (existing) {
-    if (
-      existing.user.toString() !== user.id.toString() ||
-      existing.material?.toString() !== material._id.toString()
-    ) {
-      const error = new Error("Payment reference already in use");
-      error.statusCode = 409;
-      throw error;
-    }
-    return existing;
-  }
-
-  const transaction = await Transaction.create({
-    user: user.id,
-    email: user.email,
-    amount,
-    reference,
-    status: "success",
-    plan: "material",
-    paymentType: "material",
-    semester: null,
-    expiresAt: null,
-    paidAt: new Date(),
-    material: material._id,
-    materialPrice: material.price,
-    discount,
-    lecturer: lecturer?._id || null,
-    platformFee: platformFee || 0,
-    lecturerAmount: lecturerAmount || 0,
-    currency: "NGN",
-    paymentProvider: "paystack",
-    studentNameAtPurchase: user.name || "",
-    studentEmailAtPurchase: user.email || "",
-    studentMatricAtPurchase: user.matricNumber || "",
-    paystackTransactionId: paystackTransactionId || null
-  });
-
-  material.purchases = (material.purchases || 0) + 1;
-  material.sales = (material.sales || 0) + 1;
-  await material.save();
-
-  return transaction;
-};
-
 module.exports = {
-  getMarketplacePublicationFilter,
-  isMarketplaceMaterial,
   isCourseAssociatedMaterial,
+  resolveCourseForMaterial,
+  verifyCourseMembership,
   canViewMaterial,
   canDownloadMaterial,
-  canPurchaseMaterial,
   canEditMaterial,
   canDeleteMaterial,
   recordView,
-  recordDownload,
-  recordPurchase,
-  recordPurchaseWithSplit
+  recordDownload
 };

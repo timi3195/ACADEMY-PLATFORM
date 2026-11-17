@@ -4,7 +4,7 @@ const User = require("../models/User");
 const Department = require("../models/Department");
 const protect = require("../config/middleware/authMiddleware");
 const { generateTokenPair, generateAccessToken, verifyRefreshToken } = require("../utils/token");
-const { sendVerificationEmail, sendPasswordResetEmail, sendSubscriptionConfirmation } = require("../utils/email");
+const { sendVerificationEmail, sendPasswordResetEmail } = require("../utils/email");
 const crypto = require("crypto");
 const { logger } = require("../utils/logger");
 const createRateLimiter = require("../utils/rateLimit");
@@ -340,9 +340,6 @@ router.post("/login", rateLimitLogin, async (req, res) => {
         email: user.email,
         role: user.role,
         lecturerStatus: user.lecturerStatus,
-        plan: user.plan,
-        subscriptionType: user.subscriptionType,
-        subscriptionExpiresAt: user.subscriptionExpiresAt,
         department: user.department,
         yearOfStudy: user.yearOfStudy,
         semester: user.semester,
@@ -659,9 +656,6 @@ router.post("/refresh", async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
-        plan: user.plan,
-        subscriptionType: user.subscriptionType,
-        subscriptionExpiresAt: user.subscriptionExpiresAt,
         department: user.department,
         yearOfStudy: user.yearOfStudy,
         semester: user.semester,
@@ -688,7 +682,7 @@ router.get("/me", protect, async (req, res) => {
   try {
     const user = await User.findById(req.user.id)
       .populate("department", "name code")
-      .select("-password -refreshTokens -emailVerificationToken -resetPasswordToken");
+      .select("-password -refreshTokens -emailVerificationToken -resetPasswordToken -plan -subscriptionType -subscriptionSemester -subscriptionExpiresAt -paystackPayment -marketplaceSuspended");
 
     if (!user) {
       return res.status(404).json({

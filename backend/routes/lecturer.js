@@ -2,10 +2,8 @@ const express = require("express");
 const multer = require("multer");
 const protect = require("../config/middleware/authMiddleware");
 const lecturerOnly = require("../config/middleware/lecturerOnly");
-const approvedLecturerOnly = require("../config/middleware/approvedLecturerOnly");
 const lecturerController = require("../controllers/lecturerController");
 const storageService = require("../services/storageService");
-const commerceUnavailable = require("../middleware/commerceUnavailable");
 
 const router = express.Router();
 
@@ -29,7 +27,8 @@ const uploadFields = upload.fields([
 // Lecturer dashboard summary
 router.get("/dashboard", protect, lecturerOnly, lecturerController.getDashboard);
 
-// Lecturer-owned library of marketplace materials
+// Academic materials are restricted to courses assigned to the approved lecturer.
+router.get("/courses", protect, lecturerOnly, lecturerController.getCourses);
 router.get("/materials", protect, lecturerOnly, lecturerController.getMaterials);
 
 // Create new material
@@ -38,7 +37,6 @@ router.post(
   protect,
   lecturerOnly,
   uploadFields,
-  lecturerController.rejectPaidMaterialOperation,
   lecturerController.createMaterial
 );
 
@@ -48,7 +46,6 @@ router.put(
   protect,
   lecturerOnly,
   uploadFields,
-  lecturerController.rejectPaidMaterialOperation,
   lecturerController.updateMaterial
 );
 
@@ -62,25 +59,5 @@ router.get(
   lecturerOnly,
   lecturerController.getMaterialAnalytics
 );
-
-// Lecturer earnings summary
-router.get("/earnings", protect, lecturerOnly, lecturerController.getEarnings);
-
-// Lecturer sales list
-router.get("/sales", protect, lecturerOnly, lecturerController.getSales);
-
-// Lecturer sales export (CSV)
-router.get("/sales/export/csv", protect, lecturerOnly, lecturerController.getSalesExport);
-
-// Lecturer withdrawal history
-router.get("/withdrawals", protect, lecturerOnly, lecturerController.getWithdrawalHistory);
-
-// Create withdrawal request
-router.post("/withdraw", protect, lecturerOnly, commerceUnavailable);
-
-// Lecturer payment settings
-router.get("/payment/settings", protect, approvedLecturerOnly, lecturerController.getPaymentSettings);
-router.post("/payment/settings", protect, approvedLecturerOnly, commerceUnavailable);
-router.get("/payment/banks", protect, approvedLecturerOnly, lecturerController.getAvailableBanks);
 
 module.exports = router;

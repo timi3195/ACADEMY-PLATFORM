@@ -11,7 +11,6 @@ const File = require("../models/File");
 const Course = require("../models/course");
 const Department = require("../models/Department");
 const User = require("../models/User");
-const Transaction = require("../models/Transaction");
 const materialAccessService = require("../services/materialAccessService");
 const storageService = require("../services/storageService");
 
@@ -87,14 +86,15 @@ const withAccessMocks = async (run, {
   user = makeStudent(),
   course = courseRecord,
   courses = [courseRecord],
-  purchase = null
 } = {}) => {
   const originals = {
     fileFindById: File.findById,
+    fileFind: File.find,
     userFindById: User.findById,
     courseFind: Course.find,
+    courseFindById: Course.findById,
     departmentFind: Department.find,
-    transactionFindOne: Transaction.findOne,
+    canViewMaterial: materialAccessService.canViewMaterial,
     getObjectReadStream: storageService.getObjectReadStream
   };
 
@@ -105,20 +105,50 @@ const withAccessMocks = async (run, {
   );
   Department.find = async ({ name }) =>
     name === "Computer Science" ? [{ _id: DEPARTMENT_ID, name }] : [];
-  Transaction.findOne = async () => purchase;
   storageService.getObjectReadStream = async () => Readable.from(["file contents"]);
 
   try {
     await run();
   } finally {
     File.findById = originals.fileFindById;
+    File.find = originals.fileFind;
     User.findById = originals.userFindById;
     Course.find = originals.courseFind;
+    Course.findById = originals.courseFindById;
     Department.find = originals.departmentFind;
-    Transaction.findOne = originals.transactionFindOne;
+    materialAccessService.canViewMaterial = originals.canViewMaterial;
     storageService.getObjectReadStream = originals.getObjectReadStream;
   }
 };
+
+test("course material listing omits metadata for materials denied by shared access", async () => {
+  const user = makeStudent();
+  await withAccessMocks(async () => {
+    const courseQuery = {
+      populate() { return this; },
+      then(resolve, reject) { return Promise.resolve(courseRecord).then(resolve, reject); }
+    };
+    const allowed = makeMaterial({ _id: "507f1f77bcf86cd799439051" });
+    const denied = makeMaterial({
+      _id: "507f1f77bcf86cd799439052",
+      title: "Restricted draft metadata"
+    });
+
+    Course.findById = () => courseQuery;
+    File.find = async () => [allowed, denied];
+    materialAccessService.canViewMaterial = async ({ material }) => ({
+      allowed: material._id.toString() === allowed._id.toString(),
+      reason: "unpublished"
+    });
+
+    const response = await request(buildApp(user)).get(`/api/files/course/${COURSE_ID}`);
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body.files.map((file) => file._id), [allowed._id.toString()]);
+    assert.equal(JSON.stringify(response.body).includes("Restricted draft metadata"), false);
+    assert.equal(response.body.files[0].accessible, true);
+  }, { user });
+});
 
 test("student automatically views and downloads same-department course material without enrollment", async () => {
   const user = makeStudent({ coursesEnrolled: [] });
@@ -432,69 +462,45 @@ test("owner and admin retain streaming access to their unpublished materials", a
   });
 });
 
-test("published and approved public or unlisted marketplace materials remain viewable", async (t) => {
-  for (const { visibility, status } of [
-    { visibility: "public", status: "published" },
-    { visibility: "unlisted", status: "published" },
-    { visibility: "public", status: "approved" }
-  ]) {
-    await t.test(`${visibility} marketplace material with status ${status}`, async () => {
+test("generic non-course materials cannot be streamed through academic file endpoints", async (t) => {
+  for (const route of ["view", "download"]) {
+    await t.test(route, async () => {
       const user = makeStudent({ department: null, yearOfStudy: null });
       await withAccessMocks(async () => {
         const app = buildApp(user);
         const material = makeMaterial({
-          course: "Exam preparation",
+          course: "",
           courseCode: "",
           department: null,
-          semester: "First",
-          level: "Other",
-          lecturer: OWNER_ID,
-          productStatus: "published",
-          status,
+          status: "published",
           approved: true,
-          visibility,
           category: "Other",
           materialType: "Other"
         });
         File.findById = async () => material;
 
-        const view = await request(app).get(`/api/files/view/${MATERIAL_ID}`);
-        const download = await request(app).get(`/api/files/download/${MATERIAL_ID}`);
-
-        assert.equal(view.status, 200);
-        assert.equal(download.status, 200);
+        const response = await request(app).get(`/api/files/${route}/${MATERIAL_ID}`);
+        assert.equal(response.status, 403);
+        assert.equal(response.body.message, "unpublished");
       }, { user });
     });
   }
 });
 
-test("unpublished marketplace materials cannot bypass course access", async (t) => {
+test("unpublished course materials cannot bypass department course access", async (t) => {
   const cases = [
-    ["draft product status", { productStatus: "draft", status: "published", approved: true }],
-    ["approved status without publication", { productStatus: "draft", status: "approved", approved: true }],
-    ["draft status", { productStatus: "published", status: "draft", approved: true }],
-    ["pending and unapproved", { productStatus: "published", status: "pending", approved: false }],
-    ["published but unapproved", { productStatus: "published", status: "published", approved: false }],
-    ["rejected", { productStatus: "published", status: "rejected", approved: false }]
+    ["draft status", { status: "draft", approved: true }],
+    ["pending and unapproved", { status: "pending", approved: false }],
+    ["published but unapproved", { status: "published", approved: false }],
+    ["rejected", { status: "rejected", approved: false }]
   ];
 
   for (const [label, publicationFields] of cases) {
     await t.test(label, async () => {
-      const user = makeStudent({ department: null, yearOfStudy: null });
+      const user = makeStudent();
       await withAccessMocks(async () => {
         const app = buildApp(user);
-        const material = makeMaterial({
-          course: "Exam preparation",
-          courseCode: "",
-          department: null,
-          semester: "First",
-          level: "Other",
-          lecturer: OWNER_ID,
-          visibility: "public",
-          category: "Other",
-          materialType: "Other",
-          ...publicationFields
-        });
+        const material = makeMaterial(publicationFields);
         File.findById = async () => material;
 
         const response = await request(app).get(`/api/files/view/${MATERIAL_ID}`);
@@ -531,7 +537,7 @@ test("hidden and deleted materials cannot be streamed by ordinary students", asy
   for (const [label, overrides, reason] of [
     ["hidden", { hidden: true }, "hidden"],
     ["deleted", { isDeleted: true }, "deleted"],
-    ["soft-deleted", { deletedAt: new Date() }, "unpublished"]
+    ["soft-deleted", { deletedAt: new Date() }, "deleted"]
   ]) {
     await t.test(label, async (subtest) => {
       for (const route of ["view", "download"]) {
@@ -551,43 +557,20 @@ test("hidden and deleted materials cannot be streamed by ordinary students", asy
   }
 });
 
-test("paid and premium flags do not block otherwise eligible student access", async (t) => {
+test("legacy price and premium flags do not restrict otherwise eligible course materials", async (t) => {
   for (const [label, overrides, user] of [
     ["paid course material", { isFree: false, isPaid: true }, makeStudent()],
-    ["premium course material", { isFree: false, isPremium: true }, makeStudent()],
-    [
-      "paid marketplace material",
-      {
-        course: "Exam preparation",
-        courseCode: "",
-        department: null,
-        semester: "First",
-        level: "Other",
-        lecturer: OWNER_ID,
-        category: "Other",
-        materialType: "Other",
-        isFree: false,
-        isPaid: true
-      },
-      makeStudent({ department: null, yearOfStudy: null })
-    ]
+    ["premium course material", { isFree: false, isPremium: true }, makeStudent()]
   ]) {
     await t.test(label, async () => {
       await withAccessMocks(async () => {
         const app = buildApp(user);
         File.findById = async () => makeMaterial(overrides);
-        let purchaseLookups = 0;
-        Transaction.findOne = async () => {
-          purchaseLookups += 1;
-          return null;
-        };
-
         const view = await request(app).get(`/api/files/view/${MATERIAL_ID}`);
         const download = await request(app).get(`/api/files/download/${MATERIAL_ID}`);
 
         assert.equal(view.status, 200);
         assert.equal(download.status, 200);
-        assert.equal(purchaseLookups, 0);
       }, { user });
     });
   }

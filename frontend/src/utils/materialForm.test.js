@@ -12,63 +12,37 @@ describe('normalizeMaterialFormValue', () => {
 });
 
 describe('buildMaterialPayload', () => {
-  it('forces materials to be free regardless of legacy pricing fields', () => {
+  it('sends only academic material fields and resolves the selected course id', () => {
     const payload = buildMaterialPayload({
       title: 'Notes',
-      subtitle: 'A short guide',
       description: 'Desc',
-      authorName: 'Ada Lovelace',
       course: { _id: 'course-123' },
-      department: { _id: 'dept-456' },
-      price: '150',
       previewPages: '3',
-      visibility: 'public',
-      level: 'ND1',
-      semester: 'Second',
       materialType: 'PDF',
       tags: 'math,exam',
-      productStatus: 'published',
-      language: 'en',
-      edition: '2nd',
-      publisher: 'Campus Press',
-      fileSize: '1024000',
-      fileType: 'application/pdf',
-      pricingMode: 'paid'
+      status: 'published'
     });
 
     expect(payload.course).toBe('course-123');
-    expect(payload.department).toBe('dept-456');
-    expect(payload.price).toBe(0);
     expect(payload.previewPages).toBe(3);
-    expect(payload.subtitle).toBe('A short guide');
-    expect(payload.authorName).toBe('Ada Lovelace');
-    expect(payload.edition).toBe('2nd');
-    expect(payload.publisher).toBe('Campus Press');
-    expect(payload.fileSize).toBe(1024000);
-    expect(payload.fileType).toBe('application/pdf');
-    expect(payload.isFree).toBe(true);
-    expect(payload.isPaid).toBe(false);
-    expect(payload.pricingMode).toBe('free');
-    expect(payload.semester).toBe('Second');
     expect(payload.materialType).toBe('PDF');
     expect(payload.tags).toBe('math,exam');
-    expect(payload.productStatus).toBe('published');
-    expect(payload.language).toBe('en');
+    expect(payload.status).toBe('published');
+    expect(payload).not.toHaveProperty('price');
+    expect(payload).not.toHaveProperty('department');
+    expect(payload).not.toHaveProperty('isPaid');
+    expect(payload).not.toHaveProperty('isPremium');
   });
 
-  it('forces a zero price and free flags when pricing mode is free', () => {
+  it('uses the academic defaults when optional material details are missing', () => {
     const payload = buildMaterialPayload({
-      title: 'Free Notes',
+      title: 'Notes',
       description: 'Desc',
       course: 'course-123',
-      department: 'dept-456',
-      price: '2500',
-      previewPages: '1',
-      pricingMode: 'free'
+      previewPages: '1'
     });
 
-    expect(payload.price).toBe(0);
-    expect(payload.isFree).toBe(true);
-    expect(payload.isPaid).toBe(false);
+    expect(payload.status).toBe('published');
+    expect(payload.materialType).toBe('Lecture Note');
   });
 });

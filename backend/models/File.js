@@ -52,6 +52,12 @@ const fileSchema = new mongoose.Schema({
     default: ""
   },
 
+  courseRef: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Course",
+    default: null
+  },
+
   department: {
     type: String,
     default: null
@@ -244,7 +250,18 @@ const fileSchema = new mongoose.Schema({
   timestamps: true  // Automatically adds createdAt and updatedAt
 });
 
+fileSchema.set("toJSON", {
+  transform: (_document, value) => {
+    for (const field of [
+      "price", "isFree", "isPaid", "premiumDiscount", "isPremium", "purchases",
+      "sales", "ratingAverage", "ratingCount", "featured"
+    ]) delete value[field];
+    return value;
+  }
+});
+
 fileSchema.index({ course: 1 });
+fileSchema.index({ courseRef: 1 });
 fileSchema.index({ department: 1 });
 fileSchema.index({ lecturer: 1 });
 fileSchema.index({ isPremium: 1 });

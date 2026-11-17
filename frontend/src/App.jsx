@@ -10,7 +10,6 @@ import CourseDetail from './pages/CourseDetail'
 import CourseMaterials from './pages/CourseMaterials'
 import AdminPanel from './pages/AdminPanel'
 import AI from './pages/AI'
-import Upgrade from './pages/Upgrade'
 import { AuthProvider, useAuth } from './utils/auth'
 import OAuthCallback from './pages/OAuthCallback'
 import VerifyEmail from './pages/VerifyEmail'
@@ -18,15 +17,10 @@ import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
 import AIChatPage from './pages/AIChatPage'
 import AnalyticsDashboard from './pages/AnalyticsDashboard'
-import Marketplace from './pages/Marketplace'
-import MarketplaceDetail from './pages/MarketplaceDetail'
-import Library from './pages/Library'
-import Reader from './pages/Reader'
 import LecturerDashboard from './pages/LecturerDashboard'
 import LecturerRegister from './pages/LecturerRegister'
 import LecturerPending from './pages/LecturerPending'
 import LecturerRejected from './pages/LecturerRejected'
-import LecturerPaymentSettings from './pages/LecturerPaymentSettings'
 import LecturerQuestionExtractions from './pages/LecturerQuestionExtractions'
 import AdminLecturerManagement from './pages/AdminLecturerManagement'
 import CBTQuiz from './pages/CBTQuiz'
@@ -120,17 +114,11 @@ export default function App() {
         <Route path="/ai" element={<Protected><AI /></Protected>} />
         <Route path="/ai-chat" element={<Protected><AIChatPage /></Protected>} />
         <Route path="/analytics" element={<Protected><AnalyticsDashboard /></Protected>} />
-        <Route path="/marketplace" element={<Protected><Marketplace /></Protected>} />
-        <Route path="/marketplace/:id" element={<Protected><MarketplaceDetail /></Protected>} />
-        <Route path="/reader/:materialId" element={<Protected><Reader /></Protected>} />
-        <Route path="/library" element={<Protected><Library /></Protected>} />
         <Route path="/lecturer/register" element={<Protected><LecturerRegister /></Protected>} />
         <Route path="/lecturer/pending" element={<Protected><LecturerPending /></Protected>} />
         <Route path="/lecturer/rejected" element={<Protected><LecturerRejected /></Protected>} />
         <Route path="/lecturer" element={<ApprovedLecturerOnly><LecturerDashboard /></ApprovedLecturerOnly>} />
-        <Route path="/lecturer/payment-settings" element={<ApprovedLecturerOnly><LecturerPaymentSettings /></ApprovedLecturerOnly>} />
         <Route path="/lecturer/question-extractions" element={<ApprovedLecturerOnly><LecturerQuestionExtractions /></ApprovedLecturerOnly>} />
-        <Route path="/upgrade" element={<Protected><Upgrade /></Protected>} />
         <Route path="/admin" element={<AdminOnly><AdminPanel /></AdminOnly>} />
         <Route path="/admin/lecturers" element={<AdminOnly><AdminLecturerManagement /></AdminOnly>} />
         <Route path="/admin/question-extractions" element={<AdminOnly><LecturerQuestionExtractions /></AdminOnly>} />

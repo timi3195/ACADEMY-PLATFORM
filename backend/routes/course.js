@@ -8,15 +8,33 @@ const {
   canAccessCourse,
   getAccessibleCourseFilter
 } = require("../services/courseMembershipService");
+const serializeCourse = (course) => {
+  const value = typeof course.toObject === "function" ? course.toObject() : course;
+  const academicCourse = { ...value };
+  delete academicCourse.isPremium;
+  return academicCourse;
+};
 
 // CREATE COURSE (admin only)
 router.post("/", protect, adminOnly, async (req, res) => {
   try {
-    const course = await Course.create(req.body);
+    const course = await Course.create({
+      title: req.body.title,
+      code: req.body.code,
+      department: req.body.department,
+      level: req.body.level,
+      semester: req.body.semester,
+      creditUnits: req.body.creditUnits,
+      description: req.body.description,
+      lecturers: req.body.lecturers,
+      topicsBreakdown: req.body.topicsBreakdown,
+      courseCharacteristics: req.body.courseCharacteristics,
+      recommendedResources: req.body.recommendedResources
+    });
 
     res.json({
       success: true,
-      course
+      course: serializeCourse(course)
     });
   } catch (err) {
     res.status(500).json({
@@ -38,7 +56,7 @@ router.get("/", protect, async (req, res) => {
 
     res.json({
       success: true,
-      courses
+      courses: courses.map(serializeCourse)
     });
   } catch (err) {
     res.status(500).json({
@@ -54,7 +72,7 @@ router.get("/all", async (req, res) => {
 
   res.json({
     success: true,
-    courses
+    courses: courses.map(serializeCourse)
   });
 });
 
@@ -75,7 +93,7 @@ router.get("/:id", protect, async (req, res) => {
       });
     }
 
-    res.json({ success: true, course });
+    res.json({ success: true, course: serializeCourse(course) });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

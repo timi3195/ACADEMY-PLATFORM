@@ -91,9 +91,11 @@ const withMocks = async (run) => {
   User.findById = () => query(student);
   File.find = (filter) => {
     state.fileFilter = filter;
-    return query(materials.filter((material) =>
-      filter.course.$in.some((courseValue) => String(courseValue) === String(material.course))
-    ));
+    return query(materials.filter((material) => filter.$or.some((clause) =>
+      (clause.courseRef?.$in || []).some((courseValue) => String(courseValue) === String(material.courseRef)) ||
+      (clause.course?.$in || []).some((courseValue) => String(courseValue) === String(material.course)) ||
+      (clause.courseCode?.$in || []).some((courseValue) => String(courseValue) === String(material.courseCode))
+    )));
   };
   PastQuestionPaper.find = (filter) => {
     state.paperFilter = filter;
@@ -146,7 +148,11 @@ test("file listing is limited to resources from the student's department", async
 
     assert.equal(response.status, 200);
     assert.deepEqual(response.body.files.map((file) => file._id), ["material-a"]);
-    assert.deepEqual(state.fileFilter.course.$in, [COURSE_ID, "Course A", "A101"]);
+    assert.deepEqual(state.fileFilter.$or, [
+      { courseRef: { $in: [COURSE_ID] } },
+      { course: { $in: [COURSE_ID, "Course A", "A101"] } },
+      { courseCode: { $in: ["A101"] } }
+    ]);
     assert.equal(String(state.courseFilter.department), DEPARTMENT_ID);
   });
 });

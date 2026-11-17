@@ -30,4 +30,11 @@ const noteSchema = new mongoose.Schema(
   }
 );
 
+noteSchema.set("toJSON", {
+  transform: (_document, value) => {
+    delete value.isPremium;
+    return value;
+  }
+});
+
 module.exports = mongoose.models.Note || mongoose.model("Note", noteSchema);

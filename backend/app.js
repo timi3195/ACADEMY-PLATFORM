@@ -35,14 +35,7 @@ const searchRoutes = require("./routes/search");
 configureCors(app);
 app.use(cookieParser());
 app.use(passport.initialize());
-app.use(express.json({
-  limit: '10mb',
-  verify: (req, res, buffer) => {
-    if (req.originalUrl.split("?")[0] === "/api/payments/webhook") {
-      req.rawBody = Buffer.from(buffer);
-    }
-  }
-}));
+app.use(express.json({ limit: '10mb' }));
 
 app.use(logger.requestLogger);
 
@@ -80,9 +73,6 @@ app.use("/api/search", searchRoutes);
 
 app.use("/api/files", fileRoutes.router);
 
-const marketplaceRoutes = require("./routes/marketplace");
-app.use("/api/marketplace", marketplaceRoutes);
-
 const aiRoutes = require("./routes/ai");
 app.use("/api/ai", aiRoutes);
 
@@ -91,12 +81,6 @@ app.use("/api/analytics", analyticsRoutes);
 
 const lecturerRoutes = require("./routes/lecturer");
 app.use("/api/lecturer", lecturerRoutes);
-
-const libraryRoutes = require("./routes/library");
-app.use("/api/library", libraryRoutes);
-
-const purchaseRoutes = require("./routes/purchase");
-app.use("/api/purchase", purchaseRoutes);
 
 app.get("/api/protected", protect, (req, res) => {
   res.json({
@@ -107,13 +91,11 @@ app.get("/api/protected", protect, (req, res) => {
 
 const authRoutes = require("./routes/auth");
 const userRoutes = require("./routes/users");
-const paymentRoutes = require("./routes/payments");
 const adminRoutes = require("./routes/admin");
 const departmentRoutes = require("./routes/departments");
 
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
-app.use("/api/payments", paymentRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/departments", departmentRoutes);
 

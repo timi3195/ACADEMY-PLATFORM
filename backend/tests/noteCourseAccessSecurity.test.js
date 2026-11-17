@@ -114,7 +114,7 @@ test("students cannot read or create notes in another department despite enrollm
   }, { enrolled: [OTHER_COURSE_ID] });
 });
 
-test("note creation requires authentication and cannot mark a note as premium", async () => {
+test("note creation requires authentication and ignores premium flags", async () => {
   await withMocks(async (state) => {
     const unauthenticated = await request(buildApp(null)).get("/api/notes");
     const created = await request(buildApp())
@@ -123,6 +123,6 @@ test("note creation requires authentication and cannot mark a note as premium", 
 
     assert.equal(unauthenticated.status, 401);
     assert.equal(created.status, 201);
-    assert.equal(state.createdNote.isPremium, false);
+    assert.equal(Object.hasOwn(state.createdNote, "isPremium"), false);
   });
 });

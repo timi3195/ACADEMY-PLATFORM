@@ -104,6 +104,13 @@ const courseSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+courseSchema.set("toJSON", {
+  transform: (_document, value) => {
+    delete value.isPremium;
+    return value;
+  }
+});
+
 // Indexes for fast queries (unique: true on code already creates index)
 courseSchema.index({ department: 1 });
 courseSchema.index({ level: 1 });

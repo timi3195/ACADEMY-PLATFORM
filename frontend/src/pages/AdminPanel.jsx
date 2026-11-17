@@ -42,7 +42,6 @@ export default function AdminPanel() {
       session: 'Rain',
       marks: 2,
       difficulty: 'medium',
-      isPremium: false
     }
   ])
   const [questionData, setQuestionData] = useState({
@@ -55,7 +54,6 @@ export default function AdminPanel() {
     session: 'Rain',
     marks: 2,
     difficulty: 'medium',
-    isPremium: false
   })
 
   const [courseTitle, setCourseTitle] = useState('')
@@ -198,7 +196,6 @@ export default function AdminPanel() {
         semester: courseSemester,
         creditUnits: Number(courseCreditUnits),
         description: courseDescription,
-        isPremium: false
       }
 
       const res = await apiPost('/api/courses', payload)
@@ -233,7 +230,6 @@ export default function AdminPanel() {
       formData.append('file', materialFile)
       formData.append('title', materialTitle)
       formData.append('course', selectedCourse)
-      formData.append('isPremium', 'false')
 
       const res = await apiPost('/api/files/upload', formData)
       if (res.success) {
@@ -282,7 +278,6 @@ export default function AdminPanel() {
         session: questionData.session,
         marks: questionData.marks,
         difficulty: questionData.difficulty,
-        isPremium: false,
         subQuestions: hasSubQuestions ? subQuestions.map((sub) => ({
           label: sub.label,
           question: sub.question,
@@ -293,7 +288,6 @@ export default function AdminPanel() {
           session: sub.session,
           marks: sub.marks,
           difficulty: sub.difficulty,
-          isPremium: false
         })) : [],
         course: questionCourse,
         department: courses.find(c => c._id === questionCourse)?.department?._id || ''

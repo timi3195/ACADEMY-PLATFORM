@@ -55,15 +55,13 @@ const toStudentQuestion = (question) => {
         year: subQuestion.year,
         session: subQuestion.session,
         marks: subQuestion.marks,
-        difficulty: subQuestion.difficulty,
-        isPremium: subQuestion.isPremium
+        difficulty: subQuestion.difficulty
       };
     }),
     year: question.year,
     session: question.session,
     marks: question.marks,
-    difficulty: question.difficulty,
-    isPremium: question.isPremium
+    difficulty: question.difficulty
   };
 };
 

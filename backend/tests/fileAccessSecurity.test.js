@@ -52,12 +52,12 @@ test('unauthorized students cannot access restricted materials', async () => {
     course: 'course-1',
     save: async function save() { return this; }
   });
-  materialAccessService.canDownloadMaterial = async () => ({ allowed: false, reason: 'purchase_required' });
+  materialAccessService.canDownloadMaterial = async () => ({ allowed: false, reason: 'course_membership_required' });
 
   try {
     const res = await request(app).get('/api/files/download/507f1f77bcf86cd799439011');
     assert.equal(res.status, 403);
-    assert.match(String(res.body.message || ''), /purchase_required|access/i);
+    assert.match(String(res.body.message || ''), /course_membership_required|access/i);
   } finally {
     File.findById = originalFileFind;
     User.findById = originalUserFind;
@@ -123,7 +123,7 @@ test('authorized users can still access materials they are entitled to use', asy
     course: 'course-1',
     save: async function save() { return this; }
   });
-  materialAccessService.canDownloadMaterial = async () => ({ allowed: true, reason: 'purchased' });
+  materialAccessService.canDownloadMaterial = async () => ({ allowed: true, reason: 'course_access_granted' });
   materialAccessService.recordDownload = async () => ({ success: true });
   storageService.getObjectReadStream = async () => Readable.from(['ok']);
 

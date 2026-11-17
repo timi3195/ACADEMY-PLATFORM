@@ -36,7 +36,6 @@ router.post("/", protect, async (req, res) => {
       title: String(title).trim(),
       content: String(content).trim(),
       course: courseId,
-      isPremium: false
     });
 
     return res.status(201).json({ success: true, note });

@@ -46,7 +46,7 @@ export default function Notes() {
     setSuccess('')
     setSubmitting(true)
     try {
-      const res = await apiPost('/api/notes', { title: title.trim(), content: content.trim(), course: courseId, isPremium: false })
+      const res = await apiPost('/api/notes', { title: title.trim(), content: content.trim(), course: courseId })
       if (res && res.note) {
         setNotes(prev => [res.note, ...prev])
         setTitle('')

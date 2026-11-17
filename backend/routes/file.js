@@ -17,6 +17,9 @@ const {
   getAccessibleCourseFilter
 } = require("../services/courseMembershipService");
 const storageService = require("../services/storageService");
+const serializeAcademicMaterial = require("../utils/academicMaterialSerializer");
+const toPlainRecord = (record) =>
+  typeof record?.toObject === "function" ? record.toObject() : record;
 
 const uploadDir = storageService.getUploadDir();
 const legacyUploadsRouter = express.Router();
@@ -184,24 +187,19 @@ router.post("/upload", protect, adminOnly, upload.single("file"), async (req, re
       level: req.body.level || course.level,
       materialType: "Lecture Note",
       category: "Lecture Notes",
+      courseRef: course._id,
       visibility: "public",
       productStatus: "published",
       status: "published",
       approved: true,
       hidden: false,
       isDeleted: false,
-      isPremium: false,
-      fileUrl: '',
+      fileUrl: `/api/files/view/${fileId}`,
       ...storageData,
       originalFilename: req.file.originalname,
       originalName: req.file.originalname,
       uploadedAt: new Date()
     });
-
-      if (created.department) {
-        const department = await require("../models/Department").findById(created.department).select("name").lean();
-        if (department) created.department = department.name;
-      }
 
     // Expose a safe view URL that streams through the backend by file id
     created.fileUrl = `/api/files/view/${created._id}`;
@@ -209,7 +207,7 @@ router.post("/upload", protect, adminOnly, upload.single("file"), async (req, re
 
     res.json({
       success: true,
-      file: created,
+      file: serializeAcademicMaterial(created),
       message: `Material uploaded successfully and is now available to students in ${course.title}`
     });
   } catch (err) {
@@ -445,12 +443,10 @@ const getFilesHandler = async (req, res) => {
     // Admin sees all files
     if (user && user.role === 'admin') {
       const files = await File.find();
-      const mapped = files.map(f => ({
-        _id: f._id,
-        title: f.title,
-        fileUrl: `/api/files/view/${f._id}`,
-        isPremium: f.isPremium,
-        createdAt: f.createdAt
+      const mapped = files.map((file) => serializeAcademicMaterial({
+        ...toPlainRecord(file),
+        fileUrl: `/api/files/view/${file._id}`,
+        downloadUrl: `/api/files/download/${file._id}`
       }));
       return res.json({ success: true, files: mapped });
     }
@@ -462,7 +458,13 @@ const getFilesHandler = async (req, res) => {
       if (courseValues.length === 0) {
         return res.json({ success: true, files: [], filterApplied: true });
       }
-      const allFiles = await File.find({ course: { $in: courseValues } });
+      const allFiles = await File.find({
+        $or: [
+          { courseRef: { $in: courseRecords.map((course) => course._id) } },
+          { course: { $in: courseValues } },
+          { courseCode: { $in: courseRecords.map((course) => course.code) } }
+        ]
+      });
       const accessibleFiles = await Promise.all(
         allFiles.map(async (f) => {
           const access = await materialAccessService.canViewMaterial({
@@ -476,12 +478,10 @@ const getFilesHandler = async (req, res) => {
 
       const mapped = accessibleFiles
         .filter(Boolean)
-        .map((f) => ({
-          _id: f._id,
-          title: f.title,
-          fileUrl: `/api/files/view/${f._id}`,
-          isPremium: f.isPremium,
-          createdAt: f.createdAt
+        .map((file) => serializeAcademicMaterial({
+          ...toPlainRecord(file),
+          fileUrl: `/api/files/view/${file._id}`,
+          downloadUrl: `/api/files/download/${file._id}`
         }));
 
       return res.json({ success: true, files: mapped, filterApplied: true });
@@ -521,7 +521,13 @@ router.get('/course/:courseId', protect, async (req, res) => {
       });
     }
 
-    const files = await File.find({ course: { $in: [courseId, course.title, course.code] } });
+    const files = await File.find({
+      $or: [
+        { courseRef: course._id },
+        { course: { $in: [courseId, course.title, course.code] } },
+        { courseCode: course.code }
+      ]
+    });
 
     const processed = await Promise.all(
       files.map(async (f) => {
@@ -531,19 +537,20 @@ router.get('/course/:courseId', protect, async (req, res) => {
           restrictByCourse: true
         });
 
+        if (!access.allowed) return null;
         return {
-          _id: f._id,
-          title: f.title,
-          fileUrl: `/api/files/view/${f._id}`,
-          isPremium: f.isPremium,
-          accessible: access.allowed,
-          accessReason: access.reason,
-          createdAt: f.createdAt
+          ...serializeAcademicMaterial({
+            ...toPlainRecord(f),
+            fileUrl: `/api/files/view/${f._id}`,
+            downloadUrl: `/api/files/download/${f._id}`
+          }),
+          accessible: true,
+          accessReason: access.reason
         };
       })
     );
 
-    res.json({ success: true, files: processed });
+    res.json({ success: true, files: processed.filter(Boolean) });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -563,12 +570,10 @@ router.get("/admin/all", protect, adminOnly, async (req, res) => {
     }
     
     const files = await File.find().populate("course");
-    const mapped = files.map(f => ({
-      _id: f._id,
-      title: f.title,
-      fileUrl: `/api/files/view/${f._id}`,
-      isPremium: f.isPremium,
-      createdAt: f.createdAt
+    const mapped = files.map((file) => serializeAcademicMaterial({
+      ...toPlainRecord(file),
+      fileUrl: `/api/files/view/${file._id}`,
+      downloadUrl: `/api/files/download/${file._id}`
     }));
     res.json({ success: true, files: mapped });
   } catch (err) {
