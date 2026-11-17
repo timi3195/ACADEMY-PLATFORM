@@ -73,6 +73,36 @@ const uploadUploadedFile = async ({ file, materialId, kind = 'materials' }) => {
     return { storageProvider: OBJECT_PROVIDER, storageKey: key, originalName: file.originalname, mimeType: file.mimetype, size: file.size, storageStatus: 'migrated', storageFilename: file.filename };
   } finally { removeLocalUpload(file); }
 };
+const headObjectMetadata = async (record) => {
+  const key = record?.storageKey;
+  if (record?.storageProvider !== OBJECT_PROVIDER ||
+      typeof key !== 'string' ||
+      !key.trim() ||
+      key.includes('..') ||
+      key.includes('\\') ||
+      path.isAbsolute(key)) {
+    return { status: 'unavailable', contentLength: null, contentType: null };
+  }
+
+  try {
+    const response = await client().send(new HeadObjectCommand({
+      Bucket: process.env.STORAGE_BUCKET,
+      Key: key
+    }));
+    return {
+      status: 'present',
+      contentLength: Number.isFinite(response.ContentLength) ? response.ContentLength : null,
+      contentType: typeof response.ContentType === 'string' ? response.ContentType : null
+    };
+  } catch (error) {
+    const statusCode = error?.$metadata?.httpStatusCode;
+    const errorName = error?.name || error?.Code;
+    if (statusCode === 404 || errorName === 'NotFound' || errorName === 'NoSuchKey') {
+      return { status: 'missing', contentLength: null, contentType: null };
+    }
+    return { status: 'unavailable', contentLength: null, contentType: null };
+  }
+};
 const storePrivateQuestionImage = async ({ buffer, batchId, imageId, extension, mimeType, originalName }) => {
   if (!Buffer.isBuffer(buffer) || !buffer.length) throw new Error('Image content is unavailable');
   if (!/^[a-f0-9]{24}$/i.test(String(batchId)) || !/^[a-f0-9]{24}$/i.test(String(imageId))) {
@@ -140,4 +170,4 @@ const deleteObject = async (record) => {
 };
 const getStorageDiagnostics = ({ fileId, storageFilename, storageKey, storageProvider }) => ({ provider: storageProvider || getStorageProvider(), fileId, storageFilename, storageKey: storageKey || null, configured: getStorageProvider() !== OBJECT_PROVIDER || isObjectStorageConfigured() });
 
-module.exports = { LOCAL_PROVIDER, OBJECT_PROVIDER, getUploadDir, getStorageProvider, isObjectStorageConfigured, resolveStoragePath, generateStorageKey, uploadUploadedFile, storePrivateQuestionImage, getObjectReadStream, deleteObject, getStorageDiagnostics, safeFilename };
+module.exports = { LOCAL_PROVIDER, OBJECT_PROVIDER, getUploadDir, getStorageProvider, isObjectStorageConfigured, resolveStoragePath, generateStorageKey, uploadUploadedFile, headObjectMetadata, storePrivateQuestionImage, getObjectReadStream, deleteObject, getStorageDiagnostics, safeFilename };
