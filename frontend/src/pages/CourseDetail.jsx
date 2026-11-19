@@ -6,10 +6,21 @@ import PDFViewer from '../components/PDFViewer'
 import CBTPracticeLink from '../components/CBTPracticeLink'
 import { canAccessCbtPractice } from '../utils/cbt'
 import { isCourseAccessibleToUser } from '../utils/courseAccess'
+import CourseProgressPanel from '../components/CourseProgressPanel'
+import CourseMaterialCompletion from '../components/CourseMaterialCompletion'
+import useCourseMaterialProgress from '../hooks/useCourseMaterialProgress'
 
 export default function CourseDetail() {
   const { courseId } = useParams()
   const { user } = useAuth()
+  const {
+    progress,
+    loading: progressLoading,
+    savingMaterialId,
+    error: progressError,
+    updateCompletion,
+    retry: retryProgress
+  } = useCourseMaterialProgress(user?.role === 'student' ? courseId : null)
   const [course, setCourse] = useState(null)
   const [materials, setMaterials] = useState([])
   const [questions, setQuestions] = useState([])
@@ -183,12 +194,22 @@ export default function CourseDetail() {
           {/* Materials Tab */}
           {activeTab === 'materials' && (
             <div className="space-y-4">
+              {user?.role === 'student' && (
+                <CourseProgressPanel
+                  progress={progress}
+                  loading={progressLoading}
+                  error={progressError}
+                  onRetry={retryProgress}
+                />
+              )}
               {materials.length === 0 ? (
                 <p className="text-gray-600 text-center py-8">No materials available for this course yet.</p>
               ) : (
                 materials.map(file => {
                   const canAccess = canAccessMaterial(file)
-                  const canDownload = Boolean(user && (user.role === 'admin' || canAccess))
+                  const isAvailable = file.available !== false
+                  const materialProgress = progress?.materials?.find((item) => item.materialId === String(file._id))
+                  const canDownload = Boolean(user && isAvailable && (user.role === 'admin' || canAccess))
 
                   return (
                     <div
@@ -208,7 +229,7 @@ export default function CourseDetail() {
                         </div>
 
                         <div className="flex items-center gap-2">
-                          {canAccess ? (
+                          {canAccess && isAvailable ? (
                             (canDownload ? (
                               <a
                                 onClick={async (event) => {
@@ -236,6 +257,8 @@ export default function CourseDetail() {
                             ) : (
                               <span className="text-sm text-red-700 font-bold">Not available to this account</span>
                             ))
+                          ) : canAccess ? (
+                            <span className="text-sm text-amber-700 font-medium">Material unavailable</span>
                           ) : (
                             <>
                               <span className="text-sm text-red-700 font-bold">Not available to this account</span>
@@ -244,11 +267,25 @@ export default function CourseDetail() {
                         </div>
                       </div>
 
+                      {user?.role === 'student' && canAccess && isAvailable && (
+                        <CourseMaterialCompletion
+                          completed={Boolean(materialProgress?.completed)}
+                          saving={savingMaterialId === String(file._id)}
+                          disabled={progressLoading || Boolean(progressError) || !materialProgress}
+                          onChange={(completed) => updateCompletion(String(file._id), completed)}
+                        />
+                      )}
+
                       {/* Inline file preview - the reader handles PDF and DOCX automatically */}
-                      {canAccess && (
+                      {canAccess && isAvailable && (
                         <div className="mt-4">
                           <PDFViewer fileUrl={file.fileUrl} fileName={file.title} downloadUrl={`/api/files/download/${file._id}`} canDownload={canDownload} materialId={file._id} />
                         </div>
+                      )}
+                      {canAccess && !isAvailable && (
+                        <p className="mt-3 text-sm text-amber-700">
+                          This file is unavailable and is excluded from course progress.
+                        </p>
                       )}
                     </div>
                   )

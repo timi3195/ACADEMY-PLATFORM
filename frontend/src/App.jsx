@@ -18,11 +18,7 @@ import ResetPassword from './pages/ResetPassword'
 import AIChatPage from './pages/AIChatPage'
 import AnalyticsDashboard from './pages/AnalyticsDashboard'
 import LecturerDashboard from './pages/LecturerDashboard'
-import LecturerRegister from './pages/LecturerRegister'
-import LecturerPending from './pages/LecturerPending'
-import LecturerRejected from './pages/LecturerRejected'
 import LecturerQuestionExtractions from './pages/LecturerQuestionExtractions'
-import AdminLecturerManagement from './pages/AdminLecturerManagement'
 import CBTQuiz from './pages/CBTQuiz'
 import ExaminationHistory from './pages/ExaminationHistory'
 import MainLayout from './layouts/MainLayout'
@@ -62,34 +58,6 @@ function AdminOnly({ children }) {
   return <MainLayout>{children}</MainLayout>
 }
 
-function ApprovedLecturerOnly({ children }) {
-  const { user, loading } = useAuth()
-  if (loading) return <div className="flex items-center justify-center h-screen">Loading...</div>
-  if (!user) return <Navigate to="/login" replace />
-
-  if (user.role?.toLowerCase() === 'admin') {
-    return <MainLayout>{children}</MainLayout>
-  }
-
-  if (user.role?.toLowerCase() !== 'lecturer') {
-    return <Navigate to="/lecturer/register" replace />
-  }
-
-  if (user.lecturerStatus === 'pending') {
-    return <Navigate to="/lecturer/pending" replace />
-  }
-
-  if (user.lecturerStatus === 'rejected') {
-    return <Navigate to="/lecturer/rejected" replace />
-  }
-
-  if (user.lecturerStatus !== 'approved') {
-    return <Navigate to="/lecturer/register" replace />
-  }
-
-  return <MainLayout>{children}</MainLayout>
-}
-
 export default function App() {
   return (
     <AuthProvider>
@@ -114,13 +82,8 @@ export default function App() {
         <Route path="/ai" element={<Protected><AI /></Protected>} />
         <Route path="/ai-chat" element={<Protected><AIChatPage /></Protected>} />
         <Route path="/analytics" element={<Protected><AnalyticsDashboard /></Protected>} />
-        <Route path="/lecturer/register" element={<Protected><LecturerRegister /></Protected>} />
-        <Route path="/lecturer/pending" element={<Protected><LecturerPending /></Protected>} />
-        <Route path="/lecturer/rejected" element={<Protected><LecturerRejected /></Protected>} />
-        <Route path="/lecturer" element={<ApprovedLecturerOnly><LecturerDashboard /></ApprovedLecturerOnly>} />
-        <Route path="/lecturer/question-extractions" element={<ApprovedLecturerOnly><LecturerQuestionExtractions /></ApprovedLecturerOnly>} />
         <Route path="/admin" element={<AdminOnly><AdminPanel /></AdminOnly>} />
-        <Route path="/admin/lecturers" element={<AdminOnly><AdminLecturerManagement /></AdminOnly>} />
+        <Route path="/admin/content" element={<AdminOnly><LecturerDashboard /></AdminOnly>} />
         <Route path="/admin/question-extractions" element={<AdminOnly><LecturerQuestionExtractions /></AdminOnly>} />
 
         {/* Catch all */}

@@ -6,7 +6,7 @@ const Course = require("../models/course");
 const lecturerService = require("../services/lecturerService");
 const storageService = require("../services/storageService");
 
-const LECTURER_ID = "507f1f77bcf86cd799439011";
+const ADMIN_ID = "507f1f77bcf86cd799439011";
 const COURSE_ID = "507f1f77bcf86cd799439021";
 const OTHER_COURSE_ID = "507f1f77bcf86cd799439022";
 const DEPARTMENT_ID = "507f1f77bcf86cd799439031";
@@ -18,7 +18,7 @@ const courseRecord = {
   department: DEPARTMENT_ID,
   level: "HND1",
   semester: "Second",
-  lecturers: [LECTURER_ID]
+  lecturers: []
 };
 
 const withModelStubs = (t, { course = courseRecord, material } = {}) => {
@@ -33,7 +33,7 @@ const withModelStubs = (t, { course = courseRecord, material } = {}) => {
   User.findById = () => ({
     select() {
       return {
-        lean: async () => ({ name: "Approved lecturer", email: "lecturer@example.test", role: "lecturer", lecturerStatus: "approved" })
+        lean: async () => ({ name: "Administrator", email: "admin@example.test", role: "admin" })
       };
     }
   });
@@ -53,7 +53,7 @@ const withModelStubs = (t, { course = courseRecord, material } = {}) => {
   });
 };
 
-test("lecturer uploads bind material to assigned Course data and return no commerce fields", async (t) => {
+test("administrator uploads bind material to trusted Course data and return no commerce fields", async (t) => {
   withModelStubs(t);
   let created;
   File.create = async (data) => {
@@ -62,7 +62,7 @@ test("lecturer uploads bind material to assigned Course data and return no comme
   };
 
   const material = await lecturerService.createLecturerMaterial({
-    user: { id: LECTURER_ID },
+    user: { id: ADMIN_ID },
     body: {
       title: "  Lecture notes  ",
       description: "  Course introduction  ",
@@ -93,7 +93,7 @@ test("lecturer uploads bind material to assigned Course data and return no comme
   }
 });
 
-test("unassigned courses and unapproved lecturers cannot upload teaching materials", async (t) => {
+test("administrators cannot upload to an unknown course", async (t) => {
   withModelStubs(t, { course: null });
   let storageCalls = 0;
   storageService.uploadUploadedFile = async () => {
@@ -103,7 +103,7 @@ test("unassigned courses and unapproved lecturers cannot upload teaching materia
 
   await assert.rejects(
     lecturerService.createLecturerMaterial({
-      user: { id: LECTURER_ID },
+      user: { id: ADMIN_ID },
       body: { title: "Attempt", description: "Attempt", course: OTHER_COURSE_ID },
       file: { originalname: "attempt.pdf" }
     }),
@@ -112,14 +112,14 @@ test("unassigned courses and unapproved lecturers cannot upload teaching materia
   assert.equal(storageCalls, 0);
 });
 
-test("lecturer cannot move or manage a material into a course they are not assigned", async (t) => {
+test("administrators cannot move a material into an unknown course", async (t) => {
   const material = {
     _id: "507f1f77bcf86cd799439041",
     courseRef: COURSE_ID,
     course: courseRecord.title,
     courseCode: courseRecord.code,
     department: DEPARTMENT_ID,
-    lecturer: LECTURER_ID,
+    lecturer: null,
     isDeleted: false,
     async save() { this.saved = true; return this; }
   };
@@ -128,7 +128,7 @@ test("lecturer cannot move or manage a material into a course they are not assig
 
   await assert.rejects(
     lecturerService.updateLecturerMaterial({
-      user: { id: LECTURER_ID },
+      user: { id: ADMIN_ID },
       materialId: material._id,
       body: { course: OTHER_COURSE_ID, title: "Unauthorized move" }
     }),

@@ -103,13 +103,13 @@ export default function LecturerDashboard() {
     <div className="page">
       <div className="wp-section" style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap', background: 'linear-gradient(135deg, #f8fbff, #ffffff)', border: '1px solid #dbeafe' }}>
         <div>
-          <div style={{ color: '#0f3d91', fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em' }}>Teaching Portal</div>
+          <div style={{ color: '#0f3d91', fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em' }}>Administration</div>
           <h2 style={{ marginBottom: '8px' }}>Course Material Studio</h2>
-          <p style={{ margin: 0, color: '#64748b' }}>Upload and manage course materials for courses assigned to you.</p>
+          <p style={{ margin: 0, color: '#64748b' }}>Upload and manage course materials for platform courses.</p>
           <p style={{ margin: '8px 0 0', color: '#166534', fontWeight: 600 }}>All lecturer materials are free for students authorized to access their course in this release.</p>
         </div>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <Link to="/lecturer/question-extractions" style={{ padding: '8px 12px', border: '1px solid #2563eb', borderRadius: '6px', color: '#2563eb', textDecoration: 'none', fontWeight: 600 }}>Extract Past Questions</Link>
+          <Link to="/admin/question-extractions" style={{ padding: '8px 12px', border: '1px solid #2563eb', borderRadius: '6px', color: '#2563eb', textDecoration: 'none', fontWeight: 600 }}>Extract Past Questions</Link>
           <button type="button" onClick={openCreateModal} disabled={!courses.length}>Add Course Material</button>
         </div>
       </div>

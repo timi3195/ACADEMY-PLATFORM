@@ -4,10 +4,13 @@ const Question = require("../models/Question");
 const QuestionExtraction = require("../models/QuestionExtraction");
 const Course = require("../models/course");
 const Department = require("../models/Department");
+const PastQuestionPaper = require("../models/PastQuestionPaper");
 
 const REVIEW_FIELDS = [
   "questionNumber",
   "questionText",
+  "questionType",
+  "blankCount",
   "options",
   "explanation",
   "topic",
@@ -37,7 +40,9 @@ const getReviewValues = (draft) => Object.fromEntries(REVIEW_FIELDS.map((field) 
       label: option.label || "",
       text: option.text || ""
     }))
-    : draft[field]
+    : field === "questionType"
+      ? draft.questionType || ((draft.options || []).length >= 2 ? "objective" : "unclassified")
+      : draft[field]
 ]));
 
 const recordBatchReviewStatus = async (batchId) => {
@@ -112,8 +117,27 @@ const editDraft = async ({ batchId, draftId, userId, payload }) => {
     }
     nextValues.questionText = payload.questionText.trim();
   }
+  if (Object.hasOwn(payload, "questionType")) {
+    if (!["objective", "fill_in_gap", "theory", "unclassified"].includes(payload.questionType)) {
+      throw reviewError(400, "Question type must be objective, fill_in_gap, theory, or unclassified.");
+    }
+    nextValues.questionType = payload.questionType;
+  }
+  if (Object.hasOwn(payload, "blankCount")) {
+    const blankCount = Number(payload.blankCount);
+    if (nextValues.questionType !== "fill_in_gap" ||
+        !Number.isInteger(blankCount) || blankCount < 1 || blankCount > 20) {
+      throw reviewError(400, "Fill-in-the-gap questions must have between 1 and 20 blanks.");
+    }
+    nextValues.blankCount = blankCount;
+  }
   if (Object.hasOwn(payload, "options")) {
-    nextValues.options = normalizeOptions(payload.options, draft.options);
+    if (!Array.isArray(payload.options)) {
+      throw reviewError(400, "Answer options must be an array.");
+    }
+    nextValues.options = nextValues.questionType !== "objective" && payload.options.length === 0
+      ? []
+      : normalizeOptions(payload.options, draft.options);
   }
   if (Object.hasOwn(payload, "explanation")) {
     if (typeof payload.explanation !== "string" || payload.explanation.length > 3000) {
@@ -194,14 +218,20 @@ const validateApproval = async (batch, draft) => {
   if (!draft.questionText?.trim() || draft.questionText.length > 5000) {
     throw reviewError(400, "A valid question text is required before approval.");
   }
-  if (!Array.isArray(draft.options) || draft.options.length < 2 || draft.options.length > 8 ||
-      draft.options.some((option) => !option.text?.trim() || !option.optionId) ||
-      new Set(draft.options.map((option) => option.optionId)).size !== draft.options.length) {
-    throw reviewError(400, "The draft must have 2 to 8 valid answer options with unique identifiers.");
+  const questionType = draft.questionType ||
+    (Array.isArray(draft.options) && draft.options.length >= 2 ? "objective" : "unclassified");
+  if (!["objective", "fill_in_gap", "theory"].includes(questionType)) {
+    throw reviewError(400, "Select a supported question type before approval.");
   }
-  const answer = draft.options.find((option) => option.optionId === draft.confirmedAnswerOptionId);
-  if (!answer || !draft.answerConfirmedBy || !draft.answerConfirmedAt) {
-    throw reviewError(400, "A reviewer must explicitly confirm a correct answer option before approval.");
+  if (questionType === "objective" &&
+      (!Array.isArray(draft.options) || draft.options.length < 2 || draft.options.length > 8 ||
+       draft.options.some((option) => !option.text?.trim() || !option.optionId) ||
+       new Set(draft.options.map((option) => option.optionId)).size !== draft.options.length)) {
+    throw reviewError(400, "Objective drafts must have 2 to 8 valid options with unique identifiers.");
+  }
+  if (questionType === "fill_in_gap" &&
+      (!Number.isInteger(draft.blankCount) || draft.blankCount < 1 || draft.blankCount > 20)) {
+    throw reviewError(400, "Fill-in-the-gap drafts must specify between 1 and 20 blanks.");
   }
   if (!draft.topic?.trim()) throw reviewError(400, "A topic is required before approval.");
   if (!["easy", "medium", "hard"].includes(draft.difficulty)) {
@@ -227,9 +257,42 @@ const validateApproval = async (batch, draft) => {
       course.semester !== batch.semester) {
     throw reviewError(400, "The extraction course, department, level, and semester associations do not match.");
   }
+  let sourcePaperMetadata;
+  if (batch.sourcePaper) {
+    if (!mongoose.Types.ObjectId.isValid(idOf(batch.sourcePaper))) {
+      throw reviewError(400, "The extraction source paper reference is invalid.");
+    }
+
+    const sourcePaper = await PastQuestionPaper.findById(batch.sourcePaper);
+    if (!sourcePaper ||
+        idOf(sourcePaper.course) !== idOf(batch.course) ||
+        idOf(sourcePaper.department) !== idOf(batch.department) ||
+        sourcePaper.level !== batch.academicLevel ||
+        sourcePaper.semester !== batch.semester ||
+        (batch.sourceExamYear && String(sourcePaper.examinationYear) !== String(batch.sourceExamYear))) {
+      throw reviewError(409, "The extraction source paper is unavailable or no longer matches its course metadata.");
+    }
+
+    const currentSourcePaperMetadata = {
+      title: sourcePaper.title,
+      examinationYear: String(sourcePaper.examinationYear),
+      level: sourcePaper.level,
+      semester: sourcePaper.semester
+    };
+    const savedSourcePaperMetadata = batch.sourcePaperMetadata;
+    if (savedSourcePaperMetadata &&
+        (savedSourcePaperMetadata.title !== currentSourcePaperMetadata.title ||
+         String(savedSourcePaperMetadata.examinationYear) !== currentSourcePaperMetadata.examinationYear ||
+         savedSourcePaperMetadata.level !== currentSourcePaperMetadata.level ||
+         savedSourcePaperMetadata.semester !== currentSourcePaperMetadata.semester)) {
+      throw reviewError(409, "The source paper metadata changed after extraction; review the batch before approval.");
+    }
+    sourcePaperMetadata = savedSourcePaperMetadata || currentSourcePaperMetadata;
+  }
+
   const year = String(batch.sourceExamYear || String(batch.academicSession || "").slice(0, 4));
   if (!/^\d{4}$/.test(year)) throw reviewError(400, "A valid examination year is required before approval.");
-  return { answer, year };
+  return { questionType, year, sourcePaperMetadata };
 };
 
 const approveDraft = async ({ batchId, draftId, userId }) => {
@@ -284,10 +347,11 @@ const approveDraft = async ({ batchId, draftId, userId }) => {
   }
   batch = claim;
   draft = findDraft(batch, draftId);
-  let answer;
+  let questionType;
   let year;
+  let sourcePaperMetadata;
   try {
-    ({ answer, year } = await validateApproval(batch, draft));
+    ({ questionType, year, sourcePaperMetadata } = await validateApproval(batch, draft));
   } catch (error) {
     await QuestionExtraction.updateOne({
       batchId,
@@ -312,10 +376,12 @@ const approveDraft = async ({ batchId, draftId, userId }) => {
         topic: draft.topic.trim(),
         questionNumber: draft.questionNumber || "",
         question: draft.questionText.trim(),
-        options: draft.options.map((option) => option.text.trim()),
-        optionIds: draft.options.map((option) => option.optionId),
-        answer: answer.text.trim(),
-        explanation: draft.explanation || "",
+        questionType,
+        ...(questionType === "fill_in_gap" ? { blankCount: draft.blankCount } : {}),
+        options: questionType === "objective" ? draft.options.map((option) => option.text.trim()) : [],
+        optionIds: questionType === "objective" ? draft.options.map((option) => option.optionId) : [],
+        answer: "",
+        explanation: "",
         year,
         session: "Rain",
         marks: Number(draft.marks),
@@ -326,7 +392,13 @@ const approveDraft = async ({ batchId, draftId, userId }) => {
         approvedAt: new Date(),
         extractionKey,
         extractionBatchId: batchId,
-        extractionDraftId: String(draftId)
+        extractionDraftId: String(draftId),
+        sourcePaper: batch.sourcePaper || null,
+        ...(sourcePaperMetadata ? { sourcePaperMetadata } : {}),
+        sourceExamYear: batch.sourceExamYear || "",
+        sourceAcademicSession: batch.academicSession || "",
+        sourcePage: Number.isInteger(draft.sourcePage) ? draft.sourcePage : null,
+        sourceExcerpt: draft.sourceExcerpt || ""
       });
     } catch (error) {
       if (error.code !== 11000) {

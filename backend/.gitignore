@@ -1,4 +1,9 @@
 node_modules/
+/tessdata/
+/uploads/
+/scripts/backups/
+*.tmp
+tmp/
 .env
 .DS_Store
 npm-debug.log*

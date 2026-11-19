@@ -1,6 +1,8 @@
 const mongoose = require("mongoose");
+const path = require("node:path");
 const { normalizeAcademicLevel } = require('../utils/academicLevels');
 const { canAccessCourse } = require("./courseMembershipService");
+const storageService = require("./storageService");
 
 const idOf = (value) => String(value?._id || value || "");
 const ACADEMIC_LEVELS = new Set(["ND1", "ND2", "HND1", "HND2"]);
@@ -30,6 +32,30 @@ const isLegacyCourseMaterial = (material) =>
 
 const isCourseAssociatedMaterial = (material) =>
   isCourseMaterial(material) || isLegacyCourseMaterial(material);
+
+const isMaterialStorageAvailable = (material) => {
+  if (!material) return false;
+  if (["failed", "missing"].includes(String(material.storageStatus || "").toLowerCase())) {
+    return false;
+  }
+
+  if (material.storageProvider === storageService.OBJECT_PROVIDER) {
+    const storageKey = String(material.storageKey || "");
+    return material.storageStatus === "migrated" &&
+      Boolean(storageKey) &&
+      !storageKey.includes("..") &&
+      !path.isAbsolute(storageKey);
+  }
+
+  const storageFilename =
+    material.storageFilename ||
+    storageService.getLegacyUploadFilename(material.fileUrl);
+  return Boolean(
+    storageFilename &&
+    !storageFilename.includes("..") &&
+    !path.isAbsolute(storageFilename)
+  );
+};
 
 const classifyMaterial = (material) => {
   if (isCourseMaterial(material)) return "course";
@@ -244,6 +270,7 @@ const recordDownload = async ({ material }) => {
 
 module.exports = {
   isCourseAssociatedMaterial,
+  isMaterialStorageAvailable,
   resolveCourseForMaterial,
   verifyCourseMembership,
   canViewMaterial,

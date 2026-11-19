@@ -11,8 +11,10 @@ const Course = require("../models/course");
 const Department = require("../models/Department");
 const Question = require("../models/Question");
 const QuestionExtraction = require("../models/QuestionExtraction");
+const PastQuestionPaper = require("../models/PastQuestionPaper");
 const questionAccess = require("../services/questionAccessService");
 const storageService = require("../services/storageService");
+const questionMarkingService = require("../services/questionMarkingService");
 
 const LECTURER = "507f1f77bcf86cd799439011";
 const ADMIN = "507f1f77bcf86cd799439012";
@@ -20,6 +22,8 @@ const STUDENT = "507f1f77bcf86cd799439013";
 const OUTSIDER = "507f1f77bcf86cd799439014";
 const COURSE_ID = "507f1f77bcf86cd799439021";
 const DEPARTMENT_ID = "507f1f77bcf86cd799439022";
+const OTHER_COURSE_ID = "507f1f77bcf86cd799439023";
+const PAPER_ID = "507f1f77bcf86cd799439024";
 const DRAFT_A = "507f1f77bcf86cd799439031";
 const DRAFT_B = "507f1f77bcf86cd799439032";
 const IMAGE_ID = "507f1f77bcf86cd799439041";
@@ -29,8 +33,10 @@ const originals = {};
 let users;
 let records;
 let questions;
+let sourcePapers;
 let courseAccess;
 let imageBuffer;
+let markingCalls;
 
 const clone = (value) => {
   if (value instanceof Date) return new Date(value);
@@ -68,7 +74,7 @@ const makeDraft = (id, overrides = {}) => ({
   ...overrides
 });
 
-const seedBatch = (drafts = [makeDraft(DRAFT_A)]) => ({
+const seedBatch = (drafts = [makeDraft(DRAFT_A)], overrides = {}) => ({
   batchId: BATCH_ID,
   uploadedBy: OUTSIDER,
   course: COURSE_ID,
@@ -93,7 +99,8 @@ const seedBatch = (drafts = [makeDraft(DRAFT_A)]) => ({
     ocrConfidence: 92,
     ocrText: "What is two plus two?"
   }],
-  drafts
+  drafts,
+  ...overrides
 });
 
 const buildApp = (identity, roleClaim) => {
@@ -119,6 +126,8 @@ const setupMocks = () => {
   };
   records = new Map([[BATCH_ID, seedBatch()]]);
   questions = new Map();
+  sourcePapers = new Map();
+  markingCalls = 0;
   courseAccess = true;
   imageBuffer = Buffer.from("private-image");
 
@@ -138,13 +147,13 @@ const setupMocks = () => {
     ? { _id: COURSE_ID, department: DEPARTMENT_ID, level: "ND1", semester: "First" }
     : null;
   Department.findById = async (id) => String(id) === DEPARTMENT_ID ? { _id: DEPARTMENT_ID } : null;
+  PastQuestionPaper.findById = async (id) => sourcePapers.get(String(id)) || null;
   questionAccess.getCourseAccess = async (userId, courseId) => {
     const user = users[String(userId)];
     if (!user || String(courseId) !== COURSE_ID) {
       return { allowed: false, manager: false, statusCode: 403, message: "Course access required." };
     }
-    const manager = user.role === "admin" ||
-      (courseAccess && user.role === "lecturer" && user.lecturerStatus === "approved");
+    const manager = user.role === "admin";
     return manager
       ? { allowed: true, manager: true, course: { _id: COURSE_ID } }
       : { allowed: false, manager: false, statusCode: 403, message: "Course access required." };
@@ -206,6 +215,10 @@ const setupMocks = () => {
     questions.set(payload.extractionKey, question);
     return question;
   };
+  questionMarkingService.generateForQuestion = async (questionId) => {
+    markingCalls += 1;
+    return { status: "ready", version: { _id: `marking-${questionId}` } };
+  };
   storageService.getObjectReadStream = async () => Readable.from([imageBuffer]);
 };
 
@@ -214,8 +227,10 @@ const restoreMocks = () => {
   Course.find = originals.courseFind;
   Course.findById = originals.courseFindById;
   Department.findById = originals.departmentFindById;
+  PastQuestionPaper.findById = originals.paperFindById;
   Question.findOne = originals.questionFindOne;
   Question.create = originals.questionCreate;
+  questionMarkingService.generateForQuestion = originals.generateForQuestion;
   QuestionExtraction.findOne = originals.extractionFindOne;
   QuestionExtraction.find = originals.extractionFind;
   QuestionExtraction.updateOne = originals.extractionUpdateOne;
@@ -229,8 +244,10 @@ test.before(() => {
   originals.courseFind = Course.find;
   originals.courseFindById = Course.findById;
   originals.departmentFindById = Department.findById;
+  originals.paperFindById = PastQuestionPaper.findById;
   originals.questionFindOne = Question.findOne;
   originals.questionCreate = Question.create;
+  originals.generateForQuestion = questionMarkingService.generateForQuestion;
   originals.extractionFindOne = QuestionExtraction.findOne;
   originals.extractionFind = QuestionExtraction.find;
   originals.extractionUpdateOne = QuestionExtraction.updateOne;
@@ -248,31 +265,27 @@ test("review endpoints require authentication and reject student roles from the 
   assert.equal(response.status, 403);
 });
 
-test("lecturers can review only batches for courses they manage and the image route enforces the same rule", async () => {
+test("former lecturers cannot review extraction batches or protected images", async () => {
   courseAccess = false;
   const app = buildApp(LECTURER, "lecturer");
   assert.equal((await request(app).get(`/api/question-extractions/${BATCH_ID}`)).status, 403);
   assert.equal((await request(app).get(`/api/question-extractions/${BATCH_ID}/images/${IMAGE_ID}`)).status, 403);
 });
 
-test("assigned lecturers and administrators can retrieve drafts and protected source images", async () => {
-  const lecturerResponse = await request(buildApp(LECTURER, "lecturer"))
+test("administrators can retrieve drafts and protected source images", async () => {
+  const adminResponse = await request(buildApp(ADMIN, "admin"))
     .get(`/api/question-extractions/${BATCH_ID}`);
-  assert.equal(lecturerResponse.status, 200);
-  assert.equal(lecturerResponse.body.batch.drafts[0].ocrConfidence, 92);
-  assert.equal(lecturerResponse.body.batch.drafts[0].extractionWarnings.length, 1);
-  const image = await request(buildApp(LECTURER, "lecturer"))
+  assert.equal(adminResponse.status, 200);
+  assert.equal(adminResponse.body.batch.drafts[0].ocrConfidence, 92);
+  assert.equal(adminResponse.body.batch.drafts[0].extractionWarnings.length, 1);
+  const image = await request(buildApp(ADMIN, "admin"))
     .get(`/api/question-extractions/${BATCH_ID}/images/${IMAGE_ID}`);
   assert.equal(image.status, 200);
   assert.equal(image.headers["cache-control"], "private, no-store");
-
-  const admin = await request(buildApp(ADMIN, "student"))
-    .get(`/api/question-extractions/${BATCH_ID}`);
-  assert.equal(admin.status, 200);
 });
 
 test("draft editing validates fields, preserves originals, and records reviewer history", async () => {
-  const app = buildApp(LECTURER, "lecturer");
+  const app = buildApp(ADMIN, "admin");
   const invalid = await request(app)
     .patch(`/api/question-extractions/${BATCH_ID}/drafts/${DRAFT_A}`)
     .send({ options: [{ text: "Only one option" }] });
@@ -298,42 +311,216 @@ test("draft editing validates fields, preserves originals, and records reviewer 
   assert.deepEqual(saved.options.map((option) => option.optionId), ["stable-option-b", "stable-option-a"]);
   assert.equal(saved.confirmedAnswerOptionId, "stable-option-b");
   assert.equal(saved.originalContent.questionText, "What is two plus two?");
-  assert.equal(saved.reviewHistory[0].reviewer, LECTURER);
+  assert.equal(saved.reviewHistory[0].reviewer, ADMIN);
   assert.equal(saved.reviewHistory[0].action, "edited");
 });
 
-test("approval requires explicit correct-answer confirmation and creates one approved question", async () => {
-  const app = buildApp(LECTURER, "lecturer");
-  const missingAnswer = await request(app)
-    .post(`/api/question-extractions/${BATCH_ID}/drafts/${DRAFT_A}/approve`);
-  assert.equal(missingAnswer.status, 400);
-  assert.equal(questions.size, 0);
-
-  await request(app)
-    .patch(`/api/question-extractions/${BATCH_ID}/drafts/${DRAFT_A}`)
-    .send({
-      confirmedAnswerOptionId: "stable-option-b",
-      confirmCorrectAnswer: true
-    })
-    .expect(200);
+test("content approval does not require answer confirmation and AI marking is generated separately", async () => {
+  const app = buildApp(ADMIN, "admin");
   const approved = await request(app)
     .post(`/api/question-extractions/${BATCH_ID}/drafts/${DRAFT_A}/approve`);
   assert.equal(approved.status, 200, JSON.stringify(approved.body));
+  assert.equal(approved.body.markingStatus, "ready");
+  assert.equal(markingCalls, 1);
   assert.equal(questions.size, 1);
   const question = [...questions.values()][0];
   assert.equal(question.approvalStatus, "approved");
-  assert.equal(question.answer, "4");
+  assert.equal(question.answer, "");
+  assert.equal(question.questionType, "objective");
   assert.equal(question.questionNumber, "1");
   assert.deepEqual(question.optionIds, ["stable-option-a", "stable-option-b"]);
   assert.equal(question.extractionBatchId, BATCH_ID);
+  assert.equal(question.sourcePaper, null);
+  assert.equal(question.sourcePaperMetadata, undefined);
+  assert.equal(question.sourcePage, 1);
   const reviewedDraft = records.get(BATCH_ID).drafts[0];
   assert.equal(reviewedDraft.reviewStatus, "approved");
+  assert.equal(reviewedDraft.markingStatus, "ready");
+  assert.equal(reviewedDraft.markingVersion, `marking-${question._id}`);
   assert.equal(reviewedDraft.reviewHistory.at(-1).action, "approved");
-  assert.equal(reviewedDraft.reviewer, LECTURER);
+  assert.equal(reviewedDraft.reviewer, ADMIN);
+});
+
+test("a failed AI marking attempt can be retried without reapproving or duplicating the question", async () => {
+  const statuses = ["failed", "ready"];
+  questionMarkingService.generateForQuestion = async (_questionId) => ({
+    status: statuses.shift(),
+    version: { _id: "507f1f77bcf86cd799439099" }
+  });
+  const app = buildApp(ADMIN, "admin");
+  const url = `/api/question-extractions/${BATCH_ID}/drafts/${DRAFT_A}/approve`;
+
+  const first = await request(app).post(url);
+  assert.equal(first.status, 200);
+  assert.equal(records.get(BATCH_ID).drafts[0].markingStatus, "failed");
+  const retry = await request(app).post(url);
+  assert.equal(retry.status, 200);
+  assert.equal(retry.body.alreadyApproved, true);
+  assert.equal(records.get(BATCH_ID).drafts[0].markingStatus, "ready");
+  assert.equal(questions.size, 1);
+  assert.equal(records.get(BATCH_ID).drafts[0].reviewHistory.filter((item) => item.action === "approved").length, 1);
+});
+
+test("approved questions retain validated source-paper and page provenance", async () => {
+  const sourcePaperMetadata = {
+    title: "Test course 2025 past questions",
+    examinationYear: "2025",
+    level: "ND1",
+    semester: "First"
+  };
+  sourcePapers.set(PAPER_ID, {
+    _id: PAPER_ID,
+    title: sourcePaperMetadata.title,
+    course: COURSE_ID,
+    department: DEPARTMENT_ID,
+    level: "ND1",
+    semester: "First",
+    examinationYear: "2025"
+  });
+  records.set(BATCH_ID, seedBatch([makeDraft(DRAFT_A, {
+    questionNumber: "4(b)",
+    sourcePage: 3,
+    sourceExcerpt: "Question 4(b): What is two plus two?"
+  })], {
+    sourcePaper: PAPER_ID,
+    sourcePaperMetadata,
+    sourceExamYear: "2025",
+    academicSession: "2025/2026"
+  }));
+  const app = buildApp(ADMIN, "admin");
+
+  const approved = await request(app)
+    .post(`/api/question-extractions/${BATCH_ID}/drafts/${DRAFT_A}/approve`);
+  assert.equal(approved.status, 200, JSON.stringify(approved.body));
+
+  const question = [...questions.values()][0];
+  assert.equal(question.course, COURSE_ID);
+  assert.equal(question.department, DEPARTMENT_ID);
+  assert.equal(question.year, "2025");
+  assert.equal(question.questionNumber, "4(b)");
+  assert.equal(question.sourcePaper, PAPER_ID);
+  assert.deepEqual(question.sourcePaperMetadata, sourcePaperMetadata);
+  assert.equal(question.sourceExamYear, "2025");
+  assert.equal(question.sourceAcademicSession, "2025/2026");
+  assert.equal(question.sourcePage, 3);
+  assert.equal(question.sourceExcerpt, "Question 4(b): What is two plus two?");
+  assert.equal(question.approvalStatus, "approved");
+});
+
+test("legacy question records remain valid without an invented source-paper reference", async () => {
+  const legacyQuestion = new Question({
+    course: COURSE_ID,
+    department: DEPARTMENT_ID,
+    topic: "Arithmetic",
+    question: "What is two plus two?",
+    options: ["3", "4"],
+    answer: "4",
+    year: "2025"
+  });
+
+  await assert.doesNotReject(() => legacyQuestion.validate());
+  assert.equal(legacyQuestion.sourcePaper, null);
+  assert.equal(legacyQuestion.sourcePaperMetadata, undefined);
+});
+
+test("typed question schema supports AI-marked objective, fill-in-the-gap, and theory records", async () => {
+  const common = {
+    course: COURSE_ID,
+    department: DEPARTMENT_ID,
+    topic: "Arithmetic",
+    year: "2025",
+    approvalStatus: "approved"
+  };
+  const objective = new Question({
+    ...common,
+    question: "What is two plus two?",
+    questionType: "objective",
+    options: ["3", "4"],
+    answer: ""
+  });
+  const fillInGap = new Question({
+    ...common,
+    question: "The result is ____.",
+    questionType: "fill_in_gap",
+    blankCount: 1,
+    options: [],
+    answer: ""
+  });
+  const theory = new Question({
+    ...common,
+    question: "Explain the result.",
+    questionType: "theory",
+    options: [],
+    answer: ""
+  });
+  await Promise.all([objective.validate(), fillInGap.validate(), theory.validate()]);
+});
+
+test("fill-in-the-gap and theory drafts can be approved without answer-key confirmation", async () => {
+  const fillDraftId = "507f1f77bcf86cd799439033";
+  const theoryDraftId = "507f1f77bcf86cd799439034";
+  records.set(BATCH_ID, seedBatch([
+    makeDraft(fillDraftId, {
+      questionType: "fill_in_gap",
+      questionText: "The result is ____.",
+      blankCount: 1,
+      options: []
+    }),
+    makeDraft(theoryDraftId, {
+      questionType: "theory",
+      questionText: "Explain the result.",
+      options: []
+    })
+  ]));
+  const app = buildApp(ADMIN, "admin");
+
+  const fillResponse = await request(app)
+    .post(`/api/question-extractions/${BATCH_ID}/drafts/${fillDraftId}/approve`);
+  const theoryResponse = await request(app)
+    .post(`/api/question-extractions/${BATCH_ID}/drafts/${theoryDraftId}/approve`);
+  assert.equal(fillResponse.status, 200, JSON.stringify(fillResponse.body));
+  assert.equal(theoryResponse.status, 200, JSON.stringify(theoryResponse.body));
+  const approvedQuestions = [...questions.values()];
+  assert.equal(approvedQuestions.find((question) => question.questionType === "fill_in_gap").blankCount, 1);
+  assert.equal(approvedQuestions.find((question) => question.questionType === "theory").answer, "");
+  assert.equal(markingCalls, 2);
+});
+
+test("approval rejects a source paper whose course differs from the extraction course", async () => {
+  sourcePapers.set(PAPER_ID, {
+    _id: PAPER_ID,
+    title: "Other course paper",
+    course: OTHER_COURSE_ID,
+    department: DEPARTMENT_ID,
+    level: "ND1",
+    semester: "First",
+    examinationYear: "2025"
+  });
+  records.set(BATCH_ID, seedBatch([makeDraft(DRAFT_A)], {
+    sourcePaper: PAPER_ID,
+    sourcePaperMetadata: {
+      title: "Other course paper",
+      examinationYear: "2025",
+      level: "ND1",
+      semester: "First"
+    },
+    sourceExamYear: "2025"
+  }));
+  const app = buildApp(ADMIN, "admin");
+  await request(app)
+    .patch(`/api/question-extractions/${BATCH_ID}/drafts/${DRAFT_A}`)
+    .send({ confirmedAnswerOptionId: "stable-option-b", confirmCorrectAnswer: true })
+    .expect(200);
+
+  const response = await request(app)
+    .post(`/api/question-extractions/${BATCH_ID}/drafts/${DRAFT_A}/approve`);
+  assert.equal(response.status, 409);
+  assert.equal(questions.size, 0);
+  assert.equal(records.get(BATCH_ID).drafts[0].reviewStatus, "pending");
 });
 
 test("duplicate and concurrent approval requests do not create duplicate questions", async () => {
-  const app = buildApp(LECTURER, "lecturer");
+  const app = buildApp(ADMIN, "admin");
   await request(app)
     .patch(`/api/question-extractions/${BATCH_ID}/drafts/${DRAFT_A}`)
     .send({ confirmedAnswerOptionId: "stable-option-b", confirmCorrectAnswer: true })
@@ -348,7 +535,7 @@ test("duplicate and concurrent approval requests do not create duplicate questio
 });
 
 test("individual rejection records its reason and leaves the draft out of the question bank", async () => {
-  const response = await request(buildApp(LECTURER, "lecturer"))
+  const response = await request(buildApp(ADMIN, "admin"))
     .post(`/api/question-extractions/${BATCH_ID}/drafts/${DRAFT_A}/reject`)
     .send({ reason: "The image is unclear." });
   assert.equal(response.status, 200);
@@ -356,20 +543,17 @@ test("individual rejection records its reason and leaves the draft out of the qu
   assert.equal(records.get(BATCH_ID).drafts[0].rejectionReason, "The image is unclear.");
   assert.equal(records.get(BATCH_ID).drafts[0].reviewHistory[0].action, "rejected");
   assert.equal(questions.size, 0);
-  assert.equal((await request(buildApp(LECTURER, "lecturer"))
+  assert.equal((await request(buildApp(ADMIN, "admin"))
     .post(`/api/question-extractions/${BATCH_ID}/drafts/${DRAFT_A}/approve`)).status, 409);
 });
 
-test("selective batch approval reports each result and never approves unselected or invalid drafts", async () => {
+test("selective batch approval reports each result and rejects unclassified drafts without answer approval", async () => {
   records.set(BATCH_ID, seedBatch([makeDraft(DRAFT_A), makeDraft(DRAFT_B, {
     questionText: "Another question?",
-    topic: "Algebra"
+    topic: "Algebra",
+    questionType: "unclassified"
   })]));
-  const app = buildApp(LECTURER, "lecturer");
-  await request(app)
-    .patch(`/api/question-extractions/${BATCH_ID}/drafts/${DRAFT_A}`)
-    .send({ confirmedAnswerOptionId: "stable-option-a", confirmCorrectAnswer: true })
-    .expect(200);
+  const app = buildApp(ADMIN, "admin");
   const response = await request(app)
     .post(`/api/question-extractions/${BATCH_ID}/review-selected`)
     .send({ action: "approve", draftIds: [DRAFT_A, DRAFT_B] });

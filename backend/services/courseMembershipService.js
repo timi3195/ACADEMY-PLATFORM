@@ -29,25 +29,16 @@ const isStudentInCourseDepartment = (user, course) => {
   );
 };
 
-const isApprovedLecturerAssignedToCourse = (user, course) =>
-  user?.role === "lecturer" &&
-  user.lecturerStatus === "approved" &&
-  Array.isArray(course?.lecturers) &&
-  course.lecturers.some((lecturerId) => idOf(lecturerId) === idOf(user._id || user.id));
-
 const canAccessCourse = (user, course) => {
   if (!user || !course) return false;
   if (user.role === "admin") return true;
   if (user.role === "student") return isStudentInCourseDepartment(user, course);
-  return isApprovedLecturerAssignedToCourse(user, course);
+  return false;
 };
 
 const getAccessibleCourseFilter = (user) => {
   if (user?.role === "admin") return {};
   const userId = user?._id || user?.id;
-  if (user?.role === "lecturer" && user.lecturerStatus === "approved" && userId) {
-    return { lecturers: userId };
-  }
   if (user?.role === "student") {
     const departmentId = departmentIdOf(user.department);
     return departmentId
@@ -83,16 +74,13 @@ const getValidAccessibleCourseIds = async (user) => {
     .filter((course) => {
       const departmentId = departmentIdOf(course.department);
       if (!departmentId || !existingDepartmentIds.has(departmentId)) return false;
-      return user.role === "student"
-        ? isStudentInCourseDepartment(user, course)
-        : isApprovedLecturerAssignedToCourse(user, course);
+      return user.role === "student" && isStudentInCourseDepartment(user, course);
     })
     .map((course) => course._id);
 };
 
 module.exports = {
   isStudentInCourseDepartment,
-  isApprovedLecturerAssignedToCourse,
   canAccessCourse,
   getAccessibleCourseFilter,
   getValidAccessibleCourseIds

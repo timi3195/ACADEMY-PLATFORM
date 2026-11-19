@@ -121,7 +121,7 @@ router.put("/users/:userId/role", protect, adminOnly, async (req, res) => {
   try {
     const { role, department } = req.body;
 
-    if (!["student", "lecturer", "admin"].includes(role)) {
+    if (!["student", "admin"].includes(role)) {
       return res.status(400).json({
         success: false,
         message: "Invalid role"
@@ -181,7 +181,7 @@ router.get("/users", protect, adminOnly, async (req, res) => {
 });
 
 // Get all lecturer applications
-router.get("/lecturers", protect, adminOnly, async (req, res) => {
+router.get("/legacy-disabled/lecturers", protect, adminOnly, async (req, res) => {
   try {
     const { status } = req.query;
     const result = await getAdminLecturerList({ status });
@@ -196,7 +196,7 @@ router.get("/lecturers", protect, adminOnly, async (req, res) => {
 });
 
 // Approve lecturer application
-router.patch("/lecturers/:userId/approve", protect, adminOnly, async (req, res) => {
+router.patch("/legacy-disabled/lecturers/:userId/approve", protect, adminOnly, async (req, res) => {
   try {
     const user = await User.findById(req.params.userId);
     if (!user) {
@@ -235,7 +235,7 @@ router.patch("/lecturers/:userId/approve", protect, adminOnly, async (req, res) 
 });
 
 // Reject lecturer application
-router.patch("/lecturers/:userId/reject", protect, adminOnly, async (req, res) => {
+router.patch("/legacy-disabled/lecturers/:userId/reject", protect, adminOnly, async (req, res) => {
   try {
     const { reason } = req.body || {};
     const user = await User.findById(req.params.userId);

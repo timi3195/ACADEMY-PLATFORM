@@ -73,6 +73,7 @@ describe('ExaminationHistoryView', () => {
         course: { title: 'Networking', code: 'NET101' },
         status: 'completed',
         completedAt: '2025-02-01T12:00:00.000Z',
+        historicalScoreStatus: 'verified',
         score: 8,
         percentage: 80,
         totalQuestions: 10,
@@ -112,9 +113,69 @@ describe('ExaminationHistoryView', () => {
 
     expect(markup).toContain('Review your answers')
     expect(markup).toContain('Which protocol routes packets?')
-    expect(markup).toContain('Your answer: IP')
+    expect(markup).toContain('Your response:</strong> IP')
     expect(markup).not.toContain('correctOptionId')
     expect(markup).not.toContain('isCorrect')
+  })
+
+  it('shows saved typed responses and pending grading without exposing marking data', () => {
+    const markup = renderView({
+      loading: false,
+      attempts: [{
+        _id: 'typed-attempt',
+        course: { title: 'Applied Science' },
+        status: 'completed',
+        attemptFormatVersion: 2,
+        gradingStatus: 'pending',
+        questions: [
+          {
+            questionId: 'objective-question',
+            question: 'Choose the answer.',
+            selectedOptionId: 'option-b',
+            presentedOptions: [{ optionId: 'option-b', text: 'Option B' }]
+          },
+          {
+            questionId: 'gap-question',
+            question: 'Complete both blanks.',
+            questionType: 'fill_in_gap',
+            selectedAnswers: ['first answer', 'second answer']
+          },
+          {
+            questionId: 'theory-question',
+            question: 'Explain the process.',
+            questionType: 'theory',
+            theoryResponse: 'The saved written response.'
+          }
+        ]
+      }]
+    })
+
+    expect(markup).toContain('Your answers are saved. Grading is pending or in progress.')
+    expect(markup).toContain('Your response:</strong> Option B')
+    expect(markup).toContain('Blank 1: first answer · Blank 2: second answer')
+    expect(markup).toContain('Your response:</strong> The saved written response.')
+    expect(markup).not.toContain('markingSnapshot')
+    expect(markup).not.toContain('referenceAnswer')
+  })
+
+  it('does not present ambiguous historical defaults as scores', () => {
+    const markup = renderView({
+      loading: false,
+      attempts: [{
+        _id: 'legacy-unverified',
+        course: { title: 'Networking' },
+        status: 'completed',
+        historicalScoreStatus: 'unverified',
+        score: null,
+        percentage: null,
+        totalQuestions: 0,
+        questions: []
+      }]
+    })
+
+    expect(markup).toContain('Not available')
+    expect(markup).toContain('historical score could not be verified')
+    expect(markup).not.toContain('0.0%')
   })
 
   it('does not fabricate missing or invalid dates', () => {

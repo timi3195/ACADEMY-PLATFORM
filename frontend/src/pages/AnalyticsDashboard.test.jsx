@@ -78,17 +78,78 @@ describe("StudentAnalyticsView", () => {
         }]
       }
     });
-    expect(markup).toContain("Completed examinations");
+    expect(markup).toContain("Completed practice tests");
     expect(markup).toContain("75%");
-    expect(markup).toContain("Average examination score");
+    expect(markup).toContain("Average score");
+    expect(markup).toContain("Best score");
     expect(markup).toContain("Most recent completed examination");
     expect(markup).toContain("Networking (NET101)");
     expect(markup).toContain("Strong topics");
     expect(markup).toContain("Routing");
     expect(markup).toContain("Subnetting");
-    expect(markup).toContain("40% accuracy across 5 answered question(s)");
-    expect(markup).toContain("Review subnetting and practise related questions.");
-    expect(markup).toContain("Chronological examination accuracy trend");
+    expect(markup).not.toContain("Review subnetting and practise related questions.");
+    expect(markup).toContain("Chronological completed practice-test score trend");
+  });
+
+  it("shows question types, readiness evidence, and provisional grades separately", () => {
+    const markup = renderView({
+      loading: false,
+      analytics: {
+        overview: {
+          totalCompletedAttempts: 2,
+          gradedAttemptCount: 1,
+          totalQuestionsAttempted: 20,
+          totalGradedQuestions: 10,
+          averageScorePercentage: 70,
+          bestScorePercentage: 70,
+          attemptsLast30Days: 2,
+          pendingGradingAttempts: 0,
+          gradingAttempts: 0,
+          failedGradingAttempts: 0,
+          reviewRequiredAttempts: 1,
+          unscoredHistoricalAttempts: 2
+        },
+        questionTypeBreakdown: [
+          { questionType: "objective", questionsGraded: 10, questionsAnswered: 9, fullCreditQuestions: 7, accuracy: 70 },
+          { questionType: "fill_in_gap", questionsGraded: 0, questionsAnswered: 0, fullCreditQuestions: 0, accuracy: null },
+          { questionType: "theory", questionsGraded: 0, questionsAnswered: 0, fullCreditQuestions: 0, accuracy: null }
+        ],
+        readiness: {
+          status: "insufficient_evidence",
+          percentage: null,
+          gradedAttempts: 1,
+          gradedQuestions: 10,
+          explanation: "A readiness percentage is withheld until there are enough fully graded attempts.",
+          missingEvidence: ["3 fully graded practice attempts are required"],
+          weakAreas: []
+        },
+        practiceFrequency: { attemptsLast30Days: 2 },
+        recentPerformance: [],
+        unfinalizedAttempts: [{
+          attemptId: "review-attempt",
+          course: "Networking",
+          completedAt: "2025-02-01T12:00:00.000Z",
+          status: "needs_review",
+          provisionalScore: 4,
+          provisionalMaxMarks: 6,
+          provisionalPercentage: 66.7
+        }],
+        courses: [],
+        topics: [],
+        performanceTrend: [],
+        trend: { direction: "insufficient_data" },
+        recommendations: []
+      }
+    });
+
+    expect(markup).toContain("Performance by question type");
+    expect(markup).toContain("Fill-in-the-gap");
+    expect(markup).toContain("Theory / essay");
+    expect(markup).toContain("Not enough evidence for a readiness percentage");
+    expect(markup).not.toContain("Practice evidence score:");
+    expect(markup).toContain("Provisional: 4 / 6 (67%)");
+    expect(markup).toContain("2 historical results unavailable");
+    expect(markup).toContain("These attempts are excluded from final averages and readiness.");
   });
 
   it("shows API failures and offers retry", () => {

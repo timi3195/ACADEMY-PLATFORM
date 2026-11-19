@@ -1,12 +1,22 @@
 const QuizSession = require("../models/QuizSession");
 const { logger } = require("../utils/logger");
 const { classifyMongoConnectionError } = require("../utils/mongoConnection");
+const {
+  getVerifiedLegacyResult,
+  getVerifiedTypedResult,
+  hasCompletionEvidence,
+  isLegacyAttempt
+} = require("../utils/legacyQuizResult");
 
 const DEFAULT_DURATION_MINUTES = 30;
 const MAX_DURATION_MINUTES = 180;
 const EXPIRY_BATCH_SIZE = 100;
 const EXPIRY_POLL_INTERVAL_MS = 30_000;
 const FINALIZATION_RETRIES = 5;
+const MAX_BACKGROUND_GRADING_CONCURRENCY = 3;
+const backgroundGradingQueue = [];
+const queuedGradingAttemptIds = new Set();
+let activeBackgroundGradings = 0;
 
 const getConfiguredDurationMinutes = (configuredValue = process.env.QUIZ_DURATION_MINUTES) => {
   if (configuredValue === undefined || configuredValue === "") return DEFAULT_DURATION_MINUTES;
@@ -30,6 +40,7 @@ const isInProgress = (session) =>
   session?.status === "in_progress" || (!session?.status && !session?.timeEnded);
 
 const getStartTime = (session) => session?.startedAt || session?.timeStarted || null;
+const getQuestionType = (question) => question?.questionType || "objective";
 
 const isExpired = (session, now) =>
   session?.expiresAt instanceof Date &&
@@ -68,6 +79,29 @@ const createAtomicAttemptFilter = (session, now, { expired = false } = {}) => ({
 });
 
 const calculateResult = (session, now, completionReason) => {
+  const startedAt = getStartTime(session);
+  const startedAtMs = startedAt ? new Date(startedAt).getTime() : NaN;
+  let elapsedMs = Number.isFinite(startedAtMs) ? now.getTime() - startedAtMs : 0;
+  if (completionReason === "expired" &&
+      Number.isFinite(startedAtMs) &&
+      session.expiresAt instanceof Date) {
+    elapsedMs = Math.min(elapsedMs, session.expiresAt.getTime() - startedAtMs);
+  }
+  const duration = Math.max(0, Math.floor(elapsedMs / 1000));
+
+  if (session.attemptFormatVersion >= 2) {
+    return {
+      totalQuestions: (session.questions || []).length,
+      timeEnded: now,
+      completedAt: now,
+      duration,
+      status: "completed",
+      completionReason,
+      activeAttempt: false,
+      gradingStatus: session.gradingStatus || "pending"
+    };
+  }
+
   let score = 0;
   const questions = (session.questions || []).map((question) => {
     const selectedOptionId = (question.presentedOptions || [])
@@ -90,16 +124,6 @@ const calculateResult = (session, now, completionReason) => {
   });
 
   const totalQuestions = questions.length;
-  const startedAt = getStartTime(session);
-  const startedAtMs = startedAt ? new Date(startedAt).getTime() : NaN;
-  let elapsedMs = Number.isFinite(startedAtMs) ? now.getTime() - startedAtMs : 0;
-  if (completionReason === "expired" &&
-      Number.isFinite(startedAtMs) &&
-      session.expiresAt instanceof Date) {
-    elapsedMs = Math.min(elapsedMs, session.expiresAt.getTime() - startedAtMs);
-  }
-  const duration = Math.max(0, Math.floor(elapsedMs / 1000));
-
   return {
     questions,
     score,
@@ -109,7 +133,8 @@ const calculateResult = (session, now, completionReason) => {
     completedAt: now,
     duration,
     status: "completed",
-    completionReason
+    completionReason,
+    activeAttempt: false
   };
 };
 
@@ -148,21 +173,40 @@ const finalizeAttempt = async (attemptId, { userId, reason = "manual", now = () 
 };
 
 const toStudentAttempt = (session, serverNow = new Date()) => {
+  const completed = session.status === "completed" || hasCompletionEvidence(session);
+  const legacy = isLegacyAttempt(session);
+  const historicalResult = legacy && completed ? getVerifiedLegacyResult(session) : null;
+  const typedResult = !legacy && completed ? getVerifiedTypedResult(session) : null;
+  const gradingStatus = legacy
+    ? completed && historicalResult?.status === "verified" ? "graded" : "unscored"
+    : session.gradingStatus === "graded" && typedResult?.status !== "verified"
+      ? "unverified"
+      : session.gradingStatus || "pending";
+  const includeFeedback = completed && ["graded", "needs_review"].includes(gradingStatus);
   const questions = (session.questions || []).map((question) => ({
     _id: question.questionId,
     question: question.question,
     topic: question.topic,
+    questionType: getQuestionType(question),
+    questionOrder: question.questionOrder,
+    marks: question.marks,
+    blankCount: question.blankCount,
     presentedOptions: (question.presentedOptions || []).map((option) => ({
       optionId: option.optionId,
       text: option.text
     })),
-    selectedOptionId: question.selectedOptionId || null
+    selectedOptionId: question.selectedOptionId || null,
+    selectedAnswers: Array.isArray(question.selectedAnswers) ? [...question.selectedAnswers] : [],
+    theoryResponse: question.theoryResponse || "",
+    ...(includeFeedback && question.gradingResult
+      ? { gradingResult: question.gradingResult }
+      : {})
   }));
   const startedAt = getStartTime(session);
   const response = {
     _id: session._id,
     courseId: session.course,
-    status: session.status || (session.timeEnded ? "completed" : "in_progress"),
+    status: session.status || (completed ? "completed" : "in_progress"),
     startedAt,
     timeStarted: startedAt,
     expiresAt: session.expiresAt || null,
@@ -175,20 +219,74 @@ const toStudentAttempt = (session, serverNow = new Date()) => {
   };
 
   if (response.status === "completed") {
-    response.score = session.score || 0;
-    response.percentage = session.percentage || 0;
     response.timeEnded = session.timeEnded || session.completedAt || null;
     response.completedAt = session.completedAt || session.timeEnded || null;
     response.completionReason = session.completionReason || "manual";
+    if (legacy) {
+      response.historicalScoreStatus = historicalResult.status;
+      response.gradingStatus = gradingStatus;
+      if (historicalResult.status === "verified") {
+        response.score = historicalResult.score;
+        response.percentage = historicalResult.percentage;
+      }
+    } else {
+      response.gradingStatus = gradingStatus;
+    }
+    if (!legacy &&
+        response.gradingStatus === "graded" &&
+        typedResult?.status === "verified") {
+      response.score = typedResult.score;
+      response.percentage = typedResult.percentage;
+      response.totalMarks = typedResult.totalMarks;
+    } else if (response.gradingStatus === "needs_review") {
+      response.totalMarks = session.totalMarks;
+      response.provisionalScore = session.provisionalScore;
+      response.provisionalMaxMarks = session.provisionalMaxMarks;
+      response.provisionalPercentage = session.provisionalPercentage;
+    }
   }
   return response;
 };
 
-const saveAnswer = async ({
+const validateTypedAnswer = (question, answer) => {
+  if (!question || !answer || typeof answer !== "object" || Array.isArray(answer)) return null;
+  const questionType = getQuestionType(question);
+  const keys = Object.keys(answer).sort();
+  if (questionType === "objective") {
+    if (keys.join(",") !== "selectedOptionId") return null;
+    const selectedOptionId = answer.selectedOptionId;
+    if (selectedOptionId !== null &&
+        (typeof selectedOptionId !== "string" ||
+         !selectedOptionId.trim() ||
+         selectedOptionId.length > 256 ||
+         !(question.presentedOptions || []).some((option) => option.optionId === selectedOptionId))) {
+      return null;
+    }
+    return { selectedOptionId };
+  }
+  if (questionType === "fill_in_gap") {
+    if (keys.join(",") !== "selectedAnswers" ||
+        !Array.isArray(answer.selectedAnswers) ||
+        answer.selectedAnswers.length !== question.blankCount ||
+        answer.selectedAnswers.some((value) =>
+          typeof value !== "string" || value.length > 1000) ||
+        answer.selectedAnswers.join("").length > 5000) return null;
+    return { selectedAnswers: [...answer.selectedAnswers] };
+  }
+  if (questionType === "theory") {
+    if (keys.join(",") !== "theoryResponse" ||
+        typeof answer.theoryResponse !== "string" ||
+        answer.theoryResponse.length > 20000) return null;
+    return { theoryResponse: answer.theoryResponse };
+  }
+  return null;
+};
+
+const saveTypedAnswer = async ({
   attemptId,
   userId,
   questionId,
-  selectedOptionId,
+  answer,
   expectedVersion,
   now = new Date(),
   clock = () => new Date()
@@ -209,9 +307,13 @@ const saveAnswer = async ({
     (item) => String(item.questionId) === String(questionId)
   );
   if (!question) return { kind: "invalid_question", session };
-  if (selectedOptionId !== null &&
-      !(question.presentedOptions || []).some((option) => option.optionId === selectedOptionId)) {
-    return { kind: "invalid_option", session };
+  const validatedAnswer = validateTypedAnswer(question, answer);
+  if (!validatedAnswer) {
+    const invalidOption = getQuestionType(question) === "objective" &&
+      answer && Object.hasOwn(answer, "selectedOptionId") &&
+      answer.selectedOptionId !== null &&
+      !(question.presentedOptions || []).some((option) => option.optionId === answer.selectedOptionId);
+    return { kind: invalidOption ? "invalid_option" : "invalid_answer", session };
   }
 
   const writeNow = clock();
@@ -220,9 +322,15 @@ const saveAnswer = async ({
     return { kind: "expired", session: completed || session };
   }
   const questionIdValue = question.questionId;
-  const answerUpdate = selectedOptionId === null
-    ? { $unset: { "questions.$[question].selectedOptionId": "" } }
-    : { $set: { "questions.$[question].selectedOptionId": selectedOptionId } };
+  const setFields = { lastAnswerUpdatedAt: writeNow };
+  const unsetFields = {};
+  for (const [field, value] of Object.entries(validatedAnswer)) {
+    const path = `questions.$[question].${field}`;
+    if (field === "selectedOptionId" && value === null) unsetFields[path] = "";
+    else setFields[path] = value;
+  }
+  const update = { $set: setFields, $inc: { stateVersion: 1 } };
+  if (Object.keys(unsetFields).length) update.$unset = unsetFields;
   const updated = await QuizSession.findOneAndUpdate(
     {
       $and: [
@@ -233,11 +341,7 @@ const saveAnswer = async ({
         { questions: { $elemMatch: { questionId: questionIdValue } } }
       ]
     },
-    {
-      ...answerUpdate,
-      $set: { ...(answerUpdate.$set || {}), lastAnswerUpdatedAt: writeNow },
-      $inc: { stateVersion: 1 }
-    },
+    update,
     {
       new: true,
       arrayFilters: [{ "question.questionId": questionIdValue }]
@@ -254,6 +358,11 @@ const saveAnswer = async ({
   }
   return { kind: "conflict", session: latest };
 };
+
+const saveAnswer = (params) => saveTypedAnswer({
+  ...params,
+  answer: { selectedOptionId: params.selectedOptionId }
+});
 
 const saveAnswers = async ({
   attemptId,
@@ -282,7 +391,7 @@ const saveAnswers = async ({
   for (const answer of answers) {
     const questionId = String(answer?.questionId || "");
     if (answerByQuestionId.has(questionId)) return { kind: "invalid_answers", session };
-    answerByQuestionId.set(questionId, answer.selectedOptionId);
+    answerByQuestionId.set(questionId, answer);
   }
   if (answerByQuestionId.size !== questions.length ||
       questions.some((question) => !answerByQuestionId.has(String(question.questionId)))) {
@@ -298,14 +407,21 @@ const saveAnswers = async ({
   const unsetFields = {};
   for (let index = 0; index < questions.length; index += 1) {
     const question = questions[index];
-    const selectedOptionId = answerByQuestionId.get(String(question.questionId));
-    if (selectedOptionId !== null &&
-        !(question.presentedOptions || []).some((option) => option.optionId === selectedOptionId)) {
-      return { kind: "invalid_option", session };
+    const answerRecord = answerByQuestionId.get(String(question.questionId));
+    const typedAnswer = Object.fromEntries(Object.entries(answerRecord)
+      .filter(([key]) => key !== "questionId"));
+    const validatedAnswer = validateTypedAnswer(question, typedAnswer);
+    if (!validatedAnswer) {
+      const invalidOption = getQuestionType(question) === "objective" &&
+        typedAnswer.selectedOptionId !== null &&
+        (question.presentedOptions || []).every((option) => option.optionId !== typedAnswer.selectedOptionId);
+      return { kind: invalidOption ? "invalid_option" : "invalid_answers", session };
     }
-    const path = `questions.${index}.selectedOptionId`;
-    if (selectedOptionId === null) unsetFields[path] = "";
-    else setFields[path] = selectedOptionId;
+    for (const [field, value] of Object.entries(validatedAnswer)) {
+      const path = `questions.${index}.${field}`;
+      if (field === "selectedOptionId" && value === null) unsetFields[path] = "";
+      else setFields[path] = value;
+    }
   }
 
   const update = {
@@ -341,7 +457,7 @@ const processExpiredAttempts = async ({ now = new Date(), limit = EXPIRY_BATCH_S
   const expiredSessions = await QuizSession.find({
     status: "in_progress",
     expiresAt: { $lte: now }
-  }).sort({ expiresAt: 1 }).limit(limit).select("_id").lean();
+  }).sort({ expiresAt: 1 }).limit(limit).select("_id user attemptFormatVersion").lean();
 
   let finalized = 0;
   for (const session of expiredSessions) {
@@ -349,9 +465,51 @@ const processExpiredAttempts = async ({ now = new Date(), limit = EXPIRY_BATCH_S
       reason: "expired",
       now: () => now
     });
-    if (completed?.status === "completed") finalized += 1;
+    if (completed?.status === "completed") {
+      finalized += 1;
+      queueAttemptGrading(completed);
+    }
   }
+  const staleBefore = new Date(now.getTime() - 60_000);
+  const pendingSessions = await QuizSession.find({
+    status: "completed",
+    attemptFormatVersion: { $gte: 2 },
+    $or: [
+      { gradingStatus: "pending" },
+      { gradingStatus: { $exists: false } },
+      { gradingStatus: "grading", gradingStartedAt: { $lte: staleBefore } }
+    ]
+  }).sort({ completedAt: 1 }).limit(limit).select("_id user attemptFormatVersion").lean();
+  for (const session of pendingSessions) queueAttemptGrading(session);
   return { inspected: expiredSessions.length, finalized };
+};
+
+const queueAttemptGrading = (session) => {
+  if (!session?.user || !(session.attemptFormatVersion >= 2)) return;
+  const attemptKey = String(session._id);
+  if (queuedGradingAttemptIds.has(attemptKey)) return;
+  queuedGradingAttemptIds.add(attemptKey);
+  backgroundGradingQueue.push(session);
+  const processQueue = () => {
+    while (activeBackgroundGradings < MAX_BACKGROUND_GRADING_CONCURRENCY &&
+        backgroundGradingQueue.length > 0) {
+      const next = backgroundGradingQueue.shift();
+      activeBackgroundGradings += 1;
+      require("./quizGradingService")
+        .gradeAttempt({ attemptId: next._id, userId: next.user })
+        .catch(() => {
+          logger.error("quiz_grading_queue_failed", {
+            category: "grading_persistence_error"
+          });
+        })
+        .finally(() => {
+          activeBackgroundGradings -= 1;
+          queuedGradingAttemptIds.delete(String(next._id));
+          processQueue();
+        });
+    }
+  };
+  setImmediate(processQueue);
 };
 
 let expiryWorker;
@@ -385,7 +543,9 @@ module.exports = {
   isExpired,
   finalizeAttempt,
   saveAnswer,
+  saveTypedAnswer,
   saveAnswers,
+  validateTypedAnswer,
   toStudentAttempt,
   processExpiredAttempts,
   startExpiryWorker,

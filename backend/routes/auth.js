@@ -183,7 +183,7 @@ router.post("/register", async (req, res) => {
  * POST /api/auth/lecturer/register
  * Submit a lecturer application that must be approved by an admin.
  */
-router.post("/lecturer/register", protect, async (req, res) => {
+router.post("/legacy-disabled/lecturer/register", protect, async (req, res) => {
   try {
     const { specialty, bio, institution, experience } = req.body;
 

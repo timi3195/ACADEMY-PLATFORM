@@ -18,35 +18,35 @@ const unwrap = (response) => response.data;
 
 export const lecturerService = {
   async getDashboard() {
-    return unwrap(await apiClient.get('/api/lecturer/dashboard'));
+    return unwrap(await apiClient.get('/api/admin/content/dashboard'));
   },
 
   async getCourses() {
-    return unwrap(await apiClient.get('/api/lecturer/courses'));
+    return unwrap(await apiClient.get('/api/admin/content/courses'));
   },
 
   async getMaterials(params = {}) {
-    return unwrap(await apiClient.get('/api/lecturer/materials', { params }));
+    return unwrap(await apiClient.get('/api/admin/content/materials', { params }));
   },
 
   async createMaterial(payload, file, coverImage) {
-    return unwrap(await apiClient.post('/api/lecturer/materials', buildMaterialFormData(payload, file, coverImage), {
+    return unwrap(await apiClient.post('/api/admin/content/materials', buildMaterialFormData(payload, file, coverImage), {
       headers: { 'Content-Type': 'multipart/form-data' }
     }));
   },
 
   async updateMaterial(id, payload, file, coverImage) {
-    return unwrap(await apiClient.put(`/api/lecturer/materials/${id}`, buildMaterialFormData(payload, file, coverImage), {
+    return unwrap(await apiClient.put(`/api/admin/content/materials/${id}`, buildMaterialFormData(payload, file, coverImage), {
       headers: { 'Content-Type': 'multipart/form-data' }
     }));
   },
 
   async deleteMaterial(id) {
-    return unwrap(await apiClient.delete(`/api/lecturer/materials/${id}`));
+    return unwrap(await apiClient.delete(`/api/admin/content/materials/${id}`));
   },
 
   async getMaterialAnalytics(id) {
-    return unwrap(await apiClient.get(`/api/lecturer/materials/${id}/analytics`));
+    return unwrap(await apiClient.get(`/api/admin/content/materials/${id}/analytics`));
   }
 };
 

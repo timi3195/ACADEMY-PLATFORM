@@ -78,15 +78,6 @@ const getCourseAccess = async (userId, courseId) => {
     return { allowed: true, manager: true, course, user };
   }
 
-  if (user.role === "lecturer") {
-    const assigned = Array.isArray(course.lecturers) &&
-      course.lecturers.some((lecturerId) => idOf(lecturerId) === idOf(user._id));
-    if (user.lecturerStatus === "approved" && assigned) {
-      return { allowed: true, manager: true, course, user };
-    }
-    return { allowed: false, statusCode: 403, message: "You are not authorized to access this course's question bank." };
-  }
-
   if (canAccessCourse(user, course)) {
     return { allowed: true, manager: user.role !== "student", course, user };
   }

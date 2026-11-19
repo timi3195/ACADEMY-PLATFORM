@@ -4,17 +4,26 @@ import { useSearchParams } from 'react-router-dom'
 import { apiGet, apiPatch, apiPost } from '../utils/api'
 import EmptyState from '../components/EmptyState'
 import ErrorState from '../components/ErrorState'
+import CBTResultFeedback from '../components/CBTResultFeedback'
 import {
   createServerDeadline,
+  cbtAnswerFromQuestion,
+  cbtQuestionType,
   cbtSubmissionAnswers,
+  emptyCbtAnswer,
   formatCbtCountdown,
+  hasCbtAnswer,
   isCbtAnswerVersionConflict,
+  cbtQuestionCountForCourse,
   isValidCbtQuestionCount,
   reconcileCbtSubmissionConflict,
   reconcileCbtAnswers,
   remainingCbtSeconds,
+  sameCbtAnswer,
   unansweredQuestionNumbers
 } from '../utils/cbt'
+
+const TYPED_ANSWER_AUTOSAVE_DELAY_MS = 350
 
 export default function CBTQuiz() {
   const [searchParams] = useSearchParams()
@@ -34,6 +43,8 @@ export default function CBTQuiz() {
   const [recoveringAttempt, setRecoveringAttempt] = useState(true)
   const [startingQuiz, setStartingQuiz] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [retryingGrading, setRetryingGrading] = useState(false)
+  const [gradingRetryError, setGradingRetryError] = useState('')
   const [confirmingSubmit, setConfirmingSubmit] = useState(false)
   const [error, setError] = useState('')
   const [recoveryMessage, setRecoveryMessage] = useState('')
@@ -41,11 +52,18 @@ export default function CBTQuiz() {
   const attemptIdRef = useRef('')
   const answersRef = useRef([])
   const saveQueueRef = useRef(Promise.resolve())
+  const typedAnswerTimersRef = useRef(new Map())
   const saveStatusesRef = useRef({})
   const deadlineRef = useRef(null)
   const expiryRequestRef = useRef(false)
   const revalidationRef = useRef(false)
   const recoveryAttemptedRef = useRef(false)
+  const activeAttempt = Boolean(attemptId && questions.length > 0 && !result)
+
+  useEffect(() => {
+    document.body.classList.toggle('cbt-focus-mode', activeAttempt)
+    return () => document.body.classList.remove('cbt-focus-mode')
+  }, [activeAttempt])
 
   useEffect(() => {
     fetchCourses()
@@ -105,12 +123,17 @@ export default function CBTQuiz() {
     setLoadingCourses(true)
     setError('')
     try {
-      const response = await apiGet('/api/courses')
-      const availableCourses = response.courses || []
+      const coverageResponse = await apiGet('/api/quiz/coverage')
+      const availableCourses = coverageResponse.courses || []
       setCourses(availableCourses)
       const requestedCourseId = searchParams.get('courseId')
-      if (requestedCourseId && availableCourses.some((course) => course._id === requestedCourseId)) {
+      const requestedCourse = availableCourses.find((course) => course.courseId === requestedCourseId)
+      if (requestedCourse) {
         setCourseId(requestedCourseId)
+        setQuestionCount(cbtQuestionCountForCourse(
+          searchParams.get('questionCount'),
+          requestedCourse.availableTestLengths || []
+        ))
       }
     } catch (err) {
       console.error(err)
@@ -128,7 +151,7 @@ export default function CBTQuiz() {
     attemptIdRef.current = attempt._id || attempt.attemptId
     stateVersionRef.current = Number.isSafeInteger(attempt.stateVersion) ? attempt.stateVersion : 0
     if (!preserveAnswers) {
-      const restoredAnswers = loadedQuestions.map((item) => item.selectedOptionId || null)
+      const restoredAnswers = loadedQuestions.map(cbtAnswerFromQuestion)
       answersRef.current = restoredAnswers
       setAnswers(restoredAnswers)
       setSaveStatuses({})
@@ -217,8 +240,13 @@ export default function CBTQuiz() {
       setError('Please select a course before starting the quiz.')
       return
     }
+    const availableQuestionCounts = courses.find((course) => course.courseId === courseId)?.availableTestLengths || []
+    if (!availableQuestionCounts.includes(questionCount)) {
+      setError('Choose a test length supported by the selected course.')
+      return
+    }
     if (!isValidCbtQuestionCount(questionCount)) {
-      setError('Choose a whole number of questions between 1 and 50.')
+      setError('Choose a supported whole-number test length.')
       return
     }
 
@@ -240,7 +268,7 @@ export default function CBTQuiz() {
       }
       const timingMessage = applyAttempt(attempt)
       setIndex(0)
-      answersRef.current = Array(loadedQuestions.length).fill(null)
+      answersRef.current = loadedQuestions.map(emptyCbtAnswer)
       setAnswers(answersRef.current)
       expiryRequestRef.current = false
       setConfirmingSubmit(false)
@@ -254,12 +282,12 @@ export default function CBTQuiz() {
     }
   }
 
-  const performAnswerSave = async (questionIndex, selectedOptionId, retriesRemaining = 1) => {
+  const performAnswerSave = async (questionIndex, answer, retriesRemaining = 1) => {
     const currentAttemptId = attemptIdRef.current
     const question = questions[questionIndex]
     if (!currentAttemptId || !question) return
     const saveStatus = (status) => {
-      if (answersRef.current[questionIndex] !== selectedOptionId) return
+      if (!sameCbtAnswer(answersRef.current[questionIndex], answer)) return
       saveStatusesRef.current = { ...saveStatusesRef.current, [question._id]: status }
       setSaveStatuses((current) => ({ ...current, [question._id]: status }))
     }
@@ -267,7 +295,7 @@ export default function CBTQuiz() {
     try {
       const response = await apiPatch(`/api/quiz/${encodeURIComponent(currentAttemptId)}/answers`, {
         questionId: question._id,
-        selectedOptionId,
+        ...answer,
         expectedVersion: stateVersionRef.current
       })
       stateVersionRef.current = response.stateVersion
@@ -290,7 +318,7 @@ export default function CBTQuiz() {
             return
           }
           const latestSelection = answersRef.current[questionIndex]
-          if (latestSelection !== null) {
+          if (latestSelection) {
             await performAnswerSave(questionIndex, latestSelection, retriesRemaining - 1)
             return
           }
@@ -303,10 +331,38 @@ export default function CBTQuiz() {
     }
   }
 
-  const enqueueAnswerSave = (questionIndex, selectedOptionId) => {
-    const save = () => performAnswerSave(questionIndex, selectedOptionId)
+  const enqueueAnswerSave = (questionIndex, answer) => {
+    const save = () => performAnswerSave(questionIndex, answer)
     saveQueueRef.current = saveQueueRef.current.then(save, save)
     return saveQueueRef.current
+  }
+
+  const scheduleTypedAnswerSave = (questionIndex, answer) => {
+    const question = questions[questionIndex]
+    if (!question) return
+    const questionId = question._id
+    const scheduledAttemptId = attemptIdRef.current
+    const existingTimer = typedAnswerTimersRef.current.get(questionId)
+    if (existingTimer) window.clearTimeout(existingTimer)
+
+    const timer = window.setTimeout(() => {
+      typedAnswerTimersRef.current.delete(questionId)
+      if (attemptIdRef.current !== scheduledAttemptId) return
+      const currentIndex = questions.findIndex((item) => item._id === questionId)
+      if (currentIndex >= 0) enqueueAnswerSave(currentIndex, answersRef.current[currentIndex] || answer)
+    }, TYPED_ANSWER_AUTOSAVE_DELAY_MS)
+    typedAnswerTimersRef.current.set(questionId, timer)
+  }
+
+  const flushPendingTypedAnswerSaves = () => {
+    for (const [questionId, timer] of typedAnswerTimersRef.current.entries()) {
+      window.clearTimeout(timer)
+      typedAnswerTimersRef.current.delete(questionId)
+      const questionIndex = questions.findIndex((item) => item._id === questionId)
+      if (questionIndex >= 0 && answersRef.current[questionIndex]) {
+        enqueueAnswerSave(questionIndex, answersRef.current[questionIndex])
+      }
+    }
   }
 
   const selectAnswer = (optionId) => {
@@ -314,14 +370,42 @@ export default function CBTQuiz() {
     const questionIndex = index
     const questionId = questions[questionIndex]?._id
     const nextAnswers = answersRef.current.map((answer, answerIndex) =>
-      answerIndex === questionIndex ? optionId : answer
+      answerIndex === questionIndex ? { selectedOptionId: optionId } : answer
     )
     answersRef.current = nextAnswers
     setAnswers(nextAnswers)
     saveStatusesRef.current = { ...saveStatusesRef.current, [questionId]: 'saving' }
     setSaveStatuses((current) => ({ ...current, [questionId]: 'saving' }))
     setError('')
-    enqueueAnswerSave(questionIndex, optionId)
+    enqueueAnswerSave(questionIndex, nextAnswers[questionIndex])
+  }
+
+  const updateTypedAnswer = (answer) => {
+    if (result || submitting || remainingSeconds === 0) return
+    const questionIndex = index
+    const questionId = questions[questionIndex]?._id
+    const nextAnswers = answersRef.current.map((current, answerIndex) =>
+      answerIndex === questionIndex ? answer : current
+    )
+    answersRef.current = nextAnswers
+    setAnswers(nextAnswers)
+    saveStatusesRef.current = { ...saveStatusesRef.current, [questionId]: 'saving' }
+    setSaveStatuses((current) => ({ ...current, [questionId]: 'saving' }))
+    setError('')
+    scheduleTypedAnswerSave(questionIndex, answer)
+  }
+
+  const updateFillAnswer = (blankIndex, value) => {
+    const current = answersRef.current[index]
+    const selectedAnswers = Array.isArray(current?.selectedAnswers)
+      ? [...current.selectedAnswers]
+      : Array(questions[index]?.blankCount || 0).fill('')
+    selectedAnswers[blankIndex] = value
+    updateTypedAnswer({ selectedAnswers })
+  }
+
+  const updateTheoryAnswer = (theoryResponse) => {
+    updateTypedAnswer({ theoryResponse })
   }
 
   const retryFailedAnswers = () => {
@@ -376,6 +460,7 @@ export default function CBTQuiz() {
     setError('')
     setSubmitting(true)
     try {
+      flushPendingTypedAnswerSaves()
       await saveQueueRef.current
       if (Object.values(saveStatusesRef.current).some((status) => status === 'saving' || status === 'failed')) {
         setError('Wait for all answers to save successfully before submitting.')
@@ -418,6 +503,8 @@ export default function CBTQuiz() {
   }
 
   const resetQuiz = () => {
+    for (const timer of typedAnswerTimersRef.current.values()) window.clearTimeout(timer)
+    typedAnswerTimersRef.current.clear()
     setQuestions([])
     setAnswers([])
     answersRef.current = []
@@ -433,21 +520,41 @@ export default function CBTQuiz() {
     setIndex(0)
     setConfirmingSubmit(false)
     setError('')
+    setGradingRetryError('')
+  }
+
+  const retryGrading = async () => {
+    if (!result?._id || retryingGrading) return
+    setRetryingGrading(true)
+    setGradingRetryError('')
+    try {
+      const response = await apiPost(`/api/quiz/${encodeURIComponent(result._id)}/grade`, {})
+      setResult(response.session)
+    } catch (requestError) {
+      setGradingRetryError(requestError.message || 'Unable to retry grading. Your answers remain saved.')
+    } finally {
+      setRetryingGrading(false)
+    }
   }
 
   const question = questions[index]
   const unansweredCount = unansweredQuestionNumbers(questions, answers).length
+  const selectedCourseCoverage = courses.find((course) => course.courseId === courseId)
+  const availableQuestionCounts = selectedCourseCoverage?.availableTestLengths || []
 
   if (result) {
     return (
       <div className="page">
-        <h2>{result.completionReason === 'expired' ? 'Examination Time Expired' : 'Quiz Complete'}</h2>
+        <h2>{result.completionReason === 'expired' ? 'Examination Time Expired' : 'Quiz Submitted'}</h2>
         <section className="card" aria-live="polite">
-          <p>Your score: {result.score} / {result.totalQuestions}</p>
-          <p>Percentage: {Number(result.percentage || 0).toFixed(1)}%</p>
-          <p className="text-sm text-gray-600">Your result was calculated and saved by the server.</p>
+          <CBTResultFeedback
+            attempt={result}
+            onRetryGrading={retryGrading}
+            retrying={retryingGrading}
+            retryError={gradingRetryError}
+          />
           <Link className="inline-flex items-center mr-3" to="/examination-history">View examination history</Link>
-          <button type="button" onClick={resetQuiz}>Start another practice quiz</button>
+          <button type="button" onClick={resetQuiz} disabled={retryingGrading}>Start another practice quiz</button>
         </section>
       </div>
     )
@@ -456,44 +563,101 @@ export default function CBTQuiz() {
   return (
       <div className="page">
         <h2>CBT Practice</h2>
-        <p className="mb-4"><Link to="/examination-history">View examination history</Link></p>
-        <p className="text-sm text-gray-600 mb-4">Practice with approved objective questions. Your result is graded by the server.</p>
+        {!activeAttempt && <p className="mb-4"><Link to="/examination-history">View examination history</Link></p>}
+        <p className="text-sm text-gray-600 mb-4">Practice using approved questions from verified past papers.</p>
         {error && <ErrorState message={error} />}
         {recoveryMessage && <p className="text-sm text-blue-700" role="status">{recoveryMessage}</p>}
         {!online && <p className="text-sm text-red-700" role="alert">Network unavailable. Changes are not confirmed as saved until the server responds.</p>}
+        {activeAttempt && (
+          <p className="mb-3 text-sm text-gray-600">
+            The timer continues if you leave this page. The browser cannot prevent switching tabs or leaving the browser.
+          </p>
+        )}
 
         {questions.length === 0 ? (
           <section className="card">
-            <p className="text-sm text-gray-600 mb-3">Choose a course and question count to create a randomized practice attempt.</p>
+            <p className="text-sm text-gray-600 mb-3">Review approved, AI-marked past-paper coverage for your accessible courses.</p>
             {loadingCourses || recoveringAttempt ? (
               <p className="text-sm text-gray-600">Checking for a saved examination and loading courses...</p>
             ) : courses.length === 0 ? (
               <EmptyState title="No courses available" description="No accessible courses are available for CBT practice." icon="🎓" />
             ) : (
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+              <div className="flex flex-col gap-4">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  {courses.map((course) => (
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3" key={course.courseId}>
+                      <p className="font-semibold">{course.courseName} ({course.courseCode})</p>
+                      <p className="text-sm text-gray-600">
+                        {course.eligibleQuestionCount} eligible approved questions with usable AI marking
+                      </p>
+                      <p className="text-sm text-gray-600">
+                        Formats: {course.objectiveQuestionCount} objective · {course.fillInGapQuestionCount} fill-in-the-gap · {course.theoryQuestionCount} theory
+                      </p>
+                      <p className="text-sm text-gray-600">
+                        {course.distinctSourcePaperCount} verified past-paper source(s), {course.verifiedSourceQuestionCount} question(s) with source provenance
+                      </p>
+                      <p className="text-sm text-gray-600">
+                        Years: {course.academicYears.length ? course.academicYears.join(', ') : 'Not available'}
+                        {' · '}Sessions: {course.examSessions.length ? course.examSessions.join(', ') : 'Not available'}
+                      </p>
+                    </div>
+                  ))}
+                </div>
                 <label className="flex flex-1 flex-col gap-2">
                   <span className="text-sm font-semibold">Course</span>
-                  <select value={courseId} onChange={(event) => setCourseId(event.target.value)}>
+                  <select value={courseId} onChange={(event) => {
+                    const selectedCourseId = event.target.value
+                    const selectedCourse = courses.find((course) => course.courseId === selectedCourseId)
+                    const lengths = selectedCourse?.availableTestLengths || []
+                    setCourseId(selectedCourseId)
+                    setQuestionCount(lengths.includes(questionCount) ? questionCount : lengths[0] || 10)
+                  }}>
                     <option value="">Select a course</option>
                     {courses.map((course) => (
-                      <option key={course._id} value={course._id}>
-                        {course.title} ({course.code})
+                      <option key={course.courseId} value={course.courseId}>
+                        {course.courseName} ({course.courseCode})
                       </option>
                     ))}
                   </select>
                 </label>
-                <label className="flex flex-col gap-2">
-                  <span className="text-sm font-semibold">Number of questions (1-50)</span>
-                  <input
-                    type="number"
-                    min="1"
-                    max="50"
-                    step="1"
-                    value={questionCount}
-                    onChange={(event) => setQuestionCount(event.target.value === '' ? '' : Number(event.target.value))}
-                  />
-                </label>
-                <button type="button" onClick={startQuiz} disabled={!courseId || startingQuiz || recoveringAttempt}>
+                {selectedCourseCoverage && (selectedCourseCoverage.enoughForPracticeTest ? (
+                    <>
+                      <label className="flex flex-col gap-2 sm:max-w-xs">
+                        <span className="text-sm font-semibold">Practice-test length</span>
+                        <select
+                          value={availableQuestionCounts.includes(questionCount) ? questionCount : ''}
+                          onChange={(event) => setQuestionCount(Number(event.target.value))}
+                        >
+                          {availableQuestionCounts.map((count) => (
+                            <option key={count} value={count}>{count} questions</option>
+                          ))}
+                        </select>
+                      </label>
+                      <p className="text-sm text-gray-600">
+                        Topics: {selectedCourseCoverage.topicCategories.length
+                          ? selectedCourseCoverage.topicCategories.join(', ')
+                          : 'Not available'}
+                      </p>
+                    </>
+                ) : (
+                    <div className="flex flex-col gap-2">
+                      {selectedCourseCoverage.insufficientQuestionsMessage && (
+                        <p className="text-sm text-amber-800" role="status">
+                          {selectedCourseCoverage.insufficientQuestionsMessage}
+                        </p>
+                      )}
+                      {selectedCourseCoverage.availabilityMessage && (
+                        <p className="text-sm text-amber-800" role="status">
+                          {selectedCourseCoverage.availabilityMessage}
+                        </p>
+                      )}
+                    </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={startQuiz}
+                  disabled={!courseId || !availableQuestionCounts.includes(questionCount) || startingQuiz || recoveringAttempt}
+                >
                   {startingQuiz ? 'Starting...' : 'Start CBT Practice'}
                 </button>
               </div>
@@ -512,22 +676,25 @@ export default function CBTQuiz() {
                 )}
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
-                {questions.map((item, questionIndex) => (
+                {questions.map((item, questionIndex) => {
+                  const hasAnswer = hasCbtAnswer(item, answers[questionIndex])
+                  return (
                   <button
                     key={item._id}
                     type="button"
-                    aria-label={`Question ${questionIndex + 1}${answers[questionIndex] ? ', answered' : ', unanswered'}`}
+                    aria-label={`Question ${questionIndex + 1}${hasAnswer ? ', answered' : ', unanswered'}`}
                     aria-current={questionIndex === index ? 'step' : undefined}
                     onClick={() => {
                       setIndex(questionIndex)
                       setConfirmingSubmit(false)
                       setError('')
                     }}
-                    className={answers[questionIndex] ? 'bg-green-600' : 'bg-gray-500'}
+                    className={hasAnswer ? 'bg-green-600' : 'bg-gray-500'}
                   >
-                    {questionIndex + 1}{answers[questionIndex] ? ' ✓' : ''}
+                    {questionIndex + 1}{hasAnswer ? ' ✓' : ''}
                   </button>
-                ))}
+                  )
+                })}
               </div>
             </section>
 
@@ -537,25 +704,61 @@ export default function CBTQuiz() {
                   Question {index + 1}{question.topic ? ` · ${question.topic}` : ''}
                 </p>
                 <h3 className="question-text mt-2">{question.question}</h3>
-                <fieldset className="options">
-                  <legend className="sr-only">Answer options</legend>
-                  {(question.presentedOptions || []).map((option) => (
-                    <label
-                      key={option.optionId}
-                      className={`option ${answers[index] === option.optionId ? 'selected' : ''}`}
-                    >
-                      <input
-                        type="radio"
-                        name={`question-${question._id}`}
-                        value={option.optionId}
-                        checked={answers[index] === option.optionId}
-                        disabled={remainingSeconds === 0 || submitting || result !== null}
-                        onChange={() => selectAnswer(option.optionId)}
-                      />
-                      <span>{option.text}</span>
-                    </label>
-                  ))}
-                </fieldset>
+                <p className="mt-2 text-sm text-gray-600">
+                  {Number.isFinite(question.marks) ? `${question.marks} mark(s)` : 'Question'}{' · '}
+                  {question.questionType === 'theory'
+                    ? 'Theory response'
+                    : question.questionType === 'fill_in_gap'
+                      ? `${question.blankCount} blank(s)`
+                      : 'Objective'}
+                </p>
+                {cbtQuestionType(question) === 'objective' ? (
+                  <fieldset className="options">
+                    <legend className="sr-only">Answer options</legend>
+                    {(question.presentedOptions || []).map((option) => (
+                      <label
+                        key={option.optionId}
+                        className={`option ${answers[index]?.selectedOptionId === option.optionId ? 'selected' : ''}`}
+                      >
+                        <input
+                          type="radio"
+                          name={`question-${question._id}`}
+                          value={option.optionId}
+                          checked={answers[index]?.selectedOptionId === option.optionId}
+                          disabled={remainingSeconds === 0 || submitting || result !== null}
+                          onChange={() => selectAnswer(option.optionId)}
+                        />
+                        <span>{option.text}</span>
+                      </label>
+                    ))}
+                  </fieldset>
+                ) : cbtQuestionType(question) === 'fill_in_gap' ? (
+                  <div className="mt-4 flex flex-col gap-3">
+                    {Array.from({ length: question.blankCount || 0 }, (_, blankIndex) => (
+                      <label className="flex flex-col gap-1" key={blankIndex}>
+                        <span className="text-sm font-semibold">Blank {blankIndex + 1}</span>
+                        <input
+                          type="text"
+                          maxLength={1000}
+                          value={answers[index]?.selectedAnswers?.[blankIndex] || ''}
+                          disabled={remainingSeconds === 0 || submitting || result !== null}
+                          onChange={(event) => updateFillAnswer(blankIndex, event.target.value)}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <label className="mt-4 flex flex-col gap-2">
+                    <span className="text-sm font-semibold">Your response ({question.marks} marks)</span>
+                    <textarea
+                      rows={10}
+                      maxLength={20000}
+                      value={answers[index]?.theoryResponse || ''}
+                      disabled={remainingSeconds === 0 || submitting || result !== null}
+                      onChange={(event) => updateTheoryAnswer(event.target.value)}
+                    />
+                  </label>
+                )}
                 <p className="mt-3 text-sm" role="status" aria-live="polite">
                   {saveStatuses[question._id] === 'saving' && 'Saving answer...'}
                   {saveStatuses[question._id] === 'saved' && 'Answer saved.'}
@@ -594,7 +797,7 @@ export default function CBTQuiz() {
                   {unansweredCount
                     ? `${unansweredCount} question(s) are unanswered.`
                     : `You have answered all ${questions.length} questions.`}
-                  {' '}Saved answers are graded by the server. Once submitted, this attempt cannot be changed.
+                  {' '}Responses are saved before submission. This attempt cannot be changed after submission.
                 </p>
                 <div className="mt-4 flex flex-wrap gap-3">
                   <button type="button" onClick={() => setConfirmingSubmit(false)} disabled={submitting}>

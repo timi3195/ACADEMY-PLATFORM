@@ -119,6 +119,7 @@ const withSessionStore = async (attempt, run) => {
       limit() { return result; },
       select() { return result; },
       lean() {
+        if (query.status !== "in_progress") return Promise.resolve([]);
         const now = query.expiresAt.$lte;
         return Promise.resolve(
           state.attempt.status === "in_progress" && state.attempt.expiresAt <= now
