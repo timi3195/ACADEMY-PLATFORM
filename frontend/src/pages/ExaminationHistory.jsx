@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { apiGet } from '../utils/api'
+import { apiGet, apiPost } from '../utils/api'
 import { useAuth } from '../utils/auth'
 import EmptyState from '../components/EmptyState'
 import ErrorState from '../components/ErrorState'
+import CBTResultFeedback from '../components/CBTResultFeedback'
 import './ExaminationHistory.css'
 
 export function quizResultsPathForUser(userId) {
@@ -33,37 +34,25 @@ function getAttemptStatus(attempt) {
 }
 
 function getQuestionCount(attempt) {
+  if (Number.isFinite(attempt.totalQuestions) && attempt.totalQuestions > 0) {
+    return attempt.totalQuestions
+  }
+  if (Array.isArray(attempt.questions) && attempt.questions.length > 0) {
+    return attempt.questions.length
+  }
   if (Number.isFinite(attempt.totalQuestions)) return attempt.totalQuestions
-  if (Array.isArray(attempt.questions)) return attempt.questions.length
   return null
 }
 
-function AttemptDetails({ attempt }) {
-  const questions = Array.isArray(attempt.questions) ? attempt.questions : []
-  if (getAttemptStatus(attempt) !== 'Completed' || questions.length === 0) return null
-
-  return (
-    <details className="exam-history-details">
-      <summary>Review your answers</summary>
-      <ol className="exam-history-question-list">
-        {questions.map((question, index) => {
-          const selectedOption = (question.presentedOptions || [])
-            .find((option) => option.optionId === question.selectedOptionId)
-          return (
-            <li key={`${attempt._id}-${question.questionId || index}`}>
-              <p>{question.question || `Question ${index + 1}`}</p>
-              <p className="exam-history-answer">
-                Your answer: {selectedOption?.text || 'Not answered'}
-              </p>
-            </li>
-          )
-        })}
-      </ol>
-    </details>
-  )
-}
-
-export function ExaminationHistoryView({ attempts, loading, error, onRetry }) {
+export function ExaminationHistoryView({
+  attempts,
+  loading,
+  error,
+  onRetry,
+  onRetryGrading,
+  retryingAttemptId,
+  gradingErrors = {}
+}) {
   if (loading) {
     return <div className="exam-history-state" role="status">Loading your examination history...</div>
   }
@@ -101,12 +90,29 @@ export function ExaminationHistoryView({ attempts, loading, error, onRetry }) {
             const status = getAttemptStatus(attempt)
             const questionCount = getQuestionCount(attempt)
             const completedAt = attempt.completedAt || attempt.timeEnded
+            const typedFinal = attempt.attemptFormatVersion >= 2 &&
+              attempt.gradingStatus === 'graded' &&
+              Number.isFinite(attempt.score) &&
+              Number.isFinite(attempt.totalMarks) &&
+              attempt.totalMarks > 0 &&
+              attempt.score >= 0 &&
+              attempt.score <= attempt.totalMarks
+            const legacyVerified = !(attempt.attemptFormatVersion >= 2) &&
+              attempt.historicalScoreStatus === 'verified' &&
+              Number.isFinite(attempt.score) &&
+              questionCount !== null
             const date = status === 'Completed'
               ? formatHistoryDate(completedAt)
               : formatHistoryDate(attempt.startedAt || attempt.timeStarted)
-            const score = Number.isFinite(attempt.score) && questionCount !== null
-              ? `${attempt.score} / ${questionCount}`
-              : 'Not available'
+            const score = typedFinal
+              ? `${attempt.score} / ${attempt.totalMarks} marks`
+              : legacyVerified
+                ? `${attempt.score} / ${questionCount}`
+                : 'Not available'
+            const percentageAvailable = (typedFinal || legacyVerified) &&
+              Number.isFinite(attempt.percentage) &&
+              attempt.percentage >= 0 &&
+              attempt.percentage <= 100
 
             return (
               <article className="exam-history-card" key={attempt._id}>
@@ -127,7 +133,7 @@ export function ExaminationHistoryView({ attempts, loading, error, onRetry }) {
                   </div>
                   <div>
                     <dt>Percentage</dt>
-                    <dd>{Number.isFinite(attempt.percentage)
+                    <dd>{percentageAvailable
                       ? `${Number(attempt.percentage).toFixed(1)}%`
                       : 'Not available'}</dd>
                   </div>
@@ -136,7 +142,15 @@ export function ExaminationHistoryView({ attempts, loading, error, onRetry }) {
                     <dd>{questionCount === null ? 'Not available' : questionCount}</dd>
                   </div>
                 </dl>
-                <AttemptDetails attempt={attempt} />
+                <CBTResultFeedback
+                  attempt={attempt}
+                  collapsible
+                  onRetryGrading={onRetryGrading
+                    ? () => onRetryGrading(attempt._id)
+                    : undefined}
+                  retrying={retryingAttemptId === attempt._id}
+                  retryError={gradingErrors[attempt._id] || ''}
+                />
               </article>
             )
           })}
@@ -152,6 +166,8 @@ export default function ExaminationHistory() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [retryCount, setRetryCount] = useState(0)
+  const [retryingAttemptId, setRetryingAttemptId] = useState('')
+  const [gradingErrors, setGradingErrors] = useState({})
   const userId = user?._id || user?.id
 
   useEffect(() => {
@@ -171,12 +187,33 @@ export default function ExaminationHistory() {
     return () => { active = false }
   }, [userId, retryCount])
 
+  async function retryGrading(attemptId) {
+    setRetryingAttemptId(attemptId)
+    setGradingErrors((current) => ({ ...current, [attemptId]: '' }))
+    try {
+      const response = await apiPost(`/api/quiz/${encodeURIComponent(attemptId)}/grade`, {})
+      setAttempts((current) => current.map((attempt) =>
+        attempt._id === attemptId ? { ...attempt, ...response.session } : attempt
+      ))
+    } catch (requestError) {
+      setGradingErrors((current) => ({
+        ...current,
+        [attemptId]: requestError.message || 'Unable to retry grading. Your answers remain saved.'
+      }))
+    } finally {
+      setRetryingAttemptId('')
+    }
+  }
+
   return (
     <ExaminationHistoryView
       attempts={attempts}
       loading={loading}
       error={error}
       onRetry={() => setRetryCount((count) => count + 1)}
+      onRetryGrading={retryGrading}
+      retryingAttemptId={retryingAttemptId}
+      gradingErrors={gradingErrors}
     />
   )
 }

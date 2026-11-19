@@ -14,8 +14,8 @@ const STUDENT_A = "507f1f77bcf86cd799439011";
 const STUDENT_B = "507f1f77bcf86cd799439012";
 const STUDENT_WITHOUT_DEPARTMENT = "507f1f77bcf86cd799439015";
 const ADMIN = "507f1f77bcf86cd799439013";
-const LECTURER = "507f1f77bcf86cd799439014";
-const UNASSIGNED_LECTURER = "507f1f77bcf86cd799439016";
+const UNSUPPORTED_USER = "507f1f77bcf86cd799439014";
+const OTHER_UNSUPPORTED_USER = "507f1f77bcf86cd799439016";
 const COURSE_ID = "507f1f77bcf86cd799439021";
 const DEPARTMENT_A = "507f1f77bcf86cd799439031";
 const DEPARTMENT_B = "507f1f77bcf86cd799439032";
@@ -25,16 +25,15 @@ const users = {
   [STUDENT_B]: { _id: STUDENT_B, id: STUDENT_B, role: "student", department: DEPARTMENT_B, yearOfStudy: "ND1", semester: "First", coursesEnrolled: [COURSE_ID] },
   [STUDENT_WITHOUT_DEPARTMENT]: { _id: STUDENT_WITHOUT_DEPARTMENT, id: STUDENT_WITHOUT_DEPARTMENT, role: "student", coursesEnrolled: [COURSE_ID] },
   [ADMIN]: { _id: ADMIN, id: ADMIN, role: "admin" },
-  [LECTURER]: { _id: LECTURER, id: LECTURER, role: "lecturer", lecturerStatus: "approved" },
-  [UNASSIGNED_LECTURER]: { _id: UNASSIGNED_LECTURER, id: UNASSIGNED_LECTURER, role: "lecturer", lecturerStatus: "approved" }
+  [UNSUPPORTED_USER]: { _id: UNSUPPORTED_USER, id: UNSUPPORTED_USER, role: "unsupported" },
+  [OTHER_UNSUPPORTED_USER]: { _id: OTHER_UNSUPPORTED_USER, id: OTHER_UNSUPPORTED_USER, role: "unsupported" }
 };
 
 const course = {
   _id: COURSE_ID,
   department: DEPARTMENT_A,
   level: "ND1",
-  semester: "First",
-  lecturers: [LECTURER]
+  semester: "First"
 };
 
 const questionRecords = [
@@ -233,19 +232,18 @@ test("legacy questions are excluded from student results but retain deterministi
   });
 });
 
-test("approved assigned lecturers receive question-management records for their course", async () => {
+test("unsupported roles cannot manage question-bank records", async () => {
   await withQuestionMocks(async (state) => {
-    const response = await request(buildApp(LECTURER, "lecturer"))
+    const response = await request(buildApp(UNSUPPORTED_USER, "unsupported"))
       .get(`/api/questions/course/${COURSE_ID}`);
-    assert.equal(response.status, 200);
-    assert.equal(state.query.approvalStatus, undefined);
-    assert.equal(response.body.questions.some((item) => item.answer === "A"), true);
+    assert.equal(response.status, 403);
+    assert.equal(state.query, null);
   });
 });
 
-test("approved lecturers cannot access question banks for unassigned courses", async () => {
+test("unsupported roles cannot access question banks", async () => {
   await withQuestionMocks(async () => {
-    const response = await request(buildApp(UNASSIGNED_LECTURER, "lecturer"))
+    const response = await request(buildApp(OTHER_UNSUPPORTED_USER, "unsupported"))
       .get(`/api/questions/course/${COURSE_ID}`);
     assert.equal(response.status, 403);
   });

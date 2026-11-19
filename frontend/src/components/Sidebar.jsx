@@ -17,17 +17,22 @@ export default function Sidebar() {
     { to: '/analytics', label: 'Analytics', icon: '◭' },
   ];
 
-  const isApprovedLecturer = user?.role === 'lecturer' && user?.lecturerStatus === 'approved';
+  const isApprovedLecturer = false;
 
-  if (isApprovedLecturer || user?.role === 'admin') {
+  if (false) {
     links.splice(8, 0, { to: '/lecturer', label: 'Lecturer', icon: '▣' });
-  } else if (user?.role === 'student') {
+  } else if (false) {
     links.splice(8, 0, { to: '/lecturer/register', label: 'Become Lecturer', icon: '▣' });
   }
 
-  if (user?.role === 'admin') {
+  if (false && user?.role === 'admin') {
     links.push({ to: '/admin/lecturers', label: 'Lecturer Review', icon: '✓' });
     links.push({ to: '/admin', label: 'Admin', icon: '⚑' });
+  }
+
+  if (user?.role === 'admin') {
+    links.push({ to: '/admin/content', label: 'Content Management', icon: '*' });
+    links.push({ to: '/admin', label: 'Admin', icon: '*' });
   }
 
   return (

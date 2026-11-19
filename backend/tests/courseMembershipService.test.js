@@ -9,14 +9,12 @@ const {
 
 const COURSE_ID = "507f1f77bcf86cd799439021";
 const OTHER_COURSE_ID = "507f1f77bcf86cd799439022";
-const LECTURER_ID = "507f1f77bcf86cd799439031";
 const DEPARTMENT_ID = "507f1f77bcf86cd799439041";
 const OTHER_DEPARTMENT_ID = "507f1f77bcf86cd799439042";
 
 const course = {
   _id: COURSE_ID,
-  department: DEPARTMENT_ID,
-  lecturers: [LECTURER_ID]
+  department: DEPARTMENT_ID
 };
 
 test("students automatically access courses in their department without enrollment", () => {
@@ -65,21 +63,14 @@ test("missing and invalid student or course departments fail closed", () => {
   }, { ...course, department: [DEPARTMENT_ID, OTHER_DEPARTMENT_ID] }), false);
 });
 
-test("admins and approved assigned lecturers retain course access", () => {
+test("administrators have course access and unsupported roles do not", () => {
   assert.equal(canAccessCourse({ role: "admin" }, { _id: COURSE_ID }), true);
   assert.equal(canAccessCourse({
-    _id: LECTURER_ID,
-    role: "lecturer",
-    lecturerStatus: "approved"
-  }, course), true);
-  assert.equal(canAccessCourse({
-    _id: LECTURER_ID,
-    role: "lecturer",
-    lecturerStatus: "pending"
+    role: "unsupported"
   }, course), false);
 });
 
-test("course list filters use the student's department or approved lecturer assignments", () => {
+test("course list filters use the student's department or administrator access", () => {
   assert.deepEqual(getAccessibleCourseFilter({
     role: "student",
     department: DEPARTMENT_ID,
@@ -91,13 +82,7 @@ test("course list filters use the student's department or approved lecturer assi
     coursesEnrolled: [COURSE_ID]
   }), { _id: { $in: [] } });
 
-  assert.deepEqual(getAccessibleCourseFilter({
-    _id: LECTURER_ID,
-    role: "lecturer",
-    lecturerStatus: "approved"
-  }), { lecturers: LECTURER_ID });
-
-  assert.deepEqual(getAccessibleCourseFilter({ role: "lecturer", lecturerStatus: "pending" }), {
+  assert.deepEqual(getAccessibleCourseFilter({ role: "unsupported" }), {
     _id: { $in: [] }
   });
   assert.deepEqual(getAccessibleCourseFilter({ role: "admin" }), {});

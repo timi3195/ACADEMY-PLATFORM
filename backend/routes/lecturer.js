@@ -1,7 +1,7 @@
 const express = require("express");
 const multer = require("multer");
 const protect = require("../config/middleware/authMiddleware");
-const lecturerOnly = require("../config/middleware/lecturerOnly");
+const adminOnly = require("../config/middleware/adminOnly");
 const lecturerController = require("../controllers/lecturerController");
 const storageService = require("../services/storageService");
 
@@ -24,40 +24,42 @@ const uploadFields = upload.fields([
   { name: "coverImage", maxCount: 1 }
 ]);
 
-// Lecturer dashboard summary
-router.get("/dashboard", protect, lecturerOnly, lecturerController.getDashboard);
+// Content management is administrator-only; this module retains its legacy filename.
+router.get("/dashboard", protect, adminOnly, lecturerController.getDashboard);
 
-// Academic materials are restricted to courses assigned to the approved lecturer.
-router.get("/courses", protect, lecturerOnly, lecturerController.getCourses);
-router.get("/materials", protect, lecturerOnly, lecturerController.getMaterials);
+// Course and material management is restricted to administrators.
+router.get("/courses", protect, adminOnly, lecturerController.getCourses);
+router.get("/materials", protect, adminOnly, lecturerController.getMaterials);
 
-// Create new material
+// Create new course material.
 router.post(
   "/materials",
   protect,
-  lecturerOnly,
+  adminOnly,
   uploadFields,
   lecturerController.createMaterial
 );
 
-// Edit existing lecturer material
+// Edit existing course material.
 router.put(
   "/materials/:id",
   protect,
-  lecturerOnly,
+  adminOnly,
   uploadFields,
   lecturerController.updateMaterial
 );
 
-// Soft delete lecturer material
-router.delete("/materials/:id", protect, lecturerOnly, lecturerController.deleteMaterial);
+// Soft-delete course material.
+router.delete("/materials/:id", protect, adminOnly, lecturerController.deleteMaterial);
 
-// Material analytics for lecturer-owned material
+// Material analytics for administrator-managed material.
 router.get(
   "/materials/:id/analytics",
   protect,
-  lecturerOnly,
+  adminOnly,
   lecturerController.getMaterialAnalytics
 );
+
+router.use("/curricula", require("./curriculumImport"));
 
 module.exports = router;

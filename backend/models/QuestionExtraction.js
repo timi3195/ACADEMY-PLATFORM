@@ -1,5 +1,12 @@
 const mongoose = require("mongoose");
 
+const sourcePaperMetadataSchema = new mongoose.Schema({
+  title: { type: String, required: true },
+  examinationYear: { type: String, required: true },
+  level: { type: String, enum: ["ND1", "ND2", "HND1", "HND2"], required: true },
+  semester: { type: String, enum: ["First", "Second"], required: true }
+}, { _id: false });
+
 const imageSchema = new mongoose.Schema({
   originalName: { type: String, required: true },
   mimeType: { type: String, enum: ["image/jpeg", "image/png"], required: true },
@@ -24,6 +31,8 @@ const optionSchema = new mongoose.Schema({
   text: { type: String, required: true }
 }, { _id: false });
 
+const QUESTION_TYPES = ["objective", "fill_in_gap", "theory", "unclassified"];
+
 const reviewHistorySchema = new mongoose.Schema({
   reviewer: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   action: { type: String, enum: ["edited", "approved", "rejected"], required: true },
@@ -37,6 +46,8 @@ const reviewHistorySchema = new mongoose.Schema({
 const draftSchema = new mongoose.Schema({
   questionNumber: { type: String, default: "" },
   questionText: { type: String, required: true },
+  questionType: { type: String, enum: QUESTION_TYPES, default: undefined },
+  blankCount: { type: Number, min: 1, max: 20, default: null },
   options: { type: [optionSchema], default: [] },
   possibleAnswer: { type: String, default: "" },
   answerStatus: { type: String, enum: ["unconfirmed"], default: "unconfirmed" },
@@ -61,6 +72,12 @@ const draftSchema = new mongoose.Schema({
   reviewLockUntil: { type: Date, default: null },
   rejectionReason: { type: String, default: "" },
   approvedQuestion: { type: mongoose.Schema.Types.ObjectId, ref: "Question", default: null },
+  markingStatus: {
+    type: String,
+    enum: ["ready", "uncertain", "invalid", "failed", "needs_source"],
+    default: undefined
+  },
+  markingVersion: { type: mongoose.Schema.Types.ObjectId, ref: "QuestionMarkingVersion", default: null },
   reviewHistory: { type: [reviewHistorySchema], default: [] }
 }, { timestamps: true });
 
@@ -73,6 +90,12 @@ const questionExtractionSchema = new mongoose.Schema({
   semester: { type: String, required: true },
   academicSession: { type: String, required: true },
   sourceExamYear: { type: String, default: "" },
+  sourcePaper: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "PastQuestionPaper",
+    default: null
+  },
+  sourcePaperMetadata: { type: sourcePaperMetadataSchema, default: undefined },
   images: { type: [imageSchema], required: true, validate: (images) => images.length > 0 },
   ocrText: { type: String, default: "" },
   drafts: { type: [draftSchema], default: [] },

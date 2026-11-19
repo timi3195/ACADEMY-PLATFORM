@@ -10,6 +10,7 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || "phase-2-question-extraction-
 const { generateAccessToken } = require("../utils/token");
 const User = require("../models/User");
 const Course = require("../models/course");
+const PastQuestionPaper = require("../models/PastQuestionPaper");
 const QuestionExtraction = require("../models/QuestionExtraction");
 const questionAccessService = require("../services/questionAccessService");
 const storageService = require("../services/storageService");
@@ -21,9 +22,12 @@ const fileRoutes = require("../routes/file");
 const USER_A = "507f1f77bcf86cd799439011";
 const USER_B = "507f1f77bcf86cd799439012";
 const COURSE_ID = "507f1f77bcf86cd799439021";
+const OTHER_COURSE_ID = "507f1f77bcf86cd799439022";
+const PAPER_ID = "507f1f77bcf86cd799439023";
 const BATCH_OBJECT_ID = "507f1f77bcf86cd799439031";
 let databaseUser;
 let courseAllowed = true;
+let sourcePaperRecord;
 let records;
 let storedImages;
 let ocrImplementation;
@@ -76,8 +80,9 @@ const cloneBatch = (batch) => {
 const setupMocks = () => {
   records = new Map();
   storedImages = new Map();
-  databaseUser = { role: "lecturer", lecturerStatus: "approved" };
+  databaseUser = { role: "admin" };
   courseAllowed = true;
+  sourcePaperRecord = null;
   ocrImplementation = async (images, onPageResult) => {
     const results = [];
     for (const image of images) {
@@ -117,6 +122,19 @@ const setupMocks = () => {
     }
   });
   Course.find = () => asQuery([{ _id: COURSE_ID, title: "Test course", code: "TST", level: "ND1", semester: "First" }]);
+  PastQuestionPaper.findById = async (id) =>
+    sourcePaperRecord && String(sourcePaperRecord._id) === String(id)
+      ? sourcePaperRecord
+      : null;
+  PastQuestionPaper.find = (query) => asQuery(
+    sourcePaperRecord &&
+    String(sourcePaperRecord.course) === String(query.course) &&
+    String(sourcePaperRecord.department) === String(query.department) &&
+    sourcePaperRecord.level === query.level &&
+    sourcePaperRecord.semester === query.semester
+      ? [sourcePaperRecord]
+      : []
+  );
   QuestionExtraction.countDocuments = async () => records.size;
   QuestionExtraction.create = async (input) => {
     const batch = {
@@ -190,7 +208,7 @@ const setupMocks = () => {
   questionStructuringService.structureQuestionDrafts = (...args) => structuringImplementation(...args);
 };
 
-const buildApp = (identity = USER_A, role = "lecturer") => {
+const buildApp = (identity = USER_A, role = "admin") => {
   const app = express();
   const token = generateAccessToken(identity, { role });
   app.use((req, res, next) => {
@@ -206,13 +224,14 @@ const png = async () => sharp({
   create: { width: 120, height: 120, channels: 3, background: { r: 255, g: 255, b: 255 } }
 }).png().toBuffer();
 
-const uploadImages = (app, images = [{ name: "page-one.png", buffer: null }]) => {
+const uploadImages = (app, images = [{ name: "page-one.png", buffer: null }], sourcePaperId) => {
   let call = request(app).post("/api/question-extractions")
     .field("courseId", COURSE_ID)
     .field("academicSession", "2025/2026")
     .field("sourceExamYear", "2025")
     .field("userId", USER_B)
     .field("role", "admin");
+  if (sourcePaperId) call = call.field("sourcePaperId", sourcePaperId);
   for (const image of images) {
     call = call.attach("images", image.buffer, { filename: image.name, contentType: image.type || "image/png" });
   }
@@ -222,6 +241,8 @@ const uploadImages = (app, images = [{ name: "page-one.png", buffer: null }]) =>
 describe("question extraction security", { concurrency: false }, () => {
 before(() => {
   originals.userFindById = User.findById;
+  originals.paperFindById = PastQuestionPaper.findById;
+  originals.paperFind = PastQuestionPaper.find;
   originals.courseFind = Course.find;
   originals.countDocuments = QuestionExtraction.countDocuments;
   originals.create = QuestionExtraction.create;
@@ -241,6 +262,8 @@ beforeEach(setupMocks);
 
 after(() => {
   User.findById = originals.userFindById;
+  PastQuestionPaper.findById = originals.paperFindById;
+  PastQuestionPaper.find = originals.paperFind;
   Course.find = originals.courseFind;
   QuestionExtraction.countDocuments = originals.countDocuments;
   QuestionExtraction.create = originals.create;
@@ -297,7 +320,7 @@ test("a student role from the database cannot read an existing unapproved batch"
   assert.equal(response.status, 403);
 });
 
-test("lecturers cannot upload for courses they are not assigned to", async () => {
+test("uploads are rejected when the administrator lacks course access", async () => {
   courseAllowed = false;
   const response = await uploadImages(buildApp(), [{ name: "page.png", buffer: await png() }]);
   assert.equal(response.status, 403);
@@ -305,7 +328,18 @@ test("lecturers cannot upload for courses they are not assigned to", async () =>
   assert.equal(storedImages.size, 0);
 });
 
-test("authorized lecturer can upload multiple valid images into a private unapproved batch", async () => {
+test("lecturers cannot upload extraction batches", async () => {
+  databaseUser = { role: "lecturer", lecturerStatus: "approved" };
+  const response = await uploadImages(
+    buildApp(USER_A, "lecturer"),
+    [{ name: "page.png", buffer: await png() }]
+  );
+  assert.equal(response.status, 403);
+  assert.equal(records.size, 0);
+  assert.equal(storedImages.size, 0);
+});
+
+test("administrators can upload multiple valid images into a private unapproved batch", async () => {
   const first = await png();
   const second = await png();
   const response = await uploadImages(buildApp(), [
@@ -322,6 +356,112 @@ test("authorized lecturer can upload multiple valid images into a private unappr
   assert.equal("storageKey" in response.body.batch.images[0], false);
   assert.equal(records.get(response.body.batch.batchId).uploadedBy, USER_A);
   assert.equal(records.size, 1);
+});
+
+test("administrators can associate an extraction batch with its uploaded source paper", async () => {
+  sourcePaperRecord = {
+    _id: PAPER_ID,
+    title: "Test course 2025 past questions",
+    course: COURSE_ID,
+    department: "507f1f77bcf86cd799439099",
+    level: "ND1",
+    semester: "First",
+    examinationYear: "2025",
+    storageKey: "must-not-be-returned"
+  };
+
+  const response = await uploadImages(
+    buildApp(),
+    [{ name: "page-one.png", buffer: await png() }],
+    PAPER_ID
+  );
+  assert.equal(response.status, 201, JSON.stringify(response.body));
+  assert.equal(response.body.batch.sourcePaper, PAPER_ID);
+  assert.deepEqual(response.body.batch.sourcePaperMetadata, {
+    title: "Test course 2025 past questions",
+    examinationYear: "2025",
+    level: "ND1",
+    semester: "First"
+  });
+  assert.equal(response.body.batch.sourceExamYear, "2025");
+  assert.equal(response.body.batch.academicSession, "2025/2026");
+  assert.equal(JSON.stringify(response.body).includes("must-not-be-returned"), false);
+});
+
+test("source-paper lookup is course-scoped and returns no storage credentials", async () => {
+  sourcePaperRecord = {
+    _id: PAPER_ID,
+    title: "Test course 2025 past questions",
+    course: COURSE_ID,
+    department: "507f1f77bcf86cd799439099",
+    level: "ND1",
+    semester: "First",
+    examinationYear: "2025",
+    storageKey: "must-not-be-returned"
+  };
+
+  const response = await request(buildApp())
+    .get(`/api/question-extractions/source-papers?courseId=${COURSE_ID}`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.papers, [{
+    _id: PAPER_ID,
+    title: "Test course 2025 past questions",
+    examinationYear: "2025",
+    level: "ND1",
+    semester: "First"
+  }]);
+  assert.equal(JSON.stringify(response.body).includes("storageKey"), false);
+});
+
+test("source-paper lookup is rejected when course access is unavailable", async () => {
+  courseAllowed = false;
+  const response = await request(buildApp())
+    .get(`/api/question-extractions/source-papers?courseId=${COURSE_ID}`);
+  assert.equal(response.status, 403);
+});
+
+test("source papers from another course are rejected before storing images", async () => {
+  sourcePaperRecord = {
+    _id: PAPER_ID,
+    title: "Other course paper",
+    course: OTHER_COURSE_ID,
+    department: "507f1f77bcf86cd799439099",
+    level: "ND1",
+    semester: "First",
+    examinationYear: "2025"
+  };
+
+  const response = await uploadImages(
+    buildApp(),
+    [{ name: "page-one.png", buffer: await png() }],
+    PAPER_ID
+  );
+  assert.equal(response.status, 400);
+  assert.match(response.body.message, /source paper must belong to the selected course/i);
+  assert.equal(records.size, 0);
+  assert.equal(storedImages.size, 0);
+});
+
+test("a conflicting source examination year is rejected before storing images", async () => {
+  sourcePaperRecord = {
+    _id: PAPER_ID,
+    title: "Test course 2024 past questions",
+    course: COURSE_ID,
+    department: "507f1f77bcf86cd799439099",
+    level: "ND1",
+    semester: "First",
+    examinationYear: "2024"
+  };
+
+  const response = await uploadImages(
+    buildApp(),
+    [{ name: "page-one.png", buffer: await png() }],
+    PAPER_ID
+  );
+  assert.equal(response.status, 400);
+  assert.match(response.body.message, /year must match/i);
+  assert.equal(records.size, 0);
+  assert.equal(storedImages.size, 0);
 });
 
 test("invalid MIME, disguised signatures, corrupt images, excessive size, and traversal names are rejected", async () => {
@@ -356,7 +496,7 @@ test("students cannot read another user's extraction or original image", async (
   const response = await uploadImages(buildApp(), [{ name: "private.png", buffer: await png() }]);
   const batch = response.body.batch;
   courseAllowed = false;
-  const crossUserApp = buildApp(USER_B, "lecturer");
+  const crossUserApp = buildApp(USER_B, "admin");
   const details = await request(crossUserApp).get(`/api/question-extractions/${batch.batchId}`);
   const original = await request(crossUserApp).get(batch.images[0].previewUrl);
   assert.equal(details.status, 403);

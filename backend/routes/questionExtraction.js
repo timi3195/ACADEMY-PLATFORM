@@ -4,6 +4,7 @@ const mongoose = require("mongoose");
 const multer = require("multer");
 const QuestionExtraction = require("../models/QuestionExtraction");
 const Course = require("../models/course");
+const PastQuestionPaper = require("../models/PastQuestionPaper");
 const User = require("../models/User");
 const protect = require("../config/middleware/authMiddleware");
 const { getCourseAccess } = require("../services/questionAccessService");
@@ -12,6 +13,7 @@ const imageValidation = require("../services/questionImageValidationService");
 const ocrService = require("../services/ocrService");
 const questionStructuringService = require("../services/questionStructuringService");
 const questionExtractionReviewService = require("../services/questionExtractionReviewService");
+const questionMarkingService = require("../services/questionMarkingService");
 
 const router = express.Router();
 const PROCESSING_LOCK_MS = 30 * 60 * 1000;
@@ -50,10 +52,9 @@ const replyError = (res, error, fallback = "Unable to process question extractio
 
 const requireUploader = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user.id).select("role lecturerStatus").lean();
-    if (!user || !["admin", "lecturer"].includes(user.role) ||
-        (user.role === "lecturer" && user.lecturerStatus !== "approved")) {
-      return res.status(403).json({ success: false, message: "Approved lecturer or administrator access is required." });
+    const user = await User.findById(req.user.id).select("role").lean();
+    if (!user || user.role !== "admin") {
+      return res.status(403).json({ success: false, message: "Administrator access is required." });
     }
     req.extractionUser = user;
     return next();
@@ -120,6 +121,8 @@ const toSummary = (batch) => ({
   semester: batch.semester,
   academicSession: batch.academicSession,
   sourceExamYear: batch.sourceExamYear,
+  sourcePaper: idOf(batch.sourcePaper) || null,
+  sourcePaperMetadata: batch.sourcePaperMetadata || null,
   status: batch.status,
   processingStage: batch.processingStage,
   imageCount: batch.images?.length || 0,
@@ -158,7 +161,7 @@ const authorizeBatch = async (req, res, batchId) => {
     return null;
   }
   const access = await getCourseAccess(req.user.id, batch.course);
-  if (!access.allowed || (req.extractionUser.role === "lecturer" && !access.manager)) {
+  if (!access.allowed || !access.manager) {
     res.status(403).json({ success: false, message: "You are no longer authorized for this extraction course." });
     return null;
   }
@@ -192,6 +195,21 @@ const appendProcessingError = (batch, stage, message, imageId = null) => {
     message,
     occurredAt: new Date()
   });
+};
+
+const persistDraftMarkingStatus = async (batchId, draftId, marking) => {
+  const result = await QuestionExtraction.updateOne({
+    batchId,
+    drafts: { $elemMatch: { _id: draftId, reviewStatus: "approved" } }
+  }, {
+    $set: {
+      "drafts.$.markingStatus": marking.status,
+      "drafts.$.markingVersion": marking.version?._id || null
+    }
+  }, { runValidators: true });
+  if (result.matchedCount !== 1) {
+    throw new Error("The approved question's marking status could not be saved.");
+  }
 };
 
 const getOcrPages = (batch) => (batch.images || [])
@@ -381,10 +399,7 @@ router.get("/limits", (req, res) => res.json({
 
 router.get("/courses", async (req, res) => {
   try {
-    const filter = req.extractionUser.role === "admin"
-      ? {}
-      : { lecturers: req.user.id };
-    const courses = await Course.find(filter)
+    const courses = await Course.find({})
       .select("_id title code department level semester")
       .sort({ title: 1 })
       .lean();
@@ -395,23 +410,57 @@ router.get("/courses", async (req, res) => {
   }
 });
 
+router.get("/source-papers", async (req, res) => {
+  try {
+    const courseId = typeof req.query.courseId === "string" ? req.query.courseId : "";
+    if (!safeId(courseId)) {
+      return res.status(400).json({ success: false, message: "A valid course ID is required." });
+    }
+
+    const access = await getCourseAccess(req.user.id, courseId);
+    if (!access.allowed || !access.manager) {
+      return res.status(access.statusCode || 403).json({
+        success: false,
+        message: access.message || "Course upload access is required."
+      });
+    }
+
+    const papers = await PastQuestionPaper.find({
+      course: access.course._id,
+      department: access.course.department,
+      level: access.course.level,
+      semester: access.course.semester
+    })
+      .select("_id title examinationYear level semester")
+      .sort({ examinationYear: -1, title: 1 })
+      .lean();
+
+    return res.json({
+      success: true,
+      papers: papers.map((paper) => ({
+        _id: paper._id,
+        title: paper.title,
+        examinationYear: paper.examinationYear,
+        level: paper.level,
+        semester: paper.semester
+      }))
+    });
+  } catch (error) {
+    console.error("Authorized extraction source-paper lookup failed:", error.message);
+    return res.status(500).json({ success: false, message: "Unable to load source papers." });
+  }
+});
+
 router.get("/", async (req, res) => {
   try {
     const page = Math.max(1, Math.min(10000, Number.parseInt(req.query.page, 10) || 1));
     const limit = Math.max(1, Math.min(50, Number.parseInt(req.query.limit, 10) || 20));
-    const filter = req.extractionUser.role === "admin"
-      ? {}
-      : {
-        course: {
-          $in: (await Course.find({ lecturers: req.user.id }).select("_id").lean())
-            .map((course) => course._id)
-        }
-      };
+    const filter = {};
     if (req.query.status && ["uploaded", "processing", "extracted", "needs_review", "partially_failed", "failed"].includes(req.query.status)) {
       filter.status = req.query.status;
     }
     const batches = await QuestionExtraction.find(filter)
-      .select("batchId course department academicLevel semester academicSession sourceExamYear status processingStage images drafts retryCount processingLockUntil processingErrors createdAt updatedAt")
+      .select("batchId course department academicLevel semester academicSession sourceExamYear sourcePaper sourcePaperMetadata status processingStage images drafts retryCount processingLockUntil processingErrors createdAt updatedAt")
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
@@ -440,11 +489,54 @@ router.post("/", checkDailyUploadLimit, uploadImages, async (req, res) => {
     if (sourceExamYear && !/^\d{4}$/.test(sourceExamYear)) {
       return res.status(400).json({ success: false, message: "Source examination year must be a four-digit year." });
     }
+    if (req.body.sourcePaperId !== undefined &&
+        typeof req.body.sourcePaperId !== "string") {
+      return res.status(400).json({ success: false, message: "Source paper ID must be a string." });
+    }
+    const sourcePaperId = typeof req.body.sourcePaperId === "string"
+      ? req.body.sourcePaperId.trim()
+      : "";
+    if (sourcePaperId && !safeId(sourcePaperId)) {
+      return res.status(400).json({ success: false, message: "Invalid source paper ID." });
+    }
 
     const access = await getCourseAccess(req.user.id, courseId);
     if (!access.allowed || !access.manager) {
       return res.status(access.statusCode || 403).json({ success: false, message: access.message || "Course upload access is required." });
     }
+
+    let sourcePaper = null;
+    let sourcePaperMetadata;
+    let resolvedSourceExamYear = sourceExamYear;
+    if (sourcePaperId) {
+      sourcePaper = await PastQuestionPaper.findById(sourcePaperId);
+      if (!sourcePaper) {
+        return res.status(404).json({ success: false, message: "Source past-question paper not found." });
+      }
+      if (idOf(sourcePaper.course) !== idOf(access.course._id) ||
+          idOf(sourcePaper.department) !== idOf(access.course.department) ||
+          sourcePaper.level !== access.course.level ||
+          sourcePaper.semester !== access.course.semester) {
+        return res.status(400).json({
+          success: false,
+          message: "The source paper must belong to the selected course, department, level, and semester."
+        });
+      }
+      if (sourceExamYear && sourceExamYear !== String(sourcePaper.examinationYear)) {
+        return res.status(400).json({
+          success: false,
+          message: "Source examination year must match the selected past-question paper."
+        });
+      }
+      resolvedSourceExamYear = String(sourcePaper.examinationYear);
+      sourcePaperMetadata = {
+        title: sourcePaper.title,
+        examinationYear: String(sourcePaper.examinationYear),
+        level: sourcePaper.level,
+        semester: sourcePaper.semester
+      };
+    }
+
     const validatedImages = [];
     for (const file of files) {
       const validated = await imageValidation.validateImage(file);
@@ -487,7 +579,9 @@ router.post("/", checkDailyUploadLimit, uploadImages, async (req, res) => {
       academicLevel: access.course.level,
       semester: access.course.semester,
       academicSession,
-      sourceExamYear,
+      sourceExamYear: resolvedSourceExamYear,
+      sourcePaper: sourcePaper?._id || null,
+      sourcePaperMetadata,
       images: imageRecords,
       status: "uploaded",
       reviewStatus: "pending"
@@ -556,11 +650,15 @@ router.post("/:batchId/drafts/:draftId/approve", async (req, res) => {
       draftId: req.params.draftId,
       userId: req.user.id
     });
+    const marking = await questionMarkingService.generateForQuestion(result.question._id, req.user.id);
+    await persistDraftMarkingStatus(req.params.batchId, req.params.draftId, marking);
     const updated = await QuestionExtraction.findOne({ batchId: req.params.batchId });
     return res.json({
       success: true,
       alreadyApproved: result.alreadyApproved,
       questionId: result.question?._id || null,
+      markingStatus: marking.status,
+      markingVersion: marking.version?._id || null,
       batch: toBatchView(updated)
     });
   } catch (error) {
@@ -629,6 +727,21 @@ router.post("/:batchId/review-selected", async (req, res) => {
         return { draftId, success: false, message: error.message, statusCode: error.statusCode || 500 };
       }
     }));
+    if (action === "approve") {
+      for (const result of results) {
+        if (!result.success || !result.questionId) continue;
+        try {
+          const marking = await questionMarkingService.generateForQuestion(result.questionId, req.user.id);
+          await persistDraftMarkingStatus(req.params.batchId, result.draftId, marking);
+          result.markingStatus = marking.status;
+          result.markingVersion = marking.version?._id || null;
+        } catch (error) {
+          result.success = false;
+          result.message = "Question content was approved, but its AI marking status could not be saved.";
+          result.statusCode = error.statusCode || 500;
+        }
+      }
+    }
     const updated = await QuestionExtraction.findOne({ batchId: req.params.batchId });
     return res.json({
       success: results.every((result) => result.success),

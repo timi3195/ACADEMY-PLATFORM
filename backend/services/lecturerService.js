@@ -17,26 +17,19 @@ const findAssignedCourse = async (lecturerId, courseId) => {
   if (!mongoose.Types.ObjectId.isValid(String(courseId || ""))) return null;
   const [lecturer, course] = await Promise.all([
     User.findById(lecturerId).select("role lecturerStatus").lean(),
-    Course.findOne({ _id: courseId, lecturers: lecturerId }).lean()
+    Course.findOne({ _id: courseId }).lean()
   ]);
-  if (lecturer?.role !== "lecturer" || lecturer.lecturerStatus !== "approved") return null;
+  if (lecturer?.role !== "admin") return null;
   return course;
 };
 
 const findOwnedAssignedMaterial = async (lecturerId, materialId) => {
   if (!mongoose.Types.ObjectId.isValid(String(materialId || ""))) return null;
-  const material = await File.findOne({
-    _id: materialId,
-    lecturer: lecturerId,
-    isDeleted: false
-  });
+  const material = await File.findOne({ _id: materialId, isDeleted: false });
   if (!material) return null;
 
   const course = await materialAccessService.resolveCourseForMaterial(material);
-  if (!course || !Array.isArray(course.lecturers) ||
-      !course.lecturers.some((id) => String(id?._id || id) === String(lecturerId))) {
-    return null;
-  }
+  if (!course) return null;
   if (!material.courseRef) {
     material.courseRef = course._id;
     await material.save();
@@ -56,7 +49,14 @@ const getAssignedMaterialsFilter = (lecturerId, courses) => ({
 
 const getLecturerDashboard = async (lecturerId) => {
   const courses = await getLecturerCourses(lecturerId);
-  const filters = getAssignedMaterialsFilter(lecturerId, courses);
+  const filters = {
+    isDeleted: false,
+    $or: [
+      { courseRef: { $in: courses.map((course) => course._id) } },
+      { course: { $in: courses.flatMap((course) => [course.title, course.code]) } },
+      { courseCode: { $in: courses.map((course) => course.code) } }
+    ]
+  };
   const materials = await File.find(filters);
   const newestMaterials = await File.find(filters)
     .sort({ createdAt: -1 })
@@ -79,8 +79,8 @@ const getLecturerDashboard = async (lecturerId) => {
 
 const getLecturerCourses = async (lecturerId) => {
   const lecturer = await User.findById(lecturerId).select("role lecturerStatus").lean();
-  if (lecturer?.role !== "lecturer" || lecturer.lecturerStatus !== "approved") return [];
-  return Course.find({ lecturers: lecturerId })
+  if (lecturer?.role !== "admin") return [];
+  return Course.find({})
     .select("_id title code department level semester")
     .populate("department", "name")
     .sort({ code: 1 })
@@ -90,7 +90,14 @@ const getLecturerCourses = async (lecturerId) => {
 const getLecturerMaterials = async (lecturerId, query = {}) => {
   const courses = await getLecturerCourses(lecturerId);
   const courseIds = courses.map((course) => course._id);
-  const filters = getAssignedMaterialsFilter(lecturerId, courses);
+  const filters = {
+    isDeleted: false,
+    $or: [
+      { courseRef: { $in: courseIds } },
+      { course: { $in: courses.flatMap((course) => [course.title, course.code]) } },
+      { courseCode: { $in: courses.map((course) => course.code) } }
+    ]
+  };
   if (query.q) filters.$text = { $search: query.q };
   if (query.course) {
     if (!courseIds.some((id) => String(id) === String(query.course))) {
@@ -142,7 +149,7 @@ const createLecturerMaterial = async ({ user, body, file, coverImage }) => {
     courseCode: course.code,
     department: String(course.department),
     semester: course.semester,
-    lecturer: user.id,
+    lecturer: null,
     lecturerName: lecturer?.name || lecturer?.email || user.email || "",
     category: body.category || body.materialType || "Lecture Notes",
     materialType: body.materialType || "Lecture Note",

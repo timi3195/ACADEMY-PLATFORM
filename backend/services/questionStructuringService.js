@@ -39,6 +39,11 @@ const isSourceSupported = (value, source) => {
   return normalizedSource.includes(normalizedValue) || sourceOverlap(value, source) >= 0.8;
 };
 
+const countBlankMarkers = (value) => {
+  const matches = String(value || "").match(/_{2,}|\[\[blank(?:\s*\d+)?\]\]/gi);
+  return matches ? matches.length : 0;
+};
+
 const normalizeDraft = (candidate, pages) => {
   const warnings = Array.isArray(candidate.warnings)
     ? candidate.warnings.filter((warning) => typeof warning === "string").slice(0, 10).map((warning) => warning.slice(0, 240))
@@ -63,7 +68,7 @@ const normalizeDraft = (candidate, pages) => {
     warnings.push("One or more options were not supported by OCR text and were omitted.");
   }
   const rawOptions = sourceOptions.slice(0, 8);
-  const options = rawOptions.map((option, index) => {
+  const structuredOptions = rawOptions.map((option, index) => {
     if (typeof option === "string") {
       return {
         optionId: crypto.randomUUID(),
@@ -77,6 +82,34 @@ const normalizeDraft = (candidate, pages) => {
       text: asText(option?.text, 1000)
     };
   }).filter((option) => option.text);
+  const requestedType = ["objective", "fill_in_gap", "theory"].includes(candidate.questionType)
+    ? candidate.questionType
+    : "";
+  let questionType = requestedType || (structuredOptions.length >= 2 ? "objective" : "unclassified");
+  let options = questionType === "objective" ? structuredOptions : [];
+  if (questionType === "objective" && options.length < 2) {
+    questionType = "unclassified";
+    options = [];
+    warnings.push("The objective question did not contain enough readable options to classify reliably.");
+  }
+  if (requestedType && requestedType !== "objective" && structuredOptions.length) {
+    warnings.push("Options were omitted because the question was classified as non-objective.");
+  }
+  let blankCount = null;
+  if (questionType === "fill_in_gap") {
+    const requestedBlankCount = Number(candidate.blankCount);
+    blankCount = Number.isInteger(requestedBlankCount) && requestedBlankCount >= 1 && requestedBlankCount <= 20
+      ? requestedBlankCount
+      : countBlankMarkers(questionText);
+    if (blankCount < 1 || blankCount > 20) {
+      questionType = "unclassified";
+      blankCount = null;
+      warnings.push("The number of fill-in-the-gap blanks could not be established; select the type and blank count during review.");
+    }
+  }
+  if (questionType === "unclassified" && requestedType !== "unclassified") {
+    warnings.push("Question format could not be classified reliably; select it during review.");
+  }
 
   const sourceText = sourcePage?.text || "";
   const rawAnswer = asText(candidate.possibleAnswer, 1000);
@@ -120,6 +153,8 @@ const normalizeDraft = (candidate, pages) => {
   return {
     questionNumber: asText(candidate.questionNumber, 40),
     questionText,
+    questionType,
+    blankCount,
     options,
     possibleAnswer,
     answerStatus: "unconfirmed",

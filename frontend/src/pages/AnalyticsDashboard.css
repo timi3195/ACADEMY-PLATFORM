@@ -186,10 +186,65 @@
 
 .student-analytics-course-grid,
 .student-analytics-topic-groups,
-.student-analytics-recommendations {
+.student-analytics-recommendations,
+.student-analytics-type-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
   gap: 14px;
+}
+
+.student-analytics-type {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #e8ebf0;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.student-analytics-type h3 {
+  margin-top: 0;
+}
+
+.student-analytics-type p {
+  margin-bottom: 8px;
+}
+
+.student-analytics-type p strong {
+  color: #38435a;
+  font-size: 24px;
+}
+
+.student-analytics-type small {
+  color: #6d7583;
+}
+
+.student-analytics-readiness {
+  font-size: 18px;
+}
+
+.student-analytics-readiness strong {
+  color: #38435a;
+  font-size: 24px;
+}
+
+.student-analytics-recent,
+.student-analytics-unfinalized,
+.student-analytics-course-types {
+  display: grid;
+  gap: 10px;
+  padding-left: 20px;
+}
+
+.student-analytics-recent li,
+.student-analytics-unfinalized li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.student-analytics-course-types {
+  margin-top: 0;
 }
 
 .student-analytics-course h3,
@@ -242,6 +297,76 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+}
+
+.student-learning-recommendations-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.student-learning-recommendations-heading h2 {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+.student-learning-recommendations-heading button,
+.student-learning-recommendation-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 9px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: #667eea;
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: normal;
+}
+
+.student-learning-recommendations-heading button {
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+.student-learning-recommendations-heading button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.student-learning-recommendations-heading button:focus-visible,
+.student-learning-recommendation-action:focus-visible {
+  outline: 3px solid #293b85;
+  outline-offset: 2px;
+}
+
+.student-learning-recommendation-content {
+  min-width: 0;
+}
+
+.student-learning-evidence-label {
+  color: #465166;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.student-learning-recommendation-action {
+  align-self: flex-start;
+  margin-top: 12px;
+}
+
+.student-learning-recommendation-action:hover {
+  background: #5368d4;
+  color: #fff;
+}
+
+.student-learning-recommendations-error {
+  color: #9c2c2c;
 }
 
 .student-analytics-priority {
@@ -304,6 +429,16 @@
 
   .student-analytics-recommendation-heading {
     flex-direction: column;
+  }
+
+  .student-learning-recommendations-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .student-learning-recommendations-heading button,
+  .student-learning-recommendation-action {
+    width: 100%;
   }
 }
 

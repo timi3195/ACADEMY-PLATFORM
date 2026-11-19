@@ -138,6 +138,251 @@ const deleteObject = async (record) => {
   if (record.storageProvider === OBJECT_PROVIDER && record.storageKey) await client().send(new DeleteObjectCommand({ Bucket: process.env.STORAGE_BUCKET, Key: record.storageKey }));
   else { const local = resolveStoragePath(record.storageFilename); if (local && fs.existsSync(local)) await fs.promises.unlink(local); }
 };
+const isSafeCurriculumStorageReference = ({ importId, provider, storageFilename = '', storageKey = '', mimeType }) => {
+  if (!/^[a-f0-9]{24}$/i.test(String(importId || ''))) return false;
+  const extension = mimeType === 'application/pdf'
+    ? '.pdf'
+    : mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      ? '.docx'
+      : null;
+  if (!extension) return false;
+  const matchesNamespace = (value) => {
+    if (typeof value !== 'string' || value.includes('\\') || /[\u0000-\u001f]/.test(value)) return false;
+    if (value.startsWith('/') || /^[a-z][a-z0-9+.-]*:/i.test(value)) return false;
+    const segments = value.split('/');
+    return segments.length === 3 &&
+      segments[0] === 'curriculum-imports' &&
+      segments[1].toLowerCase() === String(importId).toLowerCase() &&
+      /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,254}$/.test(segments[2]) &&
+      segments[2].toLowerCase().endsWith(extension);
+  };
+  if (provider === LOCAL_PROVIDER) return matchesNamespace(storageFilename) && storageKey === '';
+  if (provider === OBJECT_PROVIDER) return matchesNamespace(storageKey) && storageFilename === '';
+  return false;
+};
+const storePrivateCurriculumDocument = async ({
+  file,
+  importId,
+  originalFilename,
+  mimeType,
+  size,
+  contentHash
+}) => {
+  if (!file?.path ||
+      !/^[a-f0-9]{24}$/i.test(String(importId || '')) ||
+      typeof contentHash !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(contentHash) ||
+      !Number.isInteger(size) ||
+      !isSafeCurriculumOriginalFilename(originalFilename)) {
+    const error = new Error('Invalid private curriculum document metadata');
+    error.statusCode = 400;
+    throw error;
+  }
+  const extension = mimeType === 'application/pdf'
+    ? '.pdf'
+    : mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      ? '.docx'
+      : null;
+  if (!extension || path.extname(originalFilename).toLowerCase() !== extension) {
+    const error = new Error('Invalid private curriculum document type');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const sanitizedName = safeFilename(originalFilename).replace(/\.\./g, '-');
+  const storageFilename = sanitizedName.toLowerCase().endsWith(extension)
+    ? sanitizedName
+    : `curriculum-document${extension}`;
+  const storageName = `${crypto.randomUUID()}-${storageFilename}`;
+  const storagePath = `curriculum-imports/${String(importId)}/${storageName}`;
+  if (getStorageProvider() === OBJECT_PROVIDER) {
+    try {
+      await client().send(new PutObjectCommand({
+        Bucket: process.env.STORAGE_BUCKET,
+        Key: storagePath,
+        Body: fs.createReadStream(file.path),
+        ContentType: mimeType
+      }));
+      await client().send(new HeadObjectCommand({
+        Bucket: process.env.STORAGE_BUCKET,
+        Key: storagePath
+      }));
+    } catch {
+      try {
+        await client().send(new DeleteObjectCommand({
+          Bucket: process.env.STORAGE_BUCKET,
+          Key: storagePath
+        }));
+      } catch {
+        const error = new Error('Private curriculum storage cleanup failed');
+        error.statusCode = 500;
+        throw error;
+      }
+      const error = new Error('Private curriculum document storage failed');
+      error.statusCode = 503;
+      throw error;
+    }
+    return {
+      provider: OBJECT_PROVIDER,
+      storageFilename: '',
+      storageKey: storagePath,
+      status: 'stored',
+      originalFilename,
+      mimeType,
+      size,
+      contentHash
+    };
+  }
+
+  const destination = resolveStoragePath(storagePath);
+  if (!destination) {
+    const error = new Error('Invalid private curriculum storage path');
+    error.statusCode = 400;
+    throw error;
+  }
+  const namespaceDirectory = path.dirname(path.dirname(destination));
+  const privateDirectory = path.dirname(destination);
+  await ensurePrivateCurriculumDirectory(namespaceDirectory);
+  await ensurePrivateCurriculumDirectory(privateDirectory);
+  try {
+    await fs.promises.copyFile(file.path, destination, fs.constants.COPYFILE_EXCL);
+  } catch (copyError) {
+    if (copyError.code !== 'EEXIST') {
+      try {
+        await fs.promises.unlink(destination);
+      } catch (cleanupError) {
+        if (cleanupError.code !== 'ENOENT') {
+          const error = new Error('Private curriculum storage cleanup failed');
+          error.statusCode = 500;
+          throw error;
+        }
+      }
+    }
+    const storageError = new Error('Private curriculum document storage failed');
+    storageError.statusCode = 503;
+    throw storageError;
+  }
+  try {
+    await fs.promises.chmod(destination, 0o600);
+  } catch {
+    try {
+      await fs.promises.unlink(destination);
+    } catch {
+      const cleanupError = new Error('Private curriculum storage cleanup failed');
+      cleanupError.statusCode = 500;
+      throw cleanupError;
+    }
+    const storageError = new Error('Private curriculum document storage failed');
+    storageError.statusCode = 503;
+    throw storageError;
+  }
+  return {
+    provider: LOCAL_PROVIDER,
+    storageFilename: storagePath,
+    storageKey: '',
+    status: 'stored',
+    originalFilename,
+    mimeType,
+    size,
+    contentHash
+  };
+};
+const isSafeCurriculumOriginalFilename = (name) =>
+  typeof name === 'string' &&
+  name.length > 0 &&
+  name.length <= 255 &&
+  !/[\u0000-\u001f\u007f/\\]/.test(name) &&
+  name !== '.' &&
+  name !== '..' &&
+  path.basename(name) === name &&
+  path.win32.basename(name) === name;
+const ensurePrivateCurriculumDirectory = async (directory) => {
+  await fs.promises.mkdir(directory, { recursive: true, mode: 0o700 });
+  const details = await fs.promises.lstat(directory);
+  if (details.isSymbolicLink() || !details.isDirectory()) {
+    const error = new Error('Invalid private curriculum storage directory');
+    error.statusCode = 400;
+    throw error;
+  }
+  await fs.promises.chmod(directory, 0o700);
+};
+const resolvePrivateCurriculumLocalFile = async (document, importId) => {
+  if (!isSafeCurriculumStorageReference({
+    importId,
+    provider: LOCAL_PROVIDER,
+    storageFilename: document?.storageFilename,
+    storageKey: document?.storageKey,
+    mimeType: document?.mimeType
+  })) return null;
+  const resolved = resolveStoragePath(document.storageFilename);
+  if (!resolved) return null;
+  const baseDirectory = path.resolve(getUploadDir());
+  const relative = path.relative(baseDirectory, resolved);
+  if (!relative || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return null;
+  const namespaceDirectory = path.join(baseDirectory, 'curriculum-imports');
+  const importDirectory = path.join(namespaceDirectory, String(importId));
+  try {
+    const [namespace, importFolder, file] = await Promise.all([
+      fs.promises.lstat(namespaceDirectory),
+      fs.promises.lstat(importDirectory),
+      fs.promises.lstat(resolved)
+    ]);
+    if (namespace.isSymbolicLink() || !namespace.isDirectory() ||
+        importFolder.isSymbolicLink() || !importFolder.isDirectory() ||
+        file.isSymbolicLink() || !file.isFile()) return null;
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  }
+  return resolved;
+};
+const getPrivateCurriculumDocumentStream = async ({ document, importId }) => {
+  if (!isSafeCurriculumStorageReference({
+    importId,
+    provider: document?.provider,
+    storageFilename: document?.storageFilename,
+    storageKey: document?.storageKey,
+    mimeType: document?.mimeType
+  })) {
+    const error = new Error('Private curriculum document not found');
+    error.statusCode = 404;
+    throw error;
+  }
+  if (document.provider === LOCAL_PROVIDER &&
+      !await resolvePrivateCurriculumLocalFile(document, importId)) {
+    const error = new Error('Private curriculum document not found');
+    error.statusCode = 404;
+    throw error;
+  }
+  return getObjectReadStream({
+    storageProvider: document.provider,
+    storageFilename: document.storageFilename,
+    storageKey: document.storageKey
+  });
+};
+const deletePrivateCurriculumDocument = async ({ document, importId }) => {
+  if (!isSafeCurriculumStorageReference({
+    importId,
+    provider: document?.provider,
+    storageFilename: document?.storageFilename,
+    storageKey: document?.storageKey,
+    mimeType: document?.mimeType
+  })) {
+    const error = new Error('Invalid private curriculum storage reference');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (document.provider === LOCAL_PROVIDER) {
+    const localPath = await resolvePrivateCurriculumLocalFile(document, importId);
+    if (localPath) await fs.promises.unlink(localPath);
+    return;
+  }
+  return deleteObject({
+    storageProvider: document.provider,
+    storageFilename: document.storageFilename,
+    storageKey: document.storageKey
+  });
+};
 const getStorageDiagnostics = ({ fileId, storageFilename, storageKey, storageProvider }) => ({ provider: storageProvider || getStorageProvider(), fileId, storageFilename, storageKey: storageKey || null, configured: getStorageProvider() !== OBJECT_PROVIDER || isObjectStorageConfigured() });
 
-module.exports = { LOCAL_PROVIDER, OBJECT_PROVIDER, getUploadDir, getStorageProvider, isObjectStorageConfigured, resolveStoragePath, generateStorageKey, uploadUploadedFile, storePrivateQuestionImage, getObjectReadStream, deleteObject, getStorageDiagnostics, safeFilename };
+module.exports = { LOCAL_PROVIDER, OBJECT_PROVIDER, getUploadDir, getStorageProvider, isObjectStorageConfigured, resolveStoragePath, getLegacyUploadFilename, generateStorageKey, uploadUploadedFile, storePrivateQuestionImage, getObjectReadStream, deleteObject, isSafeCurriculumStorageReference, storePrivateCurriculumDocument, getPrivateCurriculumDocumentStream, deletePrivateCurriculumDocument, getStorageDiagnostics, safeFilename };

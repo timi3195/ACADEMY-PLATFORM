@@ -2,33 +2,47 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const mongoose = require("mongoose");
 const QuizSession = require("../models/QuizSession");
+const gemini = require("../utils/gemini");
 const {
   buildAnalyticsPipeline,
   buildCoursePerformanceContext,
   buildStudentAnalytics,
   calculateTrend,
   classifyTopic,
-  getStudentAnalytics
+  getAiStudyRecommendations,
+  getStudentAnalytics,
+  validateAiRecommendations
 } = require("../services/studentAnalyticsService");
 
 const STUDENT_ID = "507f1f77bcf86cd799439011";
 
-test("analytics aggregation includes only completed, finalized attempts owned by the student", () => {
+test("analytics aggregation selects completed or timestamped historical attempts owned by the student", () => {
   const pipeline = buildAnalyticsPipeline(STUDENT_ID);
   const match = pipeline[0].$match;
   assert.equal(String(match.user), STUDENT_ID);
-  assert.equal(match.status, "completed");
-  assert.deepEqual(match.$or, [
+  assert.equal(match.status, undefined);
+  assert.deepEqual(match.$or[0], { status: "completed" });
+  assert.equal(match.$or[1].status, null);
+  assert.deepEqual(match.$or[1].$or, [
     { timeEnded: { $type: "date" } },
     { completedAt: { $type: "date" } }
   ]);
+  assert.ok(pipeline.some((stage) => stage.$addFields?._analyticsLegacyScoreVerified));
+  assert.ok(pipeline.some((stage) => stage.$addFields?._analyticsTypedGradingVerified));
+  assert.ok(pipeline.some((stage) => stage.$addFields?._analyticsScorePercentage));
   assert.ok(pipeline.some((stage) => stage.$facet));
   const overviewStages = pipeline.find((stage) => stage.$facet).$facet.overview;
   assert.ok(overviewStages.some((stage) => stage.$group?._id === "$_id"));
   const snapshotCorrectnessStage = pipeline.find((stage) =>
     stage.$addFields?._analyticsCorrect
   );
-  assert.ok(snapshotCorrectnessStage.$addFields._analyticsCorrect.$and[1].$cond);
+  assert.ok(snapshotCorrectnessStage.$addFields._analyticsCorrect.$cond);
+  const facets = pipeline.find((stage) => stage.$facet).$facet;
+  assert.ok(facets.questionTypes);
+  assert.ok(facets.courseQuestionTypes);
+  assert.ok(facets.courseTrend.some((stage) => stage.$setWindowFields));
+  assert.ok(facets.attemptStates);
+  assert.ok(facets.topicTrend.some((stage) => stage.$setWindowFields));
 });
 
 test("analytics query passes authenticated ownership to Mongo aggregation", async () => {
@@ -47,6 +61,16 @@ test("analytics query passes authenticated ownership to Mongo aggregation", asyn
   } finally {
     QuizSession.aggregate = originalAggregate;
   }
+});
+
+test("analytics limits student performance to currently accessible course IDs", () => {
+  const courseId = "507f1f77bcf86cd799439041";
+  const pipeline = buildAnalyticsPipeline(STUDENT_ID, {
+    accessibleCourseIds: [courseId],
+    generatedAt: new Date("2025-03-01T00:00:00Z")
+  });
+  assert.deepEqual(pipeline[0].$match.course.$in.map(String), [courseId]);
+  assert.equal(pipeline[0].$match.user.toString(), STUDENT_ID);
 });
 
 test("overall and course statistics use answered questions and persisted scores", () => {
@@ -172,6 +196,7 @@ test("recommendations contain only evidence-backed topic results", () => {
       accuracy: 25
     }]
   });
+
   const recommendation = analytics.recommendations.find((item) => item.topic === "Subnetting");
   assert.ok(recommendation);
   assert.equal(recommendation.evidence.accuracy, 25);
@@ -179,6 +204,282 @@ test("recommendations contain only evidence-backed topic results", () => {
   assert.equal(recommendation.priority, "high");
 });
 
+test("typed analytics separate final scores, provisional results, formats, and readiness evidence", () => {
+    const analytics = buildStudentAnalytics({
+      attemptStates: [{
+        summary: [{
+          totalCompletedAttempts: 6,
+          gradedAttempts: 3,
+          pendingAttempts: 1,
+          gradingAttempts: 0,
+          failedAttempts: 1,
+          reviewRequiredAttempts: 1,
+          unscoredHistoricalAttempts: 1,
+          unverifiedGradingAttempts: 1,
+          totalQuestionsAttempted: 60,
+          attemptsLast30Days: 4
+        }],
+        unfinalizedAttempts: [{
+          attemptId: "review-attempt",
+          course: "Networking",
+          status: "needs_review",
+          provisionalScore: 4,
+          provisionalMaxMarks: 6
+        }, {
+          attemptId: "failed-attempt",
+          course: "Networking",
+          status: "failed"
+        }, {
+          attemptId: "unscored-attempt",
+          course: "Networking",
+          status: "unscored"
+        }, {
+          attemptId: "unverified-attempt",
+          course: "Networking",
+          status: "unverified"
+        }]
+      }],
+      overview: [{
+        gradedAttempts: 3,
+        averageScorePercentage: 72,
+        bestScorePercentage: 90,
+        totalQuestions: 30,
+        questionsGraded: 30,
+        totalQuestionsAnswered: 28,
+        totalCorrectAnswers: 20,
+        totalIncorrectAnswers: 8,
+        mostRecentCompletedAt: new Date("2025-02-28T12:00:00Z")
+      }],
+      courses: [{
+        courseId: "course-1",
+        title: "Networking",
+        completedAttempts: 3,
+        averageScorePercentage: 72,
+        bestScorePercentage: 90,
+        totalQuestions: 30,
+        questionsGraded: 30,
+        questionsAnswered: 28,
+        correctAnswers: 20,
+        incorrectAnswers: 8,
+        marksAwarded: 72,
+        maxMarks: 100
+      }],
+      courseAttemptStates: [{
+        courseId: "course-1",
+        title: "Networking",
+        completedAttempts: 6,
+        pendingAttempts: 1,
+        failedAttempts: 1,
+        reviewRequiredAttempts: 1,
+        unscoredHistoricalAttempts: 1,
+        unverifiedGradingAttempts: 1,
+        totalQuestionsAttempted: 60
+      }],
+      questionTypes: [
+        { _id: "objective", questionsAttempted: 20, questionsAnswered: 19, questionsGraded: 20, fullCreditQuestions: 14, marksAwarded: 42, maxMarks: 50 },
+        { _id: "fill_in_gap", questionsAttempted: 5, questionsAnswered: 5, questionsGraded: 5, fullCreditQuestions: 3, marksAwarded: 15, maxMarks: 20 },
+        { _id: "theory", questionsAttempted: 5, questionsAnswered: 4, questionsGraded: 5, fullCreditQuestions: 2, marksAwarded: 15, maxMarks: 30 }
+      ],
+      courseQuestionTypes: [{
+        _id: { courseId: "course-1", questionType: "theory" },
+        questionsAttempted: 5,
+        questionsAnswered: 4,
+        questionsGraded: 5,
+        fullCreditQuestions: 2,
+        marksAwarded: 15,
+        maxMarks: 30
+      }],
+      topics: [{
+        courseId: "course-1",
+        courseTitle: "Networking",
+        topic: "Subnetting",
+        totalQuestions: 5,
+        questionsAnswered: 5,
+        correctAnswers: 2,
+        incorrectAnswers: 3,
+        marksAwarded: 4,
+        maxMarks: 10,
+        accuracy: 40
+      }],
+      topicTrend: [{
+        _id: { courseId: "course-1", topic: "Subnetting" },
+        attempts: [
+          { accuracy: 70 },
+          { accuracy: 60 },
+          { accuracy: 50 },
+          { accuracy: 40 }
+        ]
+      }],
+      courseTrend: [
+        { attemptId: "a1", courseId: "course-1", completedAt: new Date("2025-02-01"), accuracy: 60, scorePercentage: 60 },
+        { attemptId: "a2", courseId: "course-1", completedAt: new Date("2025-02-10"), accuracy: 65, scorePercentage: 65 },
+        { attemptId: "a3", courseId: "course-1", completedAt: new Date("2025-02-20"), accuracy: 75, scorePercentage: 75 },
+        { attemptId: "a4", courseId: "course-1", completedAt: new Date("2025-02-28"), accuracy: 80, scorePercentage: 80 }
+      ],
+      trend: [
+        { attemptId: "a1", courseId: "course-1", completedAt: new Date("2025-02-01"), accuracy: 60, scorePercentage: 60 },
+        { attemptId: "a2", courseId: "course-1", completedAt: new Date("2025-02-10"), accuracy: 65, scorePercentage: 65 },
+        { attemptId: "a3", courseId: "course-1", completedAt: new Date("2025-02-20"), accuracy: 75, scorePercentage: 75 },
+        { attemptId: "a4", courseId: "course-1", completedAt: new Date("2025-02-28"), accuracy: 80, scorePercentage: 80 }
+      ]
+    });
+
+    assert.equal(analytics.overview.totalCompletedAttempts, 6);
+    assert.equal(analytics.overview.gradedAttemptCount, 3);
+    assert.equal(analytics.overview.totalQuestionsAttempted, 60);
+    assert.equal(analytics.overview.averageScorePercentage, 72);
+    assert.equal(analytics.overview.bestScorePercentage, 90);
+    assert.equal(analytics.practiceFrequency.attemptsLast30Days, 4);
+    assert.equal(analytics.practiceFrequency.averageAttemptsPerWeek, 0.9);
+    assert.deepEqual(analytics.questionTypeBreakdown.map((item) => item.questionType), [
+      "objective", "fill_in_gap", "theory"
+    ]);
+    assert.equal(analytics.questionTypeBreakdown[2].accuracy, 50);
+    assert.equal(analytics.courses[0].questionTypeBreakdown[2].questionsGraded, 5);
+    assert.equal(analytics.courses[0].trend.direction, "improving");
+    assert.equal(analytics.courses[0].performanceTrend.length, 4);
+    assert.equal(analytics.courses[0].performanceTrend[0].attemptId, "a1");
+    assert.equal(analytics.topics[0].trend.direction, "declining");
+    assert.equal(analytics.readiness.status, "sufficient_evidence");
+    assert.equal(analytics.readiness.percentage, 72);
+    assert.match(analytics.readiness.explanation, /3 attempts, 30 graded questions, and 3 graded questions of each type/);
+    assert.deepEqual(analytics.unfinalizedAttempts.map((attempt) => attempt.status), [
+      "needs_review", "failed", "unscored", "unverified"
+    ]);
+    assert.equal(analytics.unfinalizedAttempts[0].provisionalScore, 4);
+    assert.equal(analytics.overview.unscoredHistoricalAttempts, 1);
+    assert.equal(analytics.overview.unverifiedGradingAttempts, 1);
+    assert.equal(analytics.courses[0].completedAttempts, 6);
+    assert.equal(analytics.courses[0].unscoredHistoricalAttempts, 1);
+    assert.equal(analytics.courses[0].unverifiedGradingAttempts, 1);
+    assert.equal(analytics.courses[0].trend.direction, "improving");
+  });
+
+test("pending, failed, and review-required sessions do not create a readiness percentage", () => {
+    const analytics = buildStudentAnalytics({
+      attemptStates: [{
+        summary: [{
+          totalCompletedAttempts: 3,
+          gradedAttempts: 0,
+          pendingAttempts: 1,
+          failedAttempts: 1,
+          reviewRequiredAttempts: 1,
+          totalQuestionsAttempted: 30
+        }],
+        unfinalizedAttempts: []
+      }],
+      overview: [],
+      questionTypes: []
+    });
+    assert.equal(analytics.overview.totalCompletedAttempts, 3);
+    assert.equal(analytics.overview.gradedAttemptCount, 0);
+    assert.equal(analytics.overview.averageScorePercentage, null);
+    assert.equal(analytics.readiness.status, "insufficient_evidence");
+    assert.equal(analytics.readiness.percentage, null);
+    assert.equal(analytics.questionTypeBreakdown.every((item) => item.questionsGraded === 0), true);
+  });
+
+test("readiness withholds its percentage when any format lacks coverage", () => {
+    const analytics = buildStudentAnalytics({
+      overview: [{
+        gradedAttempts: 4,
+        averageScorePercentage: 80,
+        totalQuestions: 30,
+        questionsGraded: 30
+      }],
+      questionTypes: [
+        { _id: "objective", questionsGraded: 24, marksAwarded: 20, maxMarks: 24 },
+        { _id: "fill_in_gap", questionsGraded: 6, marksAwarded: 5, maxMarks: 6 }
+      ]
+    });
+    assert.equal(analytics.readiness.percentage, null);
+    assert.ok(analytics.readiness.missingEvidence.some((item) => item.includes("theory")));
+  });
+
+test("AI recommendations can only select evidence IDs and server-defined free study actions", () => {
+    const evidence = [{ evidenceId: "evidence-1" }];
+    const valid = validateAiRecommendations(JSON.stringify({
+      recommendations: [{ evidenceId: "evidence-1", actionType: "review_missed" }]
+    }), evidence);
+    assert.deepEqual(valid, [{ evidenceId: "evidence-1", actionType: "review_missed" }]);
+    assert.throws(() => validateAiRecommendations(JSON.stringify({
+      recommendations: [{ evidenceId: "other-student", actionType: "review_missed" }]
+    }), evidence), /invalid_recommendations/);
+    assert.throws(() => validateAiRecommendations(JSON.stringify({
+      recommendations: [{ evidenceId: "evidence-1", actionType: "buy_course" }]
+    }), evidence), /invalid_recommendations/);
+  });
+
+test("Gemini recommendations use sanitized per-student evidence, cache safely, and fall back explicitly", async () => {
+    const originalGenerate = gemini.generateStudyRecommendations;
+    const analytics = buildStudentAnalytics({
+      overview: [{
+        gradedAttempts: 3,
+        averageScorePercentage: 65,
+        totalQuestions: 30,
+        totalQuestionsAnswered: 30,
+        totalCorrectAnswers: 18
+      }],
+      courses: [{
+        courseId: "course-private-id",
+        title: "Networking",
+        completedAttempts: 3,
+        averageScorePercentage: 65,
+        totalQuestions: 30,
+        questionsAnswered: 30,
+        correctAnswers: 18,
+        incorrectAnswers: 12
+      }],
+      topics: [{
+        courseId: "course-private-id",
+        courseTitle: "Networking",
+        topic: "Routing",
+        totalQuestions: 5,
+        questionsAnswered: 5,
+        correctAnswers: 1,
+        incorrectAnswers: 4,
+        accuracy: 20
+      }]
+    });
+    let calls = 0;
+    let suppliedEvidence;
+    gemini.generateStudyRecommendations = async (evidence) => {
+      calls += 1;
+      suppliedEvidence = evidence;
+      return {
+        message: JSON.stringify({
+          recommendations: evidence.map((item) => ({
+            evidenceId: item.evidenceId,
+            actionType: "review_missed"
+          }))
+        })
+      };
+    };
+    try {
+      const first = await getAiStudyRecommendations(STUDENT_ID, analytics);
+      const second = await getAiStudyRecommendations(STUDENT_ID, analytics);
+      const anotherStudent = await getAiStudyRecommendations("507f1f77bcf86cd799439012", analytics);
+      analytics.recommendations[0].evidence.accuracy = 30;
+      const changedEvidence = await getAiStudyRecommendations(STUDENT_ID, analytics);
+      assert.equal(first.recommendationsSource, "gemini");
+      assert.match(first.recommendations[0].suggestedAction, /Routing in Networking/);
+      assert.equal(second.recommendationsSource, "gemini");
+      assert.equal(anotherStudent.recommendationsSource, "gemini");
+      assert.equal(changedEvidence.recommendationsSource, "gemini");
+      assert.equal(calls, 3);
+      assert.doesNotMatch(JSON.stringify(suppliedEvidence), /correctAnswer":|correctOptionId|course-private-id|studentId/);
+
+      gemini.generateStudyRecommendations = async () => {
+        throw new Error("provider unavailable");
+      };
+      const unavailable = await getAiStudyRecommendations("507f1f77bcf86cd799439013", analytics);
+      assert.equal(unavailable.recommendationsSource, "evidence_rules");
+      assert.match(unavailable.recommendationsNotice, /could not be generated or validated/);
+      assert.ok(unavailable.recommendations.length > 0);
+    } finally {
+      gemini.generateStudyRecommendations = originalGenerate;
+    }
+  });
 test("course performance context is selected-course scoped and contains aggregate fields only", () => {
   const context = buildCoursePerformanceContext(analyticsWithMultipleCourses(), "course-1");
 

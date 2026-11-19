@@ -58,6 +58,51 @@ test("an explicitly printed answer remains only a possible unconfirmed answer", 
   assert.equal(result.drafts[0].reviewStatus, "pending");
 });
 
+test("structuring preserves objective, fill-in-the-gap, and theory formats for content review", async () => {
+  gemini.structureQuestionDrafts = async () => ({
+    message: JSON.stringify({
+      questions: [
+        {
+          questionType: "objective",
+          questionText: "Which option is correct?",
+          options: [{ label: "A", text: "First" }, { label: "B", text: "Second" }],
+          sourceImageIndex: 0,
+          sourcePage: 1
+        },
+        {
+          questionType: "fill_in_gap",
+          blankCount: 2,
+          questionText: "Fill the gaps: ____ and ____.",
+          options: [],
+          sourceImageIndex: 0,
+          sourcePage: 1
+        },
+        {
+          questionType: "theory",
+          questionText: "Explain the concept.",
+          options: [],
+          sourceImageIndex: 0,
+          sourcePage: 1
+        }
+      ]
+    }),
+    model: "mock-model"
+  });
+  const result = await structuringService.structureQuestionDrafts({
+    pages: [{
+      imageId: "image-1",
+      pageNumber: 1,
+      text: "Which option is correct? A. First B. Second. Fill the gaps: ____ and ____. Explain the concept.",
+      confidence: 90
+    }],
+    userId: "user-1"
+  });
+  assert.deepEqual(result.drafts.map((draft) => draft.questionType), ["objective", "fill_in_gap", "theory"]);
+  assert.equal(result.drafts[1].blankCount, 2);
+  assert.equal(result.drafts[2].options.length, 0);
+  assert.ok(result.drafts.every((draft) => draft.reviewStatus === "pending"));
+});
+
 test("structuring refuses to silently truncate more than the supported draft count", async () => {
   gemini.structureQuestionDrafts = async () => ({
     message: JSON.stringify({ questions: Array.from({ length: 101 }, (_, index) => ({ questionText: `Question ${index}` })) }),

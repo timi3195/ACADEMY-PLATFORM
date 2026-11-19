@@ -23,10 +23,12 @@ test("marketplace, purchase, and payment endpoints are not mounted", async () =>
   }
 });
 
-test("lecturer academic course and material routes remain mounted", async () => {
+test("legacy lecturer routes remain unavailable while admin content stays protected", async () => {
   const courses = await request(app).get("/api/lecturer/courses");
   const materials = await request(app).get("/api/lecturer/materials");
+  const adminContent = await request(app).get("/api/admin/content/dashboard");
 
-  assert.equal(courses.status, 401);
-  assert.equal(materials.status, 401);
+  assert.equal(courses.status, 404);
+  assert.equal(materials.status, 404);
+  assert.equal(adminContent.status, 401);
 });

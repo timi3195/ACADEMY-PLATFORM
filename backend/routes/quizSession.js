@@ -2,32 +2,54 @@ const express = require("express");
 const mongoose = require("mongoose");
 const router = express.Router();
 
-const Question = require("../models/Question");
 const QuizSession = require("../models/QuizSession");
+const User = require("../models/User");
 const protect = require("../config/middleware/authMiddleware");
 const questionAccess = require("../services/questionAccessService");
+const practiceTestService = require("../services/practiceTestService");
 const shuffle = require("../utils/shuffle");
 const quizSessionService = require("../services/quizSessionService");
+const quizGradingService = require("../services/quizGradingService");
+const {
+  getVerifiedLegacyResult,
+  getVerifiedTypedResult,
+  hasCompletionEvidence,
+  isLegacyAttempt
+} = require("../utils/legacyQuizResult");
 
-const normalizeText = (value) => String(value == null ? "" : value).trim().toLowerCase();
 const getAuthenticatedUserId = (req) => req.user.id;
 const DEFAULT_QUESTION_COUNT = 10;
-const MAX_QUESTION_COUNT = 50;
 
-const safeAttemptQuestion = (question) => ({
-  _id: question.questionId,
-  question: question.question,
-  topic: question.topic,
-  presentedOptions: question.presentedOptions
+const questionTypeOf = (question) => question.questionType || "objective";
+const cloneMarkingSnapshot = (marking) => JSON.parse(JSON.stringify(marking));
+const gradeCompletedAttempt = async (session, userId) => {
+  if (!session ||
+      !(session.attemptFormatVersion >= 2) ||
+      (session.status !== "completed" && !session.timeEnded)) return session;
+  const result = await quizGradingService.gradeAttempt({ attemptId: session._id, userId });
+  return result.session || session;
+};
+
+router.get("/coverage", protect, async (req, res) => {
+  try {
+    const user = await User.findById(getAuthenticatedUserId(req));
+    if (!user) {
+      return res.status(401).json({ success: false, message: "Authenticated user not found." });
+    }
+
+    const courses = await practiceTestService.getAccessibleCourseCoverage(user);
+    return res.json({
+      success: true,
+      supportedQuestionCounts: practiceTestService.PRACTICE_TEST_LENGTHS,
+      courses
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Unable to load CBT course coverage."
+    });
+  }
 });
-
-const hasCorrectOption = (question) =>
-  Array.isArray(question.options) &&
-  question.options.every((option) => typeof option === "string" && option.trim().length > 0) &&
-  question.options.length >= 2 &&
-  typeof question.question === "string" &&
-  question.question.trim().length > 0 &&
-  question.options.filter((option) => normalizeText(option) === normalizeText(question.answer)).length === 1;
 
 router.post("/start", protect, async (req, res) => {
   try {
@@ -45,10 +67,10 @@ router.post("/start", protect, async (req, res) => {
     const questionCount = body.questionCount === undefined
       ? DEFAULT_QUESTION_COUNT
       : body.questionCount;
-    if (!Number.isInteger(questionCount) || questionCount < 1 || questionCount > MAX_QUESTION_COUNT) {
+    if (!practiceTestService.PRACTICE_TEST_LENGTHS.includes(questionCount)) {
       return res.status(400).json({
         success: false,
-        message: `questionCount must be a positive integer no greater than ${MAX_QUESTION_COUNT}.`
+        message: `questionCount must be one of ${practiceTestService.PRACTICE_TEST_LENGTHS.join(", ")}.`
       });
     }
 
@@ -62,127 +84,78 @@ router.post("/start", protect, async (req, res) => {
       return res.status(access.statusCode).json({ success: false, message: access.message });
     }
 
-    const matchQuery = {
-      course: new mongoose.Types.ObjectId(courseId),
-      department: access.course.department?._id || access.course.department,
-      approvalStatus: "approved"
+    const activeQuery = {
+      user: actingUserId,
+      course: access.course._id,
+      $or: [
+        { status: "in_progress" },
+        { status: { $exists: false }, timeEnded: { $exists: false } }
+      ]
     };
-    const sampledQuestions = await Question.aggregate([
-      { $match: matchQuery },
-      {
-        $addFields: {
-          _quizOriginalOptions: { $cond: [{ $isArray: "$options" }, "$options", []] },
-          _quizOptions: {
-            $filter: {
-              input: { $cond: [{ $isArray: "$options" }, "$options", []] },
-              as: "option",
-              cond: {
-                $and: [
-                  { $eq: [{ $type: "$$option" }, "string"] },
-                  {
-                    $ne: [
-                      {
-                        $trim: {
-                          input: {
-                            $cond: [
-                              { $eq: [{ $type: "$$option" }, "string"] },
-                              "$$option",
-                              ""
-                            ]
-                          }
-                        }
-                      },
-                      ""
-                    ]
-                  }
-                ]
-              }
-            }
-          }
-        }
-      },
-      {
-        $addFields: {
-          _quizAnswerMatches: {
-            $filter: {
-              input: "$_quizOptions",
-              as: "option",
-              cond: {
-                $eq: [
-                  { $toLower: { $trim: { input: "$$option" } } },
-                  {
-                    $toLower: {
-                      $trim: {
-                        input: {
-                          $cond: [
-                            { $eq: [{ $type: "$answer" }, "string"] },
-                            "$answer",
-                            ""
-                          ]
-                        }
-                      }
-                    }
-                  }
-                ]
-              }
-            }
-          }
-        }
-      },
-      {
-        $match: {
-          $expr: {
-            $and: [
-              { $eq: [{ $size: "$_quizOriginalOptions" }, { $size: "$_quizOptions" }] },
-              { $gte: [{ $size: "$_quizOptions" }, 2] },
-              { $eq: [{ $size: "$_quizAnswerMatches" }, 1] },
-              {
-                $ne: [
-                  {
-                    $trim: {
-                      input: {
-                        $cond: [
-                          { $eq: [{ $type: "$question" }, "string"] },
-                          "$question",
-                          ""
-                        ]
-                      }
-                    }
-                  },
-                  ""
-                ]
-              }
-            ]
-          }
-        }
-      },
-      { $sample: { size: questionCount } },
-      { $project: { _quizOriginalOptions: 0, _quizOptions: 0, _quizAnswerMatches: 0 } }
-    ]);
-
-    if (sampledQuestions.length < questionCount || sampledQuestions.some((question) => !hasCorrectOption(question))) {
-      return res.status(sampledQuestions.length === 0 ? 404 : 409).json({
+    const activeAttempt = await QuizSession.findOne(activeQuery).sort({ createdAt: -1 });
+    if (activeAttempt && !quizSessionService.isExpired(activeAttempt, new Date())) {
+      return res.status(409).json({
         success: false,
-        message: sampledQuestions.length === 0
-          ? "No approved objective questions are available for this course yet."
-          : `Only ${sampledQuestions.length} eligible questions are available; ${questionCount} were requested.`
+        code: "ACTIVE_ATTEMPT_EXISTS",
+        message: "An active attempt already exists for this course.",
+        attempt: quizSessionService.toStudentAttempt(activeAttempt, new Date())
+      });
+    }
+    if (activeAttempt) {
+      await quizSessionService.finalizeAttempt(activeAttempt._id, {
+        userId: actingUserId,
+        reason: "expired"
       });
     }
 
-    const examQuestions = sampledQuestions.map((question) => {
-      const optionIds = questionAccess.stableOptionIds(question);
-      const correctIndex = question.options.findIndex((option) =>
-        normalizeText(option) === normalizeText(question.answer)
+    const selection = await practiceTestService.assemblePracticeTest(access.course, questionCount);
+    if (!selection.ok) {
+      const availableTestLengths = practiceTestService.PRACTICE_TEST_LENGTHS.filter((length) =>
+        selection.eligibleQuestionCount >= length
       );
+      return res.status(selection.eligibleQuestionCount === 0 ? 404 : 409).json({
+        success: false,
+        eligibleQuestionCount: selection.eligibleQuestionCount,
+        availableTestLengths,
+        message: selection.eligibleQuestionCount === 0
+          ? "No approved, source-verified questions with usable AI marking are available for this course yet."
+          : `Only ${selection.eligibleQuestionCount} eligible questions are available; ${questionCount} were requested.`
+      });
+    }
+
+    const examQuestions = selection.entries.map(({ question, paper, markingVersion }, index) => {
+      const questionType = questionTypeOf(question);
+      const optionIds = questionType === "objective"
+        ? questionAccess.stableOptionIds(question)
+        : [];
+      const presentedOptions = questionType === "objective"
+        ? shuffle(question.options.map((text, optionIndex) => ({
+          optionId: optionIds[optionIndex],
+          text
+        })))
+        : [];
       return {
         questionId: question._id,
         question: question.question,
+        questionType,
+        questionOrder: index + 1,
+        blankCount: questionType === "fill_in_gap" ? question.blankCount : undefined,
+        marks: Number(question.marks),
         topic: question.topic,
-        presentedOptions: shuffle(question.options.map((text, index) => ({
-          optionId: optionIds[index],
-          text
-        }))),
-        correctOptionId: optionIds[correctIndex]
+        presentedOptions,
+        sourceSnapshot: {
+          paperId: paper._id,
+          title: paper.title,
+          examinationYear: String(paper.examinationYear),
+          level: paper.level,
+          semester: paper.semester,
+          page: Number.isInteger(question.sourcePage) ? question.sourcePage : undefined,
+          excerpt: String(question.sourceExcerpt || "").slice(0, 1000)
+        },
+        markingVersionId: markingVersion._id,
+        markingSnapshot: cloneMarkingSnapshot(markingVersion.marking),
+        selectedAnswers: questionType === "fill_in_gap" ? Array(question.blankCount).fill("") : undefined,
+        theoryResponse: questionType === "theory" ? "" : undefined
       };
     });
 
@@ -193,6 +166,11 @@ router.post("/start", protect, async (req, res) => {
       course: access.course._id,
       questions: examQuestions,
       totalQuestions: examQuestions.length,
+      score: null,
+      percentage: null,
+      attemptFormatVersion: 2,
+      activeAttempt: true,
+      gradingStatus: "pending",
       status: "in_progress",
       timeStarted: startedAt,
       startedAt,
@@ -205,21 +183,16 @@ router.post("/start", protect, async (req, res) => {
     return res.status(201).json({
       success: true,
       attemptId: session._id,
-      courseId: session.course,
-      totalQuestions: session.questions.length,
-      status: session.status,
-      startedAt,
-      timeStarted: startedAt,
-      expiresAt,
-      durationMinutes,
-      stateVersion: session.stateVersion,
-      serverNow,
-      questions: session.questions.map((question) => ({
-        ...safeAttemptQuestion(question),
-        selectedOptionId: null
-      }))
+      ...quizSessionService.toStudentAttempt(session, serverNow)
     });
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        code: "ACTIVE_ATTEMPT_EXISTS",
+        message: "An active attempt already exists for this course."
+      });
+    }
     return res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -266,6 +239,7 @@ router.get("/active", protect, async (req, res) => {
         userId: getAuthenticatedUserId(req),
         reason: "expired"
       });
+      currentSession = await gradeCompletedAttempt(currentSession, userId);
     }
     return res.json({
       success: true,
@@ -290,6 +264,7 @@ router.get("/:attemptId", protect, async (req, res) => {
     const serverNow = new Date();
     if (session.status !== "completed" && quizSessionService.isExpired(session, serverNow)) {
       session = await quizSessionService.finalizeAttempt(attemptId, { userId, reason: "expired" });
+      session = await gradeCompletedAttempt(session, userId);
     }
     return res.json({
       success: true,
@@ -308,31 +283,36 @@ router.patch("/:attemptId/answers", protect, async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid examination attempt ID." });
     }
     if (Object.keys(body).some((field) =>
-      !["questionId", "selectedOptionId", "expectedVersion"].includes(field)
+      ![
+        "questionId",
+        "selectedOptionId",
+        "selectedAnswers",
+        "theoryResponse",
+        "expectedVersion"
+      ].includes(field)
     )) {
       return res.status(400).json({
         success: false,
-        message: "Answer updates may contain only questionId, selectedOptionId, and expectedVersion."
+        message: "Answer updates may contain only a questionId, one typed answer, and expectedVersion."
       });
     }
+    const answerFields = ["selectedOptionId", "selectedAnswers", "theoryResponse"]
+      .filter((field) => Object.hasOwn(body, field));
     if (!mongoose.Types.ObjectId.isValid(String(body.questionId || "")) ||
-        !(body.selectedOptionId === null ||
-          (typeof body.selectedOptionId === "string" &&
-           body.selectedOptionId.trim().length > 0 &&
-           body.selectedOptionId.length <= 256)) ||
+        answerFields.length !== 1 ||
         !Number.isSafeInteger(body.expectedVersion) ||
         body.expectedVersion < 0) {
       return res.status(400).json({
         success: false,
-        message: "A valid questionId, option ID (or null), and expectedVersion are required."
+        message: "A valid questionId, one typed answer, and expectedVersion are required."
       });
     }
 
-    const result = await quizSessionService.saveAnswer({
+    const result = await quizSessionService.saveTypedAnswer({
       attemptId,
       userId: getAuthenticatedUserId(req),
       questionId: body.questionId,
-      selectedOptionId: body.selectedOptionId,
+      answer: { [answerFields[0]]: body[answerFields[0]] },
       expectedVersion: body.expectedVersion,
       now: new Date()
     });
@@ -344,6 +324,12 @@ router.patch("/:attemptId/answers", protect, async (req, res) => {
     }
     if (result.kind === "invalid_option") {
       return res.status(400).json({ success: false, message: "Option is not part of this question." });
+    }
+    if (result.kind === "invalid_answer") {
+      return res.status(400).json({
+        success: false,
+        message: "The answer does not match the type and limits of this question."
+      });
     }
     if (result.kind === "completed") {
       return res.status(409).json({ success: false, code: "ATTEMPT_COMPLETED", message: "This attempt is already complete." });
@@ -370,14 +356,25 @@ router.patch("/:attemptId/answers", protect, async (req, res) => {
     const question = result.session.questions.find(
       (item) => String(item.questionId) === String(body.questionId)
     );
+    const answer = { questionId: body.questionId };
+    if (question?.questionType === "fill_in_gap") {
+      answer.selectedAnswers = Array.isArray(question.selectedAnswers) ? question.selectedAnswers : [];
+    } else if (question?.questionType === "theory") {
+      answer.theoryResponse = question.theoryResponse || "";
+    } else {
+      answer.selectedOptionId = question?.selectedOptionId || null;
+    }
     return res.json({
       success: true,
-      answer: { questionId: body.questionId, selectedOptionId: question?.selectedOptionId || null },
+      answer,
       stateVersion: quizSessionService.getStateVersion(result.session),
       serverNow: new Date()
     });
   } catch (error) {
-    return res.status(error.statusCode || 500).json({ success: false, message: error.message });
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: "Unable to save the answer right now. Reopen the attempt to verify saved answers and retry."
+    });
   }
 });
 
@@ -415,6 +412,7 @@ router.post("/submit", protect, async (req, res) => {
         userId,
         reason: "expired"
       });
+      session = await gradeCompletedAttempt(session, userId);
       return res.json({
         success: true,
         session: quizSessionService.toStudentAttempt(session, new Date()),
@@ -426,6 +424,10 @@ router.post("/submit", protect, async (req, res) => {
     if (body.answers !== undefined) {
       const attemptQuestions = session.questions || [];
       const attemptQuestionIds = attemptQuestions.map((item) => String(item.questionId));
+      const questionsById = new Map(attemptQuestions.map((item) => [
+        String(item.questionId),
+        item
+      ]));
       if (new Set(attemptQuestionIds).size !== attemptQuestionIds.length) {
         return res.status(409).json({
           success: false,
@@ -434,13 +436,23 @@ router.post("/submit", protect, async (req, res) => {
       }
       const answerIds = [];
       for (const item of body.answers) {
-        if (!item || Object.keys(item).some((key) => !["questionId", "selectedOptionId"].includes(key)) ||
-            !mongoose.Types.ObjectId.isValid(String(item.questionId || "")) ||
-            !(item.selectedOptionId === null ||
-              (typeof item.selectedOptionId === "string" &&
-               item.selectedOptionId.trim() &&
-               item.selectedOptionId.length <= 256))) {
-          return res.status(400).json({ success: false, message: "Each answer must contain a questionId and selectedOptionId." });
+        if (!item ||
+            Object.keys(item).some((key) =>
+              !["questionId", "selectedOptionId", "selectedAnswers", "theoryResponse"].includes(key)
+            ) ||
+            !mongoose.Types.ObjectId.isValid(String(item.questionId || ""))) {
+          return res.status(400).json({
+            success: false,
+            message: "Each answer must contain a questionId and one answer matching its question type."
+          });
+        }
+        const answerFields = ["selectedOptionId", "selectedAnswers", "theoryResponse"]
+          .filter((field) => Object.hasOwn(item, field));
+        if (answerFields.length !== 1) {
+          return res.status(400).json({
+            success: false,
+            message: "Each answer must contain exactly one type-specific response."
+          });
         }
         answerIds.push(String(item.questionId));
       }
@@ -452,29 +464,43 @@ router.post("/submit", protect, async (req, res) => {
         return res.status(400).json({ success: false, message: "Answers must match the questions in this attempt." });
       }
 
-      const answersById = new Map(body.answers.map((item) => [String(item.questionId), item.selectedOptionId]));
-      for (const question of attemptQuestions) {
-        const selectedOptionId = answersById.get(String(question.questionId));
-        if (selectedOptionId !== null &&
-            !(question.presentedOptions || []).some((option) => option.optionId === selectedOptionId)) {
-          return res.status(400).json({ success: false, message: "Selected option does not belong to this examination question." });
+      const normalizedAnswers = [];
+      for (const item of body.answers) {
+        const question = questionsById.get(String(item.questionId));
+        const answerFields = ["selectedOptionId", "selectedAnswers", "theoryResponse"]
+          .filter((field) => Object.hasOwn(item, field));
+        const answer = { [answerFields[0]]: item[answerFields[0]] };
+        const validatedAnswer = quizSessionService.validateTypedAnswer(question, answer);
+        if (!validatedAnswer) {
+          const invalidOption = (question.questionType || "objective") === "objective" &&
+            answer.selectedOptionId !== null &&
+            (question.presentedOptions || []).every((option) =>
+              option.optionId !== answer.selectedOptionId);
+          return res.status(400).json({
+            success: false,
+            message: invalidOption
+              ? "Selected option does not belong to this examination question."
+              : "The answer does not match the type and limits of this question."
+          });
         }
+        normalizedAnswers.push({
+          questionId: item.questionId,
+          ...validatedAnswer
+        });
       }
 
       const saved = await quizSessionService.saveAnswers({
         attemptId: session._id,
         userId,
-        answers: [...answersById].map(([questionId, selectedOptionId]) => ({
-          questionId,
-          selectedOptionId
-        })),
+        answers: normalizedAnswers,
         expectedVersion: quizSessionService.getStateVersion(session),
         now: new Date()
       });
       if (saved.kind === "expired" || saved.kind === "completed") {
+        const savedSession = await gradeCompletedAttempt(saved.session, userId);
         return res.json({
           success: true,
-          session: quizSessionService.toStudentAttempt(saved.session, new Date()),
+          session: quizSessionService.toStudentAttempt(savedSession, new Date()),
           alreadySubmitted: true,
           expired: saved.kind === "expired"
         });
@@ -493,10 +519,11 @@ router.post("/submit", protect, async (req, res) => {
           message: "Selected option does not belong to this examination question."
         });
       }
-      if (saved.kind === "invalid_answers" || saved.kind === "unavailable") {
+      if (saved.kind === "invalid_answers" || saved.kind === "invalid_option" ||
+          saved.kind === "unavailable") {
         return res.status(400).json({
           success: false,
-          message: "Answers must match the questions and options in this attempt."
+          message: "Answers must match the types and limits of the questions in this attempt."
         });
       }
       if (saved.kind === "not_found") {
@@ -512,13 +539,52 @@ router.post("/submit", protect, async (req, res) => {
 
     session = await quizSessionService.finalizeAttempt(body.attemptId, { userId, reason: "manual" });
     if (!session) return res.status(404).json({ success: false, message: "Examination attempt not found." });
+    session = await gradeCompletedAttempt(session, userId);
     return res.json({
       success: true,
       session: quizSessionService.toStudentAttempt(session, new Date()),
       alreadySubmitted: session.completionReason === "expired"
     });
   } catch (error) {
-    return res.status(error.statusCode || 500).json({ success: false, message: error.message });
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: "Unable to complete submission right now. Reopen the attempt to check saved answers and retry."
+    });
+  }
+});
+
+router.post("/:attemptId/grade", protect, async (req, res) => {
+  try {
+    const { attemptId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(String(attemptId || ""))) {
+      return res.status(400).json({ success: false, message: "Invalid examination attempt ID." });
+    }
+    if (Object.keys(req.body || {}).length > 0) {
+      return res.status(400).json({ success: false, message: "Grading requests do not accept client data." });
+    }
+
+    const userId = getAuthenticatedUserId(req);
+    const result = await quizGradingService.gradeAttempt({ attemptId, userId });
+    if (result.kind === "not_found") {
+      return res.status(404).json({ success: false, message: "Examination attempt not found." });
+    }
+    if (result.kind === "not_submitted" || result.kind === "legacy") {
+      return res.status(409).json({
+        success: false,
+        message: "This submitted attempt is not eligible for Stage 3D grading."
+      });
+    }
+    const responseStatus = result.kind === "already_grading" ? 202 : 200;
+    return res.status(responseStatus).json({
+      success: true,
+      session: quizSessionService.toStudentAttempt(result.session, new Date()),
+      gradingState: result.kind
+    });
+  } catch {
+    return res.status(500).json({
+      success: false,
+      message: "Unable to process grading. Your submitted answers remain saved."
+    });
   }
 });
 
@@ -534,10 +600,55 @@ router.get("/results/:userId", protect, async (req, res) => {
     }
 
     const records = await QuizSession.find({ user: requestedUserId })
-      .select("-questions.correctOptionId -questions.correctAnswer -questions.isCorrect")
+      .select("-questions.markingSnapshot -questions.markingVersionId -gradingToken -gradingStartedAt -gradingAttemptCount -gradingErrorCode")
       .populate("course")
       .sort({ createdAt: -1 });
-    const results = records.filter((record) => !record.status || record.status === "completed");
+    const results = records
+      .filter((record) =>
+        record.status === "completed" ||
+        (!record.status && hasCompletionEvidence(record))
+      )
+      .map((record) => {
+        const result = typeof record.toObject === "function" ? record.toObject() : { ...record };
+        result.status = result.status || "completed";
+        if (isLegacyAttempt(result)) {
+          const historicalResult = getVerifiedLegacyResult(result);
+          result.historicalScoreStatus = historicalResult.status;
+          result.score = historicalResult.status === "verified" ? historicalResult.score : null;
+          result.percentage = historicalResult.status === "verified"
+            ? historicalResult.percentage
+            : null;
+          if (historicalResult.status === "verified") {
+            result.totalQuestions = historicalResult.totalQuestions;
+          }
+        } else if (result.gradingStatus === "graded") {
+          const typedResult = getVerifiedTypedResult(result);
+          if (typedResult.status === "verified") {
+            result.score = typedResult.score;
+            result.totalMarks = typedResult.totalMarks;
+            result.percentage = typedResult.percentage;
+          } else {
+            result.gradingStatus = "unverified";
+            result.score = null;
+            result.totalMarks = null;
+            result.percentage = null;
+          }
+        } else {
+          result.score = null;
+          result.percentage = null;
+        }
+        result.questions = (result.questions || []).map((question) => {
+          const safeQuestion = { ...question };
+          delete safeQuestion.correctOptionId;
+          delete safeQuestion.correctAnswer;
+          delete safeQuestion.isCorrect;
+          delete safeQuestion.markingSnapshot;
+          delete safeQuestion.markingVersionId;
+          if (result.gradingStatus === "unverified") delete safeQuestion.gradingResult;
+          return safeQuestion;
+        });
+        return result;
+      });
     return res.json({ success: true, results });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });

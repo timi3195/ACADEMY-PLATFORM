@@ -12,6 +12,7 @@ const User = require("../models/User");
 const protect = require("../config/middleware/authMiddleware");
 const adminOnly = require("../config/middleware/adminOnly");
 const materialAccessService = require("../services/materialAccessService");
+const courseMaterialService = require("../services/courseMaterialService");
 const {
   canAccessCourse,
   getAccessibleCourseFilter
@@ -521,36 +522,20 @@ router.get('/course/:courseId', protect, async (req, res) => {
       });
     }
 
-    const files = await File.find({
-      $or: [
-        { courseRef: course._id },
-        { course: { $in: [courseId, course.title, course.code] } },
-        { courseCode: course.code }
-      ]
-    });
+    const materials = await courseMaterialService.listCourseMaterials({ course, user });
+    const processed = materials.map(({ material, accessReason, available }) => ({
+      ...serializeAcademicMaterial({
+        ...toPlainRecord(material),
+        fileUrl: `/api/files/view/${material._id}`,
+        downloadUrl: `/api/files/download/${material._id}`
+      }),
+      accessible: true,
+      accessReason,
+      available,
+      availabilityReason: available ? null : "storage_unavailable"
+    }));
 
-    const processed = await Promise.all(
-      files.map(async (f) => {
-        const access = await materialAccessService.canViewMaterial({
-          user,
-          material: f,
-          restrictByCourse: true
-        });
-
-        if (!access.allowed) return null;
-        return {
-          ...serializeAcademicMaterial({
-            ...toPlainRecord(f),
-            fileUrl: `/api/files/view/${f._id}`,
-            downloadUrl: `/api/files/download/${f._id}`
-          }),
-          accessible: true,
-          accessReason: access.reason
-        };
-      })
-    );
-
-    res.json({ success: true, files: processed.filter(Boolean) });
+    res.json({ success: true, files: processed });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

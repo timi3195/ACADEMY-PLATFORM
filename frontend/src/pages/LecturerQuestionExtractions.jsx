@@ -10,12 +10,12 @@ const isAllowedImage = (file) =>
 const toDraftForm = (draft) => ({
   questionNumber: draft.questionNumber || '',
   questionText: draft.questionText || '',
+  questionType: draft.questionType || ((draft.options || []).length >= 2 ? 'objective' : 'unclassified'),
+  blankCount: draft.blankCount ?? 1,
   options: (draft.options || []).map((option) => ({
     optionId: option.optionId || '',
     text: option.text || ''
   })),
-  confirmedAnswerOptionId: draft.confirmedAnswerOptionId || '',
-  confirmCorrectAnswer: Boolean(draft.answerConfirmedAt && draft.answerConfirmedBy),
   explanation: draft.explanation || '',
   topic: draft.topic || '',
   difficulty: draft.difficulty || 'medium',
@@ -28,6 +28,10 @@ export default function LecturerQuestionExtractions() {
   const [batches, setBatches] = useState([]);
   const [files, setFiles] = useState([]);
   const [selectedCourse, setSelectedCourse] = useState('');
+  const [sourcePapers, setSourcePapers] = useState([]);
+  const [sourcePaperChoice, setSourcePaperChoice] = useState('');
+  const [sourcePapersLoading, setSourcePapersLoading] = useState(false);
+  const [sourcePapersError, setSourcePapersError] = useState('');
   const [academicSession, setAcademicSession] = useState('');
   const [sourceExamYear, setSourceExamYear] = useState('');
   const [selectedBatch, setSelectedBatch] = useState(null);
@@ -87,6 +91,35 @@ export default function LecturerQuestionExtractions() {
     loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    let active = true;
+    setSourcePapers([]);
+    setSourcePaperChoice('');
+    setSourcePapersError('');
+    if (!selectedCourse) {
+      setSourcePapersLoading(false);
+      return () => { active = false; };
+    }
+
+    setSourcePapersLoading(true);
+    apiClient.get(`/api/question-extractions/source-papers?courseId=${encodeURIComponent(selectedCourse)}`)
+      .then((response) => {
+        if (!active) return;
+        const papers = response.data.papers || [];
+        setSourcePapers(papers);
+        setSourcePaperChoice(papers.length === 1
+          ? String(papers[0]._id)
+          : papers.length === 0 ? 'none' : '');
+      })
+      .catch((requestError) => {
+        if (active) setSourcePapersError(requestError.message || 'Unable to load source papers.');
+      })
+      .finally(() => {
+        if (active) setSourcePapersLoading(false);
+      });
+    return () => { active = false; };
+  }, [selectedCourse]);
+
   const addFiles = (selectedFiles) => {
     const incoming = Array.from(selectedFiles || []);
     const errors = [];
@@ -129,11 +162,22 @@ export default function LecturerQuestionExtractions() {
       setError('Choose a course, enter the academic session, and select at least one image.');
       return;
     }
+    if (sourcePapersError || sourcePapersLoading) {
+      setError(sourcePapersError || 'Wait for source papers to finish loading.');
+      return;
+    }
+    if (sourcePapers.length > 0 && !sourcePaperChoice) {
+      setError('Select the source paper or explicitly confirm that the images are not from an uploaded paper.');
+      return;
+    }
 
     const form = new FormData();
     form.append('courseId', selectedCourse);
     form.append('academicSession', academicSession);
     form.append('sourceExamYear', sourceExamYear);
+    if (sourcePaperChoice && sourcePaperChoice !== 'none') {
+      form.append('sourcePaperId', sourcePaperChoice);
+    }
     files.forEach((file) => form.append('images', file));
 
     try {
@@ -186,9 +230,14 @@ export default function LecturerQuestionExtractions() {
   const saveDraft = async (draftId, showMessage = true) => {
     const form = draftForms[draftId];
     if (!form || !selectedBatch) return;
+    const payload = {
+      ...form,
+      options: form.questionType === 'objective' ? form.options : []
+    };
+    if (form.questionType !== 'fill_in_gap') delete payload.blankCount;
     const response = await apiClient.patch(
       `/api/question-extractions/${encodeURIComponent(selectedBatch.batchId)}/drafts/${encodeURIComponent(draftId)}`,
-      form
+      payload
     );
     setSelectedBatch(response.data.batch);
     if (showMessage) setReviewMessage('Draft corrections saved. The original extraction remains in the review history.');
@@ -197,7 +246,7 @@ export default function LecturerQuestionExtractions() {
 
   const approveDraft = async (draftId) => {
     const draft = selectedBatch?.drafts?.find((item) => item._id === draftId);
-    if (!draft || !window.confirm('Approve this reviewed question for the approved question bank? This will make it available to CBT.')) return;
+    if (!draft || !window.confirm('Approve this question content for the question bank? AI will generate and validate its marking record separately.')) return;
     try {
       setReviewing(true);
       setReviewError('');
@@ -208,9 +257,36 @@ export default function LecturerQuestionExtractions() {
       );
       setSelectedBatch(response.data.batch);
       await loadData();
-      setReviewMessage(response.data.alreadyApproved ? 'This question was already approved.' : 'Question approved and added to the question bank.');
+      const markingMessage = {
+        ready: 'AI marking is ready.',
+        uncertain: 'AI marking is uncertain; it is withheld until review.',
+        invalid: 'AI marking output failed validation and is withheld.',
+        failed: 'AI marking generation is unavailable; the approved question was retained.',
+        needs_source: 'AI marking is unavailable until a matching source paper is linked.'
+      }[response.data.markingStatus] || 'AI marking status is pending.';
+      setReviewMessage(`${response.data.alreadyApproved ? 'This question was already approved.' : 'Question content approved and added to the question bank.'} ${markingMessage}`);
     } catch (requestError) {
       setReviewError(requestError.message || 'Unable to approve this draft.');
+    } finally {
+      setReviewing(false);
+    }
+  };
+
+  const retryAiMarking = async (draftId) => {
+    if (!selectedBatch) return;
+    try {
+      setReviewing(true);
+      setReviewError('');
+      setReviewMessage('');
+      const response = await apiClient.post(
+        `/api/question-extractions/${encodeURIComponent(selectedBatch.batchId)}/drafts/${encodeURIComponent(draftId)}/approve`
+      );
+      setSelectedBatch(response.data.batch);
+      setReviewMessage(response.data.markingStatus === 'ready'
+        ? 'AI marking is ready.'
+        : 'AI marking retry did not produce a usable marking record.');
+    } catch (requestError) {
+      setReviewError(requestError.message || 'Unable to retry AI marking.');
     } finally {
       setReviewing(false);
     }
@@ -257,7 +333,14 @@ export default function LecturerQuestionExtractions() {
       await loadData();
       const successes = response.data.results.filter((result) => result.success).length;
       const failures = response.data.results.length - successes;
-      setReviewMessage(`${successes} draft(s) ${actionLabel === 'approve' ? 'approved' : 'rejected'}${failures ? `; ${failures} failed validation or review` : ''}.`);
+      const markingCounts = response.data.results.reduce((counts, result) => {
+        if (result.markingStatus) counts[result.markingStatus] = (counts[result.markingStatus] || 0) + 1;
+        return counts;
+      }, {});
+      const markingSummary = action === 'approve' && Object.keys(markingCounts).length
+        ? ` AI marking: ${Object.entries(markingCounts).map(([status, count]) => `${count} ${status}`).join(', ')}.`
+        : '';
+      setReviewMessage(`${successes} draft(s) ${actionLabel === 'approve' ? 'approved' : 'rejected'}${failures ? `; ${failures} failed validation or review` : ''}.${markingSummary}`);
       if (failures) {
         setReviewError(response.data.results.filter((result) => !result.success)
           .map((result) => `${result.draftId}: ${result.message}`).join(' '));
@@ -309,7 +392,7 @@ export default function LecturerQuestionExtractions() {
   return (
     <main className="page">
       <section className="wp-section" style={{ marginBottom: 20 }}>
-        <Link to="/lecturer" style={{ color: '#2563eb' }}>← Lecturer dashboard</Link>
+        <Link to="/admin" style={{ color: '#2563eb' }}>← Administration</Link>
         <h1 style={{ marginBottom: 8 }}>Past-question image extraction</h1>
         <p style={{ color: '#64748b', marginTop: 0 }}>
           Upload clear exam photographs for OCR and draft structuring. Every result stays unapproved until a later lecturer review.
@@ -337,6 +420,29 @@ export default function LecturerQuestionExtractions() {
                 ))}
               </select>
             </label>
+            {selectedCourse && (
+              <label style={{ display: 'block', marginBottom: 12 }}>
+                Uploaded source paper
+                <select
+                  value={sourcePaperChoice}
+                  onChange={(event) => setSourcePaperChoice(event.target.value)}
+                  disabled={sourcePapersLoading || Boolean(sourcePapersError)}
+                  style={{ display: 'block', width: '100%', marginTop: 6, padding: 10 }}
+                >
+                  <option value="">{sourcePapersLoading ? 'Loading source papers…' : 'Select a source or confirm no link'}</option>
+                  {sourcePapers.map((paper) => (
+                    <option key={paper._id} value={paper._id}>
+                      {paper.title} ({paper.examinationYear}, {paper.level}, {paper.semester})
+                    </option>
+                  ))}
+                  <option value="none">Images are not from an uploaded paper</option>
+                </select>
+                {sourcePapersError && <span role="alert">{sourcePapersError}</span>}
+                {!sourcePapersLoading && !sourcePapersError && sourcePapers.length === 0 && (
+                  <small>No uploaded paper is available for this course; provenance will remain unlinked.</small>
+                )}
+              </label>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
               <label>
                 Academic session
@@ -373,7 +479,7 @@ export default function LecturerQuestionExtractions() {
                 <span>Uploading {uploadProgress}%</span>
               </div>
             )}
-            <button type="submit" disabled={uploading || files.length === 0}>
+            <button type="submit" disabled={uploading || files.length === 0 || sourcePapersLoading || Boolean(sourcePapersError)}>
               {uploading ? 'Uploading and extracting…' : 'Upload images and extract drafts'}
             </button>
           </form>
@@ -389,6 +495,9 @@ export default function LecturerQuestionExtractions() {
                 <div>
                   <strong>{batch.status.replaceAll('_', ' ')}</strong>
                   <div>{batch.academicSession} · {batch.imageCount} image(s) · {batch.questionCount} draft(s)</div>
+                  {batch.sourcePaperMetadata && (
+                    <div>Source: {batch.sourcePaperMetadata.title} ({batch.sourcePaperMetadata.examinationYear})</div>
+                  )}
                   {batch.processingRetryAfter && new Date(batch.processingRetryAfter) > new Date() && (
                     <small>Processing lease expires {new Date(batch.processingRetryAfter).toLocaleTimeString()}.</small>
                   )}
@@ -412,6 +521,9 @@ export default function LecturerQuestionExtractions() {
         <section className="wp-section">
           <h2>Batch details</h2>
           <p>Status: <strong>{selectedBatch.status.replaceAll('_', ' ')}</strong> · review: <strong>{selectedBatch.reviewStatus || 'pending'}</strong> · {selectedBatch.images?.length || 0} image(s) · {selectedBatch.drafts?.length || 0} draft(s)</p>
+          {selectedBatch.sourcePaperMetadata && (
+            <p>Source paper: {selectedBatch.sourcePaperMetadata.title} · {selectedBatch.sourcePaperMetadata.examinationYear} · {selectedBatch.sourcePaperMetadata.level} · {selectedBatch.sourcePaperMetadata.semester}</p>
+          )}
           {(selectedBatch.processingErrors || []).map((entry, index) => (
             <p key={`${entry.stage}-${index}`} role="status" style={{ color: '#b45309' }}>{entry.message}</p>
           ))}
@@ -465,58 +577,50 @@ export default function LecturerQuestionExtractions() {
                     </label>
                     <label style={{ display: 'block', marginBottom: 8 }}>
                       Question text
-                      <textarea rows="4" value={form.questionText} readOnly={!editable} onChange={(event) => updateDraftForm(draft._id, (current) => ({ ...current, questionText: event.target.value, confirmCorrectAnswer: false }))} style={{ display: 'block', width: '100%', marginTop: 4 }} />
+                      <textarea rows="4" value={form.questionText} readOnly={!editable} onChange={(event) => updateDraftForm(draft._id, (current) => ({ ...current, questionText: event.target.value }))} style={{ display: 'block', width: '100%', marginTop: 4 }} />
                     </label>
-                    <fieldset style={{ padding: 12, margin: '12px 0' }}>
-                      <legend>Answer options</legend>
+                    <label style={{ display: 'block', marginBottom: 8 }}>
+                      Question format
+                      <select value={form.questionType} disabled={!editable} onChange={(event) => updateDraftForm(draft._id, (current) => ({ ...current, questionType: event.target.value }))} style={{ display: 'block', width: '100%', marginTop: 4 }}>
+                        <option value="unclassified">Select question format</option>
+                        <option value="objective">Objective / multiple choice</option>
+                        <option value="fill_in_gap">Fill-in-the-gap</option>
+                        <option value="theory">Theory / essay</option>
+                      </select>
+                    </label>
+                    {form.questionType === 'objective' && <fieldset style={{ padding: 12, margin: '12px 0' }}>
+                      <legend>Answer options (AI determines marking)</legend>
                       {form.options.map((option, optionIndex) => (
                         <div key={option.optionId || optionIndex} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
                           <strong>{String.fromCharCode(65 + optionIndex)}.</strong>
                           <input aria-label={`Option ${String.fromCharCode(65 + optionIndex)}`} value={option.text} readOnly={!editable} onChange={(event) => updateDraftForm(draft._id, (current) => ({
                             ...current,
-                            confirmCorrectAnswer: false,
                             options: current.options.map((item, itemIndex) => itemIndex === optionIndex ? { ...item, text: event.target.value } : item)
                           }))} style={{ flex: 1, minWidth: 0 }} />
                           {editable && <button type="button" disabled={form.options.length <= 2} onClick={() => updateDraftForm(draft._id, (current) => ({
                             ...current,
-                            confirmCorrectAnswer: false,
-                            options: current.options.filter((_, itemIndex) => itemIndex !== optionIndex),
-                            confirmedAnswerOptionId: current.confirmedAnswerOptionId === option.optionId ? '' : current.confirmedAnswerOptionId
+                            options: current.options.filter((_, itemIndex) => itemIndex !== optionIndex)
                           }))}>Remove</button>}
                           {editable && <button type="button" disabled={optionIndex === 0} aria-label={`Move option ${optionIndex + 1} up`} onClick={() => updateDraftForm(draft._id, (current) => {
                             const options = [...current.options];
                             [options[optionIndex - 1], options[optionIndex]] = [options[optionIndex], options[optionIndex - 1]];
-                            return { ...current, options, confirmCorrectAnswer: false };
+                            return { ...current, options };
                           })}>↑</button>}
                           {editable && <button type="button" disabled={optionIndex === form.options.length - 1} aria-label={`Move option ${optionIndex + 1} down`} onClick={() => updateDraftForm(draft._id, (current) => {
                             const options = [...current.options];
                             [options[optionIndex], options[optionIndex + 1]] = [options[optionIndex + 1], options[optionIndex]];
-                            return { ...current, options, confirmCorrectAnswer: false };
+                            return { ...current, options };
                           })}>↓</button>}
                         </div>
                       ))}
                       {editable && <button type="button" disabled={form.options.length >= 8} onClick={() => updateDraftForm(draft._id, (current) => ({
                         ...current,
-                        confirmCorrectAnswer: false,
                         options: [...current.options, { optionId: '', text: '' }]
                       }))}>Add option</button>}
-                    </fieldset>
-                    <label style={{ display: 'block', marginBottom: 8 }}>
-                      Correct answer (AI suggestion is not selected)
-                      <select value={form.confirmedAnswerOptionId} disabled={!editable} onChange={(event) => updateDraftForm(draft._id, (current) => ({
-                        ...current,
-                        confirmedAnswerOptionId: event.target.value,
-                        confirmCorrectAnswer: false
-                      }))} style={{ display: 'block', width: '100%', marginTop: 4 }}>
-                        <option value="">Select the correct answer</option>
-                        {form.options.filter((option) => option.optionId).map((option, optionIndex) => (
-                          <option key={option.optionId} value={option.optionId}>{String.fromCharCode(65 + optionIndex)}. {option.text}</option>
-                        ))}
-                      </select>
-                    </label>
-                    {editable && <label style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '10px 0' }}>
-                      <input type="checkbox" checked={form.confirmCorrectAnswer} disabled={!form.confirmedAnswerOptionId} onChange={(event) => updateDraftForm(draft._id, (current) => ({ ...current, confirmCorrectAnswer: event.target.checked }))} />
-                      I reviewed and explicitly confirm this correct answer
+                    </fieldset>}
+                    {form.questionType === 'fill_in_gap' && <label style={{ display: 'block', marginBottom: 8 }}>
+                      Number of blanks
+                      <input type="number" min="1" max="20" step="1" value={form.blankCount} readOnly={!editable} onChange={(event) => updateDraftForm(draft._id, (current) => ({ ...current, blankCount: event.target.value }))} style={{ display: 'block', width: '100%', marginTop: 4 }} />
                     </label>}
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
                       <label>Topic<input value={form.topic} readOnly={!editable} onChange={(event) => updateDraftForm(draft._id, (current) => ({ ...current, topic: event.target.value }))} style={{ display: 'block', width: '100%' }} /></label>
@@ -524,7 +628,7 @@ export default function LecturerQuestionExtractions() {
                       <label>Marks<input type="number" min="0.1" max="100" step="0.1" value={form.marks} readOnly={!editable} onChange={(event) => updateDraftForm(draft._id, (current) => ({ ...current, marks: event.target.value }))} style={{ display: 'block', width: '100%' }} /></label>
                     </div>
                     <label style={{ display: 'block', marginTop: 8 }}>
-                      Explanation
+                      Source explanation (AI marking is generated separately)
                       <textarea rows="3" value={form.explanation} readOnly={!editable} onChange={(event) => updateDraftForm(draft._id, (current) => ({ ...current, explanation: event.target.value }))} style={{ display: 'block', width: '100%', marginTop: 4 }} />
                     </label>
                   </div>
@@ -542,14 +646,24 @@ export default function LecturerQuestionExtractions() {
                     ) : <p>Source image reference unavailable.</p>}
                     <p>OCR confidence: {draft.ocrConfidence == null ? 'not reported' : `${draft.ocrConfidence}%`}</p>
                     <p>Structuring confidence: {draft.structuringConfidence == null ? 'not reported' : `${Math.round(draft.structuringConfidence * 100)}%`}</p>
-                    <p>AI-suggested answer (unconfirmed): {draft.possibleAnswer || 'none'}</p>
+                    <p>Answer text visible in source (not used as marking authority): {draft.possibleAnswer || 'none'}</p>
                     {draft.extractionWarnings?.map((warning, warningIndex) => <p key={`${warningIndex}-${warning}`} style={{ color: '#b45309' }}>Warning: {warning}</p>)}
                     {draft.reviewStatus !== 'pending' && <>
                       <p>Reviewed {draft.reviewedAt ? new Date(draft.reviewedAt).toLocaleString() : ''}</p>
                       {draft.reviewer && <p>Reviewer: {String(draft.reviewer)}</p>}
                       {draft.approvedQuestion && <p>Question ID: {String(draft.approvedQuestion)}</p>}
+                      {draft.markingStatus && <p>AI marking status: {
+                        draft.markingStatus === 'ready' ? 'ready' :
+                          draft.markingStatus === 'uncertain' ? 'uncertain; withheld from automatic marking' :
+                            draft.markingStatus === 'needs_source' ? 'waiting for a matching source paper' :
+                              draft.markingStatus === 'invalid' ? 'invalid output; withheld' :
+                                'generation failed; retry is available'
+                      }</p>}
                       {draft.rejectionReason && <p>Rejection reason: {draft.rejectionReason}</p>}
                     </>}
+                    {draft.reviewStatus === 'approved' && draft.markingStatus === 'failed' && (
+                      <button type="button" disabled={reviewing} onClick={() => retryAiMarking(draft._id)}>Retry AI marking</button>
+                    )}
                     {editable && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
                       <button type="button" disabled={reviewing} onClick={async () => {
                         try {

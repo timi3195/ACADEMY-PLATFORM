@@ -122,7 +122,10 @@ test('student can read their own quiz history', async () => {
       .get(`/api/quiz/results/${USER_A}`);
     assert.equal(response.status, 200);
     assert.deepEqual(query, { user: USER_A });
-    assert.equal(projection, '-questions.correctOptionId -questions.correctAnswer -questions.isCorrect');
+    assert.equal(
+      projection,
+      '-questions.markingSnapshot -questions.markingVersionId -gradingToken -gradingStartedAt -gradingAttemptCount -gradingErrorCode'
+    );
     assert.deepEqual(response.body.results, []);
   } finally {
     QuizSession.find = originalFind;

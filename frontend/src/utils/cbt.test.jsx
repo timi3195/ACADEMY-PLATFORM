@@ -5,12 +5,17 @@ import CBTQuiz from '../pages/CBTQuiz'
 import CBTPracticeLink from '../components/CBTPracticeLink'
 import {
   canAccessCbtPractice,
+  cbtQuestionCountForCourse,
   cbtPathForCourse,
   cbtSubmissionAnswers,
   createServerDeadline,
   formatCbtCountdown,
+  cbtAnswerFromQuestion,
+  cbtQuestionType,
   isCbtAnswerVersionConflict,
   isValidCbtQuestionCount,
+  emptyCbtAnswer,
+  hasCbtAnswer,
   reconcileCbtSubmissionConflict,
   reconcileCbtAnswers,
   remainingCbtSeconds,
@@ -27,10 +32,11 @@ describe('CBT access and delivery helpers', () => {
     expect(canAccessCbtPractice(null)).toBe(false)
   })
 
-  it('validates whole question counts within the configured maximum', () => {
-    expect(isValidCbtQuestionCount(1)).toBe(true)
-    expect(isValidCbtQuestionCount(50)).toBe(true)
-    for (const invalid of [0, -1, 1.5, '10', 51, null]) {
+  it('allows only supported practice-test lengths', () => {
+    for (const valid of [10, 20, 30, 40, 50]) {
+      expect(isValidCbtQuestionCount(valid)).toBe(true)
+    }
+    for (const invalid of [0, -1, 1, 2, 9, 11, 49, 1.5, '10', 51, null]) {
       expect(isValidCbtQuestionCount(invalid)).toBe(false)
     }
   })
@@ -38,9 +44,16 @@ describe('CBT access and delivery helpers', () => {
   it('builds a course-specific CBT route and practice entry link', () => {
     const courseId = 'course id/1'
     expect(cbtPathForCourse(courseId)).toBe('/cbt?courseId=course%20id%2F1')
+    expect(cbtPathForCourse(courseId, 20)).toBe('/cbt?courseId=course%20id%2F1&questionCount=20')
     const link = CBTPracticeLink({ courseId })
     expect(link.props.to).toBe('/cbt?courseId=course%20id%2F1')
     expect(link.props.children).toBe('Start CBT Practice')
+  })
+
+  it('uses a requested test length only when that course supports it', () => {
+    expect(cbtQuestionCountForCourse('20', [10, 20])).toBe(20)
+    expect(cbtQuestionCountForCourse('30', [10, 20])).toBe(10)
+    expect(cbtQuestionCountForCourse('not-a-number', [])).toBe(10)
   })
 
   it('registers CBT as an authenticated protected route', () => {
@@ -52,11 +65,50 @@ describe('CBT access and delivery helpers', () => {
 
   it('tracks unanswered items and builds submissions from stable option IDs', () => {
     const questions = [{ _id: 'question-a' }, { _id: 'question-b' }]
-    const answers = ['stable-option-a', null]
+    const answers = [
+      { selectedOptionId: 'stable-option-a' },
+      { selectedOptionId: null }
+    ]
     expect(unansweredQuestionNumbers(questions, answers)).toEqual([2])
     expect(cbtSubmissionAnswers(questions, answers)).toEqual([
       { questionId: 'question-a', selectedOptionId: 'stable-option-a' },
       { questionId: 'question-b', selectedOptionId: null }
+    ])
+  })
+
+  it('creates and validates answer state for all three formats', () => {
+    const objective = { questionType: 'objective' }
+    const fillInGap = { questionType: 'fill_in_gap', blankCount: 2, selectedAnswers: ['first', 'second'] }
+    const theory = { questionType: 'theory', theoryResponse: 'A written response.' }
+
+    expect(cbtQuestionType({})).toBe('objective')
+    expect(emptyCbtAnswer(objective)).toEqual({ selectedOptionId: null })
+    expect(emptyCbtAnswer(fillInGap)).toEqual({ selectedAnswers: ['', ''] })
+    expect(emptyCbtAnswer(theory)).toEqual({ theoryResponse: '' })
+    expect(cbtAnswerFromQuestion(fillInGap)).toEqual({ selectedAnswers: ['first', 'second'] })
+    expect(cbtAnswerFromQuestion(theory)).toEqual({ theoryResponse: 'A written response.' })
+    expect(hasCbtAnswer(objective, { selectedOptionId: 'option-a' })).toBe(true)
+    expect(hasCbtAnswer(fillInGap, { selectedAnswers: ['first', ''] })).toBe(false)
+    expect(hasCbtAnswer(theory, { theoryResponse: '  ' })).toBe(false)
+    expect(unansweredQuestionNumbers(
+      [objective, fillInGap, theory],
+      [
+        { selectedOptionId: 'option-a' },
+        { selectedAnswers: ['first', 'second'] },
+        { theoryResponse: 'A written response.' }
+      ]
+    )).toEqual([])
+    expect(cbtSubmissionAnswers(
+      [{ _id: 'objective-id' }, { _id: 'gap-id', questionType: 'fill_in_gap' }, { _id: 'theory-id', questionType: 'theory' }],
+      [
+        { selectedOptionId: 'option-a' },
+        { selectedAnswers: ['one'] },
+        { theoryResponse: 'essay' }
+      ]
+    )).toEqual([
+      { questionId: 'objective-id', selectedOptionId: 'option-a' },
+      { questionId: 'gap-id', selectedAnswers: ['one'] },
+      { questionId: 'theory-id', theoryResponse: 'essay' }
     ])
   })
 
@@ -86,7 +138,10 @@ describe('CBT access and delivery helpers', () => {
       { 'question-a': 'saving', 'question-b': 'failed' }
     )
     expect(restored).toEqual({
-      answers: ['option-a', 'option-b'],
+      answers: [
+        { selectedOptionId: 'option-a' },
+        { selectedOptionId: 'option-b' }
+      ],
       statuses: { 'question-a': 'saved', 'question-b': 'failed' }
     })
   })
@@ -137,7 +192,10 @@ describe('CBT access and delivery helpers', () => {
     }, questions, localAnswers, localStatuses, 7)
 
     expect(reconciled).toEqual({
-      answers: ['server-a', 'pending-local-b'],
+      answers: [
+        { selectedOptionId: 'server-a' },
+        { selectedOptionId: 'pending-local-b' }
+      ],
       statuses: { 'question-b': 'failed' },
       stateVersion: 8
     })

@@ -1078,6 +1078,63 @@ textarea:focus{
 .page h1{ font-size:1.5rem; }.dashboard-grid{ grid-template-columns:1fr; }
 }
 
+body.cbt-focus-mode .app-shell{
+  display:block;
+  padding:0;
+}
+body.cbt-focus-mode .dashboard-shell{
+  display:block;
+  width:100%;
+  min-height:100vh;
+  padding:0;
+  border:0;
+  border-radius:0;
+  box-shadow:none;
+  backdrop-filter:none;
+}
+body.cbt-focus-mode .sidebar-panel,
+body.cbt-focus-mode .topbar{
+  display:none;
+}
+body.cbt-focus-mode .dashboard-main-panel{
+  max-width:1100px;
+  min-height:100vh;
+  margin:0 auto;
+  padding:24px;
+  border:0;
+  border-radius:0;
+}
+body.cbt-focus-mode .main-content-area{
+  padding:0;
+}
+
+.cbt-result-feedback{
+  display:grid;
+  gap:12px;
+  margin-top:16px;
+}
+.cbt-result-summary{
+  font-weight:700;
+}
+.cbt-result-question-list{
+  display:grid;
+  gap:16px;
+  padding-left:24px;
+}
+.cbt-result-question{
+  display:grid;
+  gap:8px;
+}
+.cbt-result-question__text{
+  font-weight:700;
+}
+.cbt-result-question__feedback,
+.cbt-result-subanswer{
+  display:grid;
+  gap:6px;
+  padding-left:12px;
+}
+
 @media (max-width: 639px){.main-layout-container{ padding:12px; }.navbar{ padding:0 12px; }.navbar-right a,
 .navbar-right button,
 .user-pill,

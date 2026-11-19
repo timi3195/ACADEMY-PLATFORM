@@ -5,15 +5,27 @@ const router = express.Router();
 // Middleware
 const protect = require("../config/middleware/authMiddleware");
 const questionAccess = require("../services/questionAccessService");
+const courseMembership = require("../services/courseMembershipService");
 
 // Models
-const StudentPerformance = require("../models/StudentPerformance");
 const AIConversation = require("../models/AIConversation");
 const StudentNote = require("../models/StudentNote");
 const LearningPath = require("../models/LearningPath");
-const Course = require("../models/course");
 const User = require("../models/User");
 const studentAnalytics = require("../services/studentAnalyticsService");
+
+const getCourseAnalytics = async (userId, courseId) => {
+  const access = await questionAccess.getCourseAccess(userId, courseId);
+  if (!access.allowed) return { access };
+  const analytics = await studentAnalytics.getStudentAnalytics(userId, new Date(), {
+    accessibleCourseIds: [courseId]
+  });
+  return {
+    access,
+    analytics,
+    course: analytics.courses.find((item) => String(item.courseId) === String(courseId)) || null
+  };
+};
 
 router.get("/student", protect, async (req, res) => {
   try {
@@ -22,7 +34,7 @@ router.get("/student", protect, async (req, res) => {
       return res.status(401).json({ success: false, message: "Authenticated user ID is invalid." });
     }
 
-    const user = await User.findById(userId).select("role");
+    const user = await User.findById(userId).select("role department");
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found." });
     }
@@ -33,8 +45,24 @@ router.get("/student", protect, async (req, res) => {
       });
     }
 
-    const analytics = await studentAnalytics.getStudentAnalytics(userId);
-    return res.json({ success: true, analytics });
+    const accessibleCourseIds = user.role === "student"
+      ? await courseMembership.getValidAccessibleCourseIds(user)
+      : undefined;
+    const analytics = await studentAnalytics.getStudentAnalytics(userId, new Date(), {
+      accessibleCourseIds
+    });
+    const recommendations = await studentAnalytics.getAiStudyRecommendations(userId, analytics);
+    return res.json({
+      success: true,
+      analytics: {
+        ...analytics,
+        recommendations: recommendations.recommendations.map(({ evidenceId, ...item }) => item),
+        recommendationsSource: recommendations.recommendationsSource,
+        ...(recommendations.recommendationsNotice
+          ? { recommendationsNotice: recommendations.recommendationsNotice }
+          : {})
+      }
+    });
   } catch (error) {
     console.error("Student performance analytics failed:", error);
     return res.status(500).json({
@@ -57,7 +85,7 @@ router.get("/performance/:courseId", protect, async (req, res) => {
     }
 
     const actingUserId = req.user?.id || req.user?._id;
-    const access = await questionAccess.getCourseAccess(actingUserId, courseId);
+    const { access, course } = await getCourseAnalytics(actingUserId, courseId);
     if (!access.allowed) {
       return res.status(access.statusCode || 403).json({
         success: false,
@@ -65,26 +93,17 @@ router.get("/performance/:courseId", protect, async (req, res) => {
       });
     }
 
-    let performance = await StudentPerformance.findOne({
-      user: actingUserId,
-      course: courseId
-    }).populate("course");
-
-    if (!performance) {
-      // Create default performance record
-      performance = new StudentPerformance({
-        user: actingUserId,
-        course: courseId
-      });
-      await performance.save();
-    }
-
-    res.json({
+    return res.json({
       success: true,
-      performance
+      performance: course,
+      dataSource: "quiz_sessions"
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    console.error("Course performance analytics failed:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to load course performance analytics."
+    });
   }
 });
 
@@ -98,113 +117,49 @@ const getDashboardHandler = async (req, res) => {
     const requestedUserId = req.params.userId || req.user.id;
     const actingUserId = req.user?.id || req.user?._id;
 
+    if (!mongoose.Types.ObjectId.isValid(String(requestedUserId || ""))) {
+      return res.status(400).json({ success: false, message: "Invalid user ID." });
+    }
     if (req.params.userId && String(actingUserId) !== String(req.params.userId) && req.user.role !== "admin") {
       return res.status(403).json({ success: false, message: "Unauthorized" });
     }
 
-    const student = await User.findById(requestedUserId).populate("department", "name code");
+    const student = await User.findById(requestedUserId)
+      .select("name email role department yearOfStudy")
+      .populate("department", "name code");
     if (!student) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    const performances = await StudentPerformance.find({
-      user: requestedUserId
-    }).populate("course");
-
-    const totalAccuracy = performances.length > 0
-      ? (performances.reduce((sum, p) => sum + (p.overallAccuracy || 0), 0) / performances.length)
-      : 0;
-
-    const allTopics = {};
-    performances.forEach(p => {
-      (p.topicMetrics || []).forEach(tm => {
-        if (!allTopics[tm.topic]) {
-          allTopics[tm.topic] = { correct: 0, total: 0 };
-        }
-        allTopics[tm.topic].correct += tm.correctAttempts;
-        allTopics[tm.topic].total += tm.totalAttempts;
-      });
+    const accessibleCourseIds = await courseMembership.getValidAccessibleCourseIds(student);
+    const analytics = await studentAnalytics.getStudentAnalytics(requestedUserId, new Date(), {
+      accessibleCourseIds
     });
-
-    const topicMetrics = Object.entries(allTopics)
-      .map(([topic, data]) => ({
-        topic,
-        accuracy: data.total > 0 ? Number(((data.correct / data.total) * 100).toFixed(1)) : 0,
-        attempts: data.total,
-        mastery: data.total > 0
-          ? (data.correct / data.total) >= 0.8 ? "Mastered"
-          : (data.correct / data.total) >= 0.6 ? "Proficient"
-          : "Developing"
-          : "Beginner"
-      }))
-      .sort((a, b) => b.accuracy - a.accuracy);
-
-    const topStrengths = topicMetrics.slice(0, 5).map(t => t.topic);
-    const areasToImprove = topicMetrics
-      .filter(t => t.attempts > 0)
-      .sort((a, b) => a.accuracy - b.accuracy)
+    const topicMetrics = analytics.topics;
+    const topStrengths = topicMetrics
+      .filter((topic) => topic.classification === "Strong")
       .slice(0, 5)
-      .map(t => t.topic);
-
-    const trendEntries = performances
-      .flatMap(p => p.performanceTrend || [])
-      .map((item) => ({
-        date: new Date(item.date),
-        accuracy: item.accuracy || 0,
-        questionsAnswered: item.questionsAnswered || 0
-      }))
-      .sort((a, b) => a.date - b.date);
-
-    const uniqueTrend = [];
-    const trendDates = new Set();
-    trendEntries.forEach((entry) => {
-      const key = entry.date.toISOString().split('T')[0];
-      if (!trendDates.has(key)) {
-        trendDates.add(key);
-        uniqueTrend.push(entry);
-      }
-    });
-
-    const performanceTrend = uniqueTrend.slice(-8).map((entry, index) => ({
-      ...entry,
-      week: `Week ${index + 1}`
-    }));
+      .map((topic) => topic.topic);
+    const areasToImprove = topicMetrics
+      .filter((topic) => topic.classification === "Needs improvement")
+      .slice(0, 5)
+      .map((topic) => topic.topic);
 
     const conversations = await AIConversation.countDocuments({ user: requestedUserId });
     const notes = await StudentNote.countDocuments({ user: requestedUserId });
     const paths = await LearningPath.countDocuments({ user: requestedUserId });
 
-    let departmentalAvg = 0;
-    if (student.department) {
-      const avgResult = await StudentPerformance.aggregate([
-        {
-          $lookup: {
-            from: 'users',
-            localField: 'user',
-            foreignField: '_id',
-            as: 'user'
-          }
-        },
-        { $unwind: '$user' },
-        { $match: { 'user.department': student.department._id } },
-        { $group: { _id: null, avgAccuracy: { $avg: '$overallAccuracy' } } }
-      ]);
-      departmentalAvg = avgResult[0]?.avgAccuracy || 0;
-    }
-
-    const estimatedExamScore = performances.length > 0
-      ? performances.reduce((sum, p) => sum + (p.estimatedExamScore || 0), 0) / performances.length
-      : 0;
-
     const dashboard = {
-      performanceByCourse: performances,
-      totalAccuracy,
-      estimatedExamScore: Number(estimatedExamScore.toFixed(1)),
+      dataSource: "quiz_sessions",
+      performanceByCourse: analytics.courses,
+      totalAccuracy: analytics.overview.overallAccuracy,
+      estimatedExamScore: null,
+      predictionAvailable: false,
       topStrengths,
       areasToImprove,
       topicMetrics,
-      performanceTrend,
-      departmentalAvg: Number(departmentalAvg.toFixed(1)),
+      performanceTrend: analytics.performanceTrend,
+      departmentalAvg: null,
       engagement: {
         conversations,
         processedNotes: notes,
@@ -226,7 +181,11 @@ const getDashboardHandler = async (req, res) => {
       dashboard
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    console.error("Analytics dashboard failed:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to load the analytics dashboard."
+    });
   }
 };
 
@@ -245,30 +204,27 @@ router.get("/strengths/:courseId", protect, async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid course ID" });
     }
 
-    const performance = await StudentPerformance.findOne({
-      user: req.user._id,
-      course: courseId
-    });
-
-    if (!performance) {
-      return res.json({
-        success: true,
-        strengths: [],
-        message: "No performance data yet"
+    const { access, course } = await getCourseAnalytics(
+      req.user?.id || req.user?._id,
+      courseId
+    );
+    if (!access.allowed) {
+      return res.status(access.statusCode || 403).json({
+        success: false,
+        message: access.message || "You are not authorized to access this course."
       });
     }
 
-    const strengths = performance.topicMetrics
-      .filter(tm => tm.accuracy >= 70)
-      .sort((a, b) => b.accuracy - a.accuracy);
+    const strengths = course?.strongestTopics || [];
 
-    res.json({
+    return res.json({
       success: true,
       strengths,
       count: strengths.length
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    console.error("Course strengths analytics failed:", error);
+    return res.status(500).json({ success: false, message: "Unable to load course strengths." });
   }
 });
 
@@ -284,30 +240,27 @@ router.get("/weaknesses/:courseId", protect, async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid course ID" });
     }
 
-    const performance = await StudentPerformance.findOne({
-      user: req.user._id,
-      course: courseId
-    });
-
-    if (!performance) {
-      return res.json({
-        success: true,
-        weaknesses: [],
-        message: "No performance data yet"
+    const { access, course } = await getCourseAnalytics(
+      req.user?.id || req.user?._id,
+      courseId
+    );
+    if (!access.allowed) {
+      return res.status(access.statusCode || 403).json({
+        success: false,
+        message: access.message || "You are not authorized to access this course."
       });
     }
 
-    const weaknesses = performance.topicMetrics
-      .filter(tm => tm.accuracy < 70 && tm.totalAttempts > 0)
-      .sort((a, b) => a.accuracy - b.accuracy);
+    const weaknesses = course?.weakestTopics || [];
 
-    res.json({
+    return res.json({
       success: true,
       weaknesses,
       count: weaknesses.length
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    console.error("Course weaknesses analytics failed:", error);
+    return res.status(500).json({ success: false, message: "Unable to load course weaknesses." });
   }
 });
 
@@ -323,35 +276,33 @@ router.get("/trend/:courseId", protect, async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid course ID" });
     }
 
-    const performance = await StudentPerformance.findOne({
-      user: req.user._id,
-      course: courseId
-    });
-
-    if (!performance || !performance.performanceTrend.length) {
-      return res.json({
-        success: true,
-        trend: [],
-        message: "No trend data yet"
+    const { access, course } = await getCourseAnalytics(
+      req.user?.id || req.user?._id,
+      courseId
+    );
+    if (!access.allowed) {
+      return res.status(access.statusCode || 403).json({
+        success: false,
+        message: access.message || "You are not authorized to access this course."
       });
     }
 
-    const trend = performance.performanceTrend
-      .sort((a, b) => new Date(a.date) - new Date(b.date));
+    const trend = course?.performanceTrend || [];
 
-    res.json({
+    return res.json({
       success: true,
       trend,
-      improvementTrend: performance.improvementTrend
+      improvementTrend: course?.trend?.direction || "insufficient_data"
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    console.error("Course performance trend failed:", error);
+    return res.status(500).json({ success: false, message: "Unable to load course performance trend." });
   }
 });
 
 /**
  * GET /api/analytics/prediction/:courseId
- * Get predicted exam score
+ * Retained for compatibility; no validated exam-score prediction is available.
  */
 router.get("/prediction/:courseId", protect, async (req, res) => {
   try {
@@ -361,40 +312,26 @@ router.get("/prediction/:courseId", protect, async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid course ID" });
     }
 
-    const performance = await StudentPerformance.findOne({
-      user: req.user._id,
-      course: courseId
-    }).populate("course");
-
-    if (!performance) {
-      return res.json({
-        success: true,
-        prediction: null,
-        message: "No performance data yet"
+    const { access } = await getCourseAnalytics(
+      req.user?.id || req.user?._id,
+      courseId
+    );
+    if (!access.allowed) {
+      return res.status(access.statusCode || 403).json({
+        success: false,
+        message: access.message || "You are not authorized to access this course."
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
-      prediction: {
-        estimatedScore: performance.estimatedExamScore,
-        accuracy: performance.overallAccuracy,
-        readinessLevel: performance.estimatedExamScore > 80 ? "Excellent" :
-                       performance.estimatedExamScore > 70 ? "Good" :
-                       performance.estimatedExamScore > 60 ? "Fair" : "Needs Improvement",
-        topicsMastered: performance.topicMetrics.filter(t => t.accuracy >= 80).length,
-        topicsToFocus: performance.topicMetrics.filter(t => t.accuracy < 60).length,
-        recommendations: [
-          performance.topicMetrics.filter(t => t.accuracy < 60).length > 0
-            ? `Focus on ${performance.areasToImprove[0] || "weak areas"}`
-            : "Great work! Keep practicing to maintain your level",
-          "Practice similar past questions",
-          "Use the AI Study Assistant to clarify concepts"
-        ]
-      }
+      prediction: null,
+      dataSource: "quiz_sessions",
+      message: "No validated exam-score prediction is available from completed CBT attempts."
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    console.error("Course score prediction failed:", error);
+    return res.status(500).json({ success: false, message: "Unable to load course prediction." });
   }
 });
 

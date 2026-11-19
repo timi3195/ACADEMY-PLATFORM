@@ -1,5 +1,14 @@
 const mongoose = require("mongoose");
 
+const sourcePaperMetadataSchema = new mongoose.Schema({
+  title: { type: String, required: true },
+  examinationYear: { type: String, required: true },
+  level: { type: String, enum: ["ND1", "ND2", "HND1", "HND2"], required: true },
+  semester: { type: String, enum: ["First", "Second"], required: true }
+}, { _id: false });
+
+const QUESTION_TYPES = ["objective", "fill_in_gap", "theory"];
+
 const questionSchema = new mongoose.Schema({
 
   course: {
@@ -28,6 +37,19 @@ const questionSchema = new mongoose.Schema({
   question: {
     type: String,
     required: true
+  },
+
+  questionType: {
+    type: String,
+    enum: QUESTION_TYPES,
+    default: undefined
+  },
+
+  blankCount: {
+    type: Number,
+    min: 1,
+    max: 20,
+    default: undefined
   },
 
   options: {
@@ -130,6 +152,38 @@ const questionSchema = new mongoose.Schema({
     default: ""
   },
 
+  sourcePaper: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "PastQuestionPaper",
+    default: null
+  },
+
+  sourcePaperMetadata: {
+    type: sourcePaperMetadataSchema,
+    default: undefined
+  },
+
+  sourceExamYear: {
+    type: String,
+    default: ""
+  },
+
+  sourceAcademicSession: {
+    type: String,
+    default: ""
+  },
+
+  sourcePage: {
+    type: Number,
+    min: 1,
+    default: null
+  },
+
+  sourceExcerpt: {
+    type: String,
+    default: ""
+  },
+
   // Track how many times this question was answered
   timesAnswered: {
     type: Number,
@@ -168,6 +222,7 @@ questionSchema.index({ extractionKey: 1 }, { unique: true, sparse: true });
 questionSchema.index({ question: "text", topic: "text", explanation: "text" });
 
 questionSchema.path('options').validate(function(value) {
+  if (this.questionType && this.questionType !== "objective") return true;
   if ((!value || value.length < 2) && (!this.subQuestions || this.subQuestions.length === 0)) {
     return false;
   }
@@ -175,10 +230,16 @@ questionSchema.path('options').validate(function(value) {
 }, 'Options must be provided unless this question has sub-questions.');
 
 questionSchema.path('answer').validate(function(value) {
+  if (this.questionType) return true;
   if ((!value || value.trim() === '') && (!this.subQuestions || this.subQuestions.length === 0)) {
     return false;
   }
   return true;
 }, 'Answer must be provided unless this question has sub-questions.');
+
+questionSchema.path('blankCount').validate(function(value) {
+  return this.questionType !== "fill_in_gap" ||
+    (Number.isInteger(value) && value >= 1 && value <= 20);
+}, "Fill-in-the-gap questions must specify between 1 and 20 blanks.");
 
 module.exports = mongoose.models.Question || mongoose.model("Question", questionSchema);

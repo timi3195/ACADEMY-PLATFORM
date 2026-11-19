@@ -17,8 +17,8 @@ const COURSE_ID = "507f1f77bcf86cd799439021";
 const OTHER_COURSE_ID = "507f1f77bcf86cd799439022";
 const DEPARTMENT_ID = "507f1f77bcf86cd799439031";
 const OTHER_DEPARTMENT_ID = "507f1f77bcf86cd799439032";
-const LECTURER_ID = "507f1f77bcf86cd799439041";
-const OTHER_LECTURER_ID = "507f1f77bcf86cd799439042";
+const UNSUPPORTED_USER_ID = "507f1f77bcf86cd799439041";
+const OTHER_UNSUPPORTED_USER_ID = "507f1f77bcf86cd799439042";
 
 const buildApp = ({ userId = STUDENT_ID, role = "student" } = {}) => {
   const app = express();
@@ -36,15 +36,13 @@ const courses = [
     _id: COURSE_ID,
     title: "Department Mathematics",
     code: "MATH101",
-    department: DEPARTMENT_ID,
-    lecturers: [LECTURER_ID]
+    department: DEPARTMENT_ID
   },
   {
     _id: OTHER_COURSE_ID,
     title: "Other Department Mathematics",
     code: "MATH201",
-    department: OTHER_DEPARTMENT_ID,
-    lecturers: [OTHER_LECTURER_ID]
+    department: OTHER_DEPARTMENT_ID
   }
 ];
 const notes = [
@@ -227,37 +225,36 @@ test("missing and deleted student departments fail closed in search", async (t) 
   });
 });
 
-test("lecturer search includes only assigned courses with existing departments", async (t) => {
-  await t.test("approved lecturer sees assigned-course notes only", async () => {
+test("unsupported roles do not receive course-scoped search results", async (t) => {
+  await t.test("search results are empty", async () => {
     await withSearchMocks(async () => {
-      const response = await request(buildApp({ userId: LECTURER_ID, role: "lecturer" }))
-        .get("/api/search?q=algebra&type=notes");
-
-      assert.equal(response.status, 200);
-      assert.deepEqual(response.body.notes.map((note) => note._id), ["507f1f77bcf86cd799439051"]);
-    }, {
-      user: {
-        _id: LECTURER_ID,
-        id: LECTURER_ID,
-        role: "lecturer",
-        lecturerStatus: "approved"
-      }
-    });
-  });
-
-  await t.test("deleted course department fails closed", async () => {
-    await withSearchMocks(async () => {
-      const response = await request(buildApp({ userId: LECTURER_ID, role: "lecturer" }))
+      const response = await request(buildApp({ userId: UNSUPPORTED_USER_ID, role: "unsupported" }))
         .get("/api/search?q=algebra&type=notes");
 
       assert.equal(response.status, 200);
       assert.deepEqual(response.body.notes, []);
     }, {
       user: {
-        _id: LECTURER_ID,
-        id: LECTURER_ID,
-        role: "lecturer",
-        lecturerStatus: "approved"
+        _id: UNSUPPORTED_USER_ID,
+        id: UNSUPPORTED_USER_ID,
+        role: "unsupported"
+      }
+    });
+  });
+
+  await t.test("a student without courses in their current department fails closed", async () => {
+    await withSearchMocks(async () => {
+      const response = await request(buildApp({ userId: OTHER_UNSUPPORTED_USER_ID }))
+        .get("/api/search?q=algebra&type=notes");
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(response.body.notes, []);
+    }, {
+      user: {
+        _id: OTHER_UNSUPPORTED_USER_ID,
+        id: OTHER_UNSUPPORTED_USER_ID,
+        role: "student",
+        department: DEPARTMENT_ID
       },
       courseRecords: [{ ...courses[0], department: OTHER_DEPARTMENT_ID }],
       departmentRecords: []

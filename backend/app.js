@@ -62,6 +62,8 @@ app.use((err, req, res, next) => {
   next(err);
 });
 app.use("/api/courses", courseRoutes);
+app.use("/api/course-progress", require("./routes/courseProgress"));
+app.use("/api/student-learning", require("./routes/studentLearning"));
 app.use("/api/notes", noteRoutes);
 // Ensure question routes are mounted after body-parsing middleware
 app.use("/api/questions", questionRoutes);
@@ -79,8 +81,8 @@ app.use("/api/ai", aiRoutes);
 const analyticsRoutes = require("./routes/analytics");
 app.use("/api/analytics", analyticsRoutes);
 
-const lecturerRoutes = require("./routes/lecturer");
-app.use("/api/lecturer", lecturerRoutes);
+const adminContentRoutes = require("./routes/lecturer");
+app.use("/api/admin/content", adminContentRoutes);
 
 app.get("/api/protected", protect, (req, res) => {
   res.json({
@@ -98,55 +100,6 @@ app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/departments", departmentRoutes);
-
-/**
- * Auto-seed departments if database is empty
- */
-async function autoSeedDepartments() {
-  try {
-    const Department = require("./models/Department");
-    const School = require("./models/School");
-    
-    const departmentCount = await Department.countDocuments();
-    
-    if (departmentCount > 0) {
-      return;
-    }
-    
-    // Create or get default school
-    let school = await School.findOne({ code: 'DEFAULT' });
-    if (!school) {
-      school = await School.create({
-        name: 'Default Polytechnic',
-        code: 'DEFAULT',
-        description: 'Default school for departments'
-      });
-    }
-
-    // Sample departments
-    const departments = [
-      { name: 'Computer Science', code: 'CSC', description: 'Computer Science and Technology' },
-      { name: 'Civil Engineering', code: 'CVE', description: 'Civil Engineering' },
-      { name: 'Electrical Engineering', code: 'ELE', description: 'Electrical Engineering' },
-      { name: 'Mechanical Engineering', code: 'MEC', description: 'Mechanical Engineering' },
-      { name: 'Business Administration', code: 'BUA', description: 'Business Administration' },
-      { name: 'Accounting', code: 'ACC', description: 'Accounting' },
-      { name: 'Public Administration', code: 'PAD', description: 'Public Administration' },
-      { name: 'Mass Communication', code: 'MAS', description: 'Mass Communication' }
-    ];
-
-    await Department.insertMany(
-      departments.map(dept => ({
-        ...dept,
-        school: school._id
-      }))
-    );
-  } catch (error) {
-    logger.error("department_auto_seed_failed", {
-      category: classifyMongoConnectionError(error)
-    });
-  }
-}
 
 app.get("/", (req, res) => {
   res.json({
@@ -166,7 +119,6 @@ const startServer = async ({
   mongoUri = process.env.MONGO_URI,
   port = PORT,
   afterDatabaseConnected = async () => {
-    await autoSeedDepartments();
     quizSessionService.startExpiryWorker();
   },
   stopBackgroundServices = () => quizSessionService.stopExpiryWorker(),
