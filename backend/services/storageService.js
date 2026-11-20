@@ -1,7 +1,14 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { S3Client, PutObjectCommand, GetObjectCommand, HeadObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+const {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  HeadBucketCommand,
+  DeleteObjectCommand
+} = require('@aws-sdk/client-s3');
 
 const LOCAL_PROVIDER = 'local-disk';
 const OBJECT_PROVIDER = 'object-storage';
@@ -21,6 +28,33 @@ const client = () => {
   }
   return new S3Client({ region: process.env.STORAGE_REGION || 'auto', endpoint: process.env.STORAGE_ENDPOINT || undefined,
     forcePathStyle: Boolean(process.env.STORAGE_ENDPOINT), credentials: { accessKeyId: process.env.STORAGE_ACCESS_KEY_ID, secretAccessKey: process.env.STORAGE_SECRET_ACCESS_KEY } });
+};
+const verifyWorkerStorage = async () => {
+  if (process.env.NODE_ENV === 'production' && getStorageProvider() !== OBJECT_PROVIDER) {
+    const error = new Error('Production question extraction workers require durable object storage');
+    error.statusCode = 503;
+    throw error;
+  }
+  if (getStorageProvider() === OBJECT_PROVIDER) {
+    if (!isObjectStorageConfigured()) {
+      const error = new Error('Object storage is not configured for the question extraction worker');
+      error.statusCode = 503;
+      throw error;
+    }
+    await client().send(new HeadBucketCommand({ Bucket: process.env.STORAGE_BUCKET }));
+    return;
+  }
+
+  const directory = getUploadDir();
+  await fs.promises.access(directory, fs.constants.W_OK);
+  const probe = path.join(directory, `.question-extraction-worker-${crypto.randomUUID()}.tmp`);
+  try {
+    await fs.promises.writeFile(probe, Buffer.alloc(0), { flag: 'wx', mode: 0o600 });
+  } finally {
+    await fs.promises.unlink(probe).catch((error) => {
+      if (error.code !== 'ENOENT') throw error;
+    });
+  }
 };
 
 const safeFilename = (name = 'file') => path.basename(String(name)).replace(/[^a-zA-Z0-9._-]/g, '-').replace(/^\.+/, '') || 'file';
@@ -385,4 +419,24 @@ const deletePrivateCurriculumDocument = async ({ document, importId }) => {
 };
 const getStorageDiagnostics = ({ fileId, storageFilename, storageKey, storageProvider }) => ({ provider: storageProvider || getStorageProvider(), fileId, storageFilename, storageKey: storageKey || null, configured: getStorageProvider() !== OBJECT_PROVIDER || isObjectStorageConfigured() });
 
-module.exports = { LOCAL_PROVIDER, OBJECT_PROVIDER, getUploadDir, getStorageProvider, isObjectStorageConfigured, resolveStoragePath, getLegacyUploadFilename, generateStorageKey, uploadUploadedFile, storePrivateQuestionImage, getObjectReadStream, deleteObject, isSafeCurriculumStorageReference, storePrivateCurriculumDocument, getPrivateCurriculumDocumentStream, deletePrivateCurriculumDocument, getStorageDiagnostics, safeFilename };
+module.exports = {
+  LOCAL_PROVIDER,
+  OBJECT_PROVIDER,
+  getUploadDir,
+  getStorageProvider,
+  isObjectStorageConfigured,
+  verifyWorkerStorage,
+  resolveStoragePath,
+  getLegacyUploadFilename,
+  generateStorageKey,
+  uploadUploadedFile,
+  storePrivateQuestionImage,
+  getObjectReadStream,
+  deleteObject,
+  isSafeCurriculumStorageReference,
+  storePrivateCurriculumDocument,
+  getPrivateCurriculumDocumentStream,
+  deletePrivateCurriculumDocument,
+  getStorageDiagnostics,
+  safeFilename
+};

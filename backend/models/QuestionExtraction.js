@@ -101,7 +101,7 @@ const questionExtractionSchema = new mongoose.Schema({
   drafts: { type: [draftSchema], default: [] },
   status: {
     type: String,
-    enum: ["uploaded", "processing", "extracted", "needs_review", "approved", "partially_failed", "failed"],
+    enum: ["uploaded", "queued", "processing", "extracted", "needs_review", "approved", "partially_failed", "failed"],
     default: "uploaded",
     index: true
   },
@@ -122,13 +122,18 @@ const questionExtractionSchema = new mongoose.Schema({
   structuringWarnings: { type: [String], default: [] },
   structuringCompletedChunks: { type: [String], default: [] },
   retryCount: { type: Number, default: 0 },
+  processingAttemptCount: { type: Number, default: 0 },
+  nextAttemptAt: { type: Date, default: null },
   processingLockToken: { type: String, default: "" },
   processingLockUntil: { type: Date, default: null },
+  processingLeaseHeartbeatAt: { type: Date, default: null },
   reviewStatus: { type: String, enum: ["pending", "in_progress", "completed"], default: "pending" }
 }, { timestamps: true });
 
 questionExtractionSchema.index({ uploadedBy: 1, createdAt: -1 });
 questionExtractionSchema.index({ course: 1, createdAt: -1 });
+questionExtractionSchema.index({ status: 1, nextAttemptAt: 1, createdAt: 1 });
+questionExtractionSchema.index({ status: 1, processingLockUntil: 1 });
 
 module.exports = mongoose.models.QuestionExtraction ||
   mongoose.model("QuestionExtraction", questionExtractionSchema);

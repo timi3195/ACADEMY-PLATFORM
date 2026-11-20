@@ -16,6 +16,7 @@ const questionAccessService = require("../services/questionAccessService");
 const storageService = require("../services/storageService");
 const ocrService = require("../services/ocrService");
 const questionStructuringService = require("../services/questionStructuringService");
+const questionExtractionProcessingService = require("../services/questionExtractionProcessingService");
 const imageValidation = require("../services/questionImageValidationService");
 const fileRoutes = require("../routes/file");
 
@@ -143,6 +144,7 @@ const setupMocks = () => {
       processingErrors: [],
       drafts: [],
       retryCount: 0,
+      processingAttemptCount: 0,
       save: async function save() {
         records.set(this.batchId, this);
         return this;
@@ -152,19 +154,27 @@ const setupMocks = () => {
     return batch;
   };
   QuestionExtraction.findOneAndUpdate = async (filter, update) => {
-    const batch = records.get(filter.batchId);
+    const batch = filter.batchId
+      ? records.get(filter.batchId)
+      : [...records.values()].find((item) => String(item._id) === String(filter._id));
     if (!batch) return null;
-    const claimable = filter.$or.some((condition) => {
+    const claimable = (filter.$or || []).some((condition) => {
       if (Array.isArray(condition.status?.$in)) {
-        return condition.status.$in.includes(batch.status);
+        return condition.status.$in.includes(batch.status) &&
+          (!condition.processingLockUntil?.$lte ||
+            (batch.processingLockUntil &&
+              batch.processingLockUntil <= condition.processingLockUntil.$lte));
       }
       return condition.status === "processing" &&
         batch.status === "processing" &&
+        batch.processingLockUntil &&
         batch.processingLockUntil <= condition.processingLockUntil.$lte;
     });
     if (!claimable || (filter.retryCount && batch.retryCount >= filter.retryCount.$lt)) return null;
     Object.assign(batch, update.$set || {});
-    if (update.$inc?.retryCount) batch.retryCount += update.$inc.retryCount;
+    for (const [field, increment] of Object.entries(update.$inc || {})) {
+      batch[field] = Number(batch[field] || 0) + increment;
+    }
     return cloneBatch(batch);
   };
   QuestionExtraction.updateOne = async (filter, update) => {
@@ -224,7 +234,33 @@ const png = async () => sharp({
   create: { width: 120, height: 120, channels: 3, background: { r: 255, g: 255, b: 255 } }
 }).png().toBuffer();
 
-const uploadImages = (app, images = [{ name: "page-one.png", buffer: null }], sourcePaperId) => {
+let processingToken = 0;
+const processQueuedBatchForTest = async (batchId) => {
+  const stored = records.get(batchId);
+  if (!stored) throw new Error("Queued extraction batch was not persisted.");
+  const token = `test-processing-token-${++processingToken}`;
+  const stage = stored.processingStage && stored.processingStage !== "none"
+    ? stored.processingStage
+    : stored.images.some((image) => image.ocrStatus !== "succeeded") ? "ocr" : "structuring";
+  stored.status = "processing";
+  stored.processingStage = stage;
+  stored.processingLockToken = token;
+  stored.processingLockUntil = new Date(Date.now() + 60_000);
+  stored.processingAttemptCount = Number(stored.processingAttemptCount || 0) + 1;
+  await questionExtractionProcessingService.processClaimedBatch({
+    batch: cloneBatch(stored),
+    token,
+    stage
+  });
+  return cloneBatch(records.get(batchId));
+};
+
+const uploadImages = async (
+  app,
+  images = [{ name: "page-one.png", buffer: null }],
+  sourcePaperId,
+  { processAfterUpload = true } = {}
+) => {
   let call = request(app).post("/api/question-extractions")
     .field("courseId", COURSE_ID)
     .field("academicSession", "2025/2026")
@@ -235,7 +271,21 @@ const uploadImages = (app, images = [{ name: "page-one.png", buffer: null }], so
   for (const image of images) {
     call = call.attach("images", image.buffer, { filename: image.name, contentType: image.type || "image/png" });
   }
-  return call;
+  const response = await call;
+  if (processAfterUpload && response.status === 202) {
+    await processQueuedBatchForTest(response.body.batch.batchId);
+    const refreshed = await request(app)
+      .get(`/api/question-extractions/${response.body.batch.batchId}`);
+    response.body.batch = refreshed.body.batch;
+  }
+  return response;
+};
+
+const processQueuedRetryForTest = async (response) => {
+  if (response.status === 202 && response.body.batch?.batchId) {
+    response.body.batch = await processQueuedBatchForTest(response.body.batch.batchId);
+  }
+  return response;
 };
 
 describe("question extraction security", { concurrency: false }, () => {
@@ -305,6 +355,24 @@ test("daily upload rate limit is checked before accepting image data", async () 
   assert.equal(response.status, 429);
 });
 
+test("upload returns accepted and persists a queued batch without running OCR", async () => {
+  let ocrCalls = 0;
+  ocrImplementation = async () => {
+    ocrCalls += 1;
+    return [];
+  };
+  const response = await uploadImages(
+    buildApp(),
+    [{ name: "page.png", buffer: await png() }],
+    undefined,
+    { processAfterUpload: false }
+  );
+  assert.equal(response.status, 202);
+  assert.equal(response.body.batch.status, "queued");
+  assert.equal(ocrCalls, 0);
+  assert.equal(records.get(response.body.batch.batchId).status, "queued");
+});
+
 test("students cannot upload or view unapproved extraction batches", async () => {
   databaseUser = { role: "student" };
   const response = await uploadImages(buildApp(USER_A, "admin"), [{ name: "page.png", buffer: await png() }]);
@@ -346,7 +414,7 @@ test("administrators can upload multiple valid images into a private unapproved 
     { name: "page-one.png", buffer: first },
     { name: "page-two.png", buffer: second }
   ]);
-  assert.equal(response.status, 201, JSON.stringify(response.body));
+  assert.equal(response.status, 202, JSON.stringify(response.body));
   assert.equal(response.body.batch.status, "needs_review");
   assert.equal(response.body.batch.imageCount, 2);
   assert.equal(response.body.batch.questionCount, 2);
@@ -375,7 +443,7 @@ test("administrators can associate an extraction batch with its uploaded source 
     [{ name: "page-one.png", buffer: await png() }],
     PAPER_ID
   );
-  assert.equal(response.status, 201, JSON.stringify(response.body));
+  assert.equal(response.status, 202, JSON.stringify(response.body));
   assert.equal(response.body.batch.sourcePaper, PAPER_ID);
   assert.deepEqual(response.body.batch.sourcePaperMetadata, {
     title: "Test course 2025 past questions",
@@ -506,7 +574,7 @@ test("students cannot read another user's extraction or original image", async (
 test("administrator authorization is derived from the database user record", async () => {
   databaseUser = { role: "admin" };
   const response = await uploadImages(buildApp(USER_A, "student"), [{ name: "page.png", buffer: await png() }]);
-  assert.equal(response.status, 201);
+  assert.equal(response.status, 202);
   assert.equal(response.body.batch.status, "needs_review");
 });
 
@@ -569,10 +637,13 @@ test("Gemini failure preserves OCR text and permits structuring-only retry", asy
   assert.doesNotMatch(JSON.stringify(diagnostic), /provider response details|Read source text|USER_A/);
 
   structuringImplementation = async () => ({ drafts: [], provider: "gemini", model: "test-model", warnings: [] });
-  const retried = await request(buildApp())
+  const queuedRetry = await request(buildApp())
     .post(`/api/question-extractions/${response.body.batch.batchId}/retry`)
     .send({ stage: "structuring" });
-  assert.equal(retried.status, 200);
+  assert.equal(queuedRetry.status, 202);
+  assert.equal(queuedRetry.body.batch.status, "queued");
+  assert.equal(ocrCalls, 1);
+  const retried = await processQueuedRetryForTest(queuedRetry);
   assert.equal(retried.body.batch.status, "needs_review");
   assert.equal(ocrCalls, 1);
 });
@@ -635,10 +706,10 @@ test("successful structuring chunks persist through a partial failure and retry 
   assert.equal(initialBatch.processingErrors[0].category, "provider_unavailable");
   assert.equal(initialBatch.images[0].ocrText, "1. What is two plus two? A. 3 B. 4");
 
-  const retried = await request(buildApp())
+  const retried = await processQueuedRetryForTest(await request(buildApp())
     .post(`/api/question-extractions/${batchId}/retry`)
-    .send({ stage: "structuring" });
-  assert.equal(retried.status, 200);
+    .send({ stage: "structuring" }));
+  assert.equal(retried.status, 202);
   assert.equal(retried.body.batch.status, "needs_review");
   assert.equal(records.get(batchId).drafts.length, 1);
   assert.deepEqual(observedCompletedKeys[1], [completedChunkKey]);
@@ -659,10 +730,10 @@ test("persisted processing leases can be retried after a server interruption", a
   persistedBatch.processingStage = "structuring";
   persistedBatch.processingLockUntil = new Date(Date.now() - 1000);
 
-  const retried = await request(buildApp())
+  const retried = await processQueuedRetryForTest(await request(buildApp())
     .post(`/api/question-extractions/${persistedBatch.batchId}/retry`)
-    .send({ stage: "structuring" });
-  assert.equal(retried.status, 200);
+    .send({ stage: "structuring" }));
+  assert.equal(retried.status, 202);
   assert.equal(retried.body.batch.status, "needs_review");
   assert.equal(ocrCalls, 1);
   assert.match(retried.body.batch.ocrText, /persisted before interruption/);
@@ -697,10 +768,11 @@ test("concurrent users cannot process one extraction batch twice", async () => {
   assert.equal(uploaded.body.batch.status, "partially_failed");
   databaseUser = { role: "admin" };
 
-  const firstRetry = request(buildApp(USER_A, "admin"))
+  const firstRetry = await request(buildApp(USER_A, "admin"))
     .post(`/api/question-extractions/${batchId}/retry`)
-    .send({ stage: "structuring" })
-    .then((response) => response);
+    .send({ stage: "structuring" });
+  assert.equal(firstRetry.status, 202);
+  const firstProcessing = processQueuedBatchForTest(batchId);
   await started;
   const secondRetry = await request(buildApp(USER_B, "admin"))
     .post(`/api/question-extractions/${batchId}/retry`)
@@ -708,8 +780,7 @@ test("concurrent users cannot process one extraction batch twice", async () => {
   assert.equal(secondRetry.status, 409);
 
   releaseProcessing();
-  const firstResponse = await firstRetry;
-  assert.equal(firstResponse.status, 200);
+  await firstProcessing;
   assert.equal(structuringCalls, 2);
   assert.equal(records.get(batchId).drafts.length, 1);
 });
@@ -744,22 +815,23 @@ test("an expired worker lease cannot overwrite drafts from a newer retry", async
   const uploaded = await uploadImages(buildApp(), [{ name: "page.png", buffer: await png() }]);
   const batchId = uploaded.body.batch.batchId;
   databaseUser = { role: "admin" };
-  const staleRetry = request(buildApp(USER_A, "admin"))
+  const staleRetry = await request(buildApp(USER_A, "admin"))
     .post(`/api/question-extractions/${batchId}/retry`)
-    .send({ stage: "structuring" })
-    .then((response) => response);
+    .send({ stage: "structuring" });
+  assert.equal(staleRetry.status, 202);
+  const staleProcessing = processQueuedBatchForTest(batchId);
   await oldAttemptStarted;
 
   records.get(batchId).processingLockUntil = new Date(Date.now() - 1000);
   const newerRetry = await request(buildApp(USER_B, "admin"))
     .post(`/api/question-extractions/${batchId}/retry`)
     .send({ stage: "structuring" });
-  assert.equal(newerRetry.status, 200);
-  assert.equal(newerRetry.body.batch.drafts[0].questionText, "Newer draft");
+  assert.equal(newerRetry.status, 202);
+  const newerProcessing = await processQueuedBatchForTest(batchId);
+  assert.equal(newerProcessing.drafts[0].questionText, "Newer draft");
 
   releaseOldAttempt();
-  const staleResponse = await staleRetry;
-  assert.equal(staleResponse.status, 409);
+  await assert.rejects(staleProcessing, (error) => error.code === "EXTRACTION_PROCESSING_LEASE_LOST");
   assert.equal(records.get(batchId).drafts[0].questionText, "Newer draft");
   assert.equal(structuringCalls, 3);
 });
@@ -779,24 +851,30 @@ test("OCR failures remain retryable and successful retry preserves the original 
     await onPageResult(result);
     return [result];
   };
-  const retried = await request(buildApp())
+  const retried = await processQueuedRetryForTest(await request(buildApp())
     .post(`/api/question-extractions/${response.body.batch.batchId}/retry`)
-    .send({ stage: "ocr" });
-  assert.equal(retried.status, 200);
+    .send({ stage: "ocr" }));
+  assert.equal(retried.status, 202);
   assert.equal(retried.body.batch.status, "needs_review");
   assert.match(retried.body.batch.ocrText, /Question OCR text/);
   assert.equal(storedImages.size, 1);
 });
 
-test("missing local OCR language data is reported and the batch can be retried after setup", async () => {
-  ocrImplementation = async () => {
-    const error = new Error("Local English OCR data is missing.");
-    error.code = "OCR_LANGUAGE_DATA_UNAVAILABLE";
-    throw error;
+test("OCR image failures remain queued for explicit retry with their original image", async () => {
+  ocrImplementation = async (images, onPageResult) => {
+    const result = {
+      imageId: images[0].imageId,
+      text: "",
+      confidence: null,
+      provider: "tesseract.js",
+      version: "test",
+      error: "unreadable"
+    };
+    await onPageResult(result);
+    return [result];
   };
   const uploaded = await uploadImages(buildApp(), [{ name: "page.png", buffer: await png() }]);
   assert.equal(uploaded.body.batch.status, "failed");
-  assert.match(uploaded.body.batch.processingErrors[0].message, /Local English OCR data is missing/);
 
   ocrImplementation = async (images, onPageResult) => {
     const result = {
@@ -809,10 +887,10 @@ test("missing local OCR language data is reported and the batch can be retried a
     await onPageResult(result);
     return [result];
   };
-  const retried = await request(buildApp())
+  const retried = await processQueuedRetryForTest(await request(buildApp())
     .post(`/api/question-extractions/${uploaded.body.batch.batchId}/retry`)
-    .send({});
-  assert.equal(retried.status, 200);
+    .send({}));
+  assert.equal(retried.status, 202);
   assert.equal(retried.body.batch.status, "needs_review");
 });
 
@@ -844,7 +922,7 @@ test("real Tesseract reads PNG and JPEG, persists OCR before Gemini failure, and
     { name: "source.png", buffer: pngImage },
     { name: "source.jpg", type: "image/jpeg", buffer: jpegImage }
   ]);
-  assert.equal(response.status, 201);
+  assert.equal(response.status, 202);
   assert.equal(response.body.batch.status, "partially_failed");
   assert.match(response.body.batch.images[0].ocrStatus, /succeeded/);
   assert.match(response.body.batch.images[1].ocrStatus, /succeeded/);
@@ -858,10 +936,10 @@ test("real Tesseract reads PNG and JPEG, persists OCR before Gemini failure, and
     model: "test-model",
     warnings: []
   });
-  const retry = await request(buildApp())
+  const retry = await processQueuedRetryForTest(await request(buildApp())
     .post(`/api/question-extractions/${response.body.batch.batchId}/retry`)
-    .send({ stage: "structuring" });
-  assert.equal(retry.status, 200);
+    .send({ stage: "structuring" }));
+  assert.equal(retry.status, 202);
   assert.equal(retry.body.batch.status, "needs_review");
   assert.equal(ocrCalls, 1);
   assert.equal(storedImages.size, 2);

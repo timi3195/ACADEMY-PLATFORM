@@ -10,6 +10,7 @@
   "scripts": {
     "start": "node app.js",
     "dev": "nodemon app.js",
+    "worker:question-extraction": "node workers/questionExtractionWorker.js",
     "worker:curriculum-import": "node workers/curriculumImportWorker.js",
     "provision:ocr-language-data": "node scripts/provisionOcrLanguageData.js",
     "configure:yabatech-school-of-technology": "node scripts/configure-yabatech-school-of-technology.js",

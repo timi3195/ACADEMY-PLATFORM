@@ -521,15 +521,45 @@ For support, check [PRODUCTION_DEPLOYMENT_GUIDE.md](./PRODUCTION_DEPLOYMENT_GUID
 
 ## Image-Based Past-Question Extraction
 
-The lecturer workspace at `/lecturer/question-extractions` accepts JPG/JPEG/PNG images and creates private, persisted extraction batches through `/api/question-extractions`. OCR uses the provider-independent `ocrService` interface with the local `tesseract.js` English model; no paid OCR service or native Tesseract executable is required. The English `eng.traineddata` file contains the model Tesseract uses to recognize English text. Tesseract.js can load it from `TESSERACT_CACHE_PATH`; when that cache is empty, the current OCR service may use Tesseract.js's configured or default remote language-data source.
+The lecturer workspace at `/lecturer/question-extractions` accepts JPG/JPEG/PNG images and creates private, persisted extraction batches through `/api/question-extractions`. OCR uses the provider-independent `ocrService` interface with the local `tesseract.js` English model; no paid OCR service or native Tesseract executable is required. The English `eng.traineddata` file contains the model Tesseract uses to recognize English text. The question-extraction worker requires the pinned model locally and refuses to start if it is missing; it does not rely on Tesseract.js remote language-data downloads.
 
 Provision the pinned English model from `backend/` with `npm run provision:ocr-language-data`. The command verifies the downloaded file's size and SHA-256 against `backend/config/ocrLanguageData.json` before placing it in the ignored `backend/tessdata/` directory. To check a provisioned file manually, run `Get-FileHash .\tessdata\eng.traineddata -Algorithm SHA256` in PowerShell from `backend/`, or `sha256sum tessdata/eng.traineddata` on Linux; the expected digest is recorded in the manifest. The model is pinned to [tessdata_fast revision 87416418657359cb625c412a48b6e1d6d41c29bd](https://github.com/tesseract-ocr/tessdata_fast/tree/87416418657359cb625c412a48b6e1d6d41c29bd).
 
-**Provisioning is a setup/build operation, not an OCR-request or normal application-startup operation.** For local Windows development, run the command from `backend/` and set `TESSERACT_CACHE_PATH` in the current PowerShell session to the absolute `tessdata` directory. For Render, keep the service Root Directory as `backend`, run the provisioning command during the build after dependencies are available, and configure `TESSERACT_CACHE_PATH` to the service's local `tessdata` directory. A separate Render Background Worker has its own filesystem and must provision the model in its own build as well. This setup command does not change the current OCR service's remote fallback behavior; a future worker should separately require local data before processing jobs.
+**Provisioning is a setup/build operation, not an OCR-request or normal application-startup operation.** For local Windows development, run the command from `backend/` and set `TESSERACT_CACHE_PATH` to the absolute `tessdata` directory. For Render, set the Root Directory to `backend`, provision the model during the build after dependencies are installed, and set `TESSERACT_CACHE_PATH` to that service's writable `tessdata` directory. The question-extraction worker verifies the pinned model locally before it starts polling; it does not rely on remote model downloads. The web service and Background Worker have separate filesystems and each must provision its own model.
 
 Gemini is used only for structuring saved OCR text. It uses the existing server-side Gemini key and user quota. If Gemini is unavailable, the OCR text remains saved and the batch can retry its structuring stage without rerunning OCR. Extracted drafts stay pending and are never inserted into the approved question bank by this feature.
 
-Processing runs synchronously in the API request rather than in an in-memory queue. Upload metadata and original images are persisted before OCR starts, so a server restart leaves an inspectable batch; unfinished work can be retried after its persisted processing lease expires. Configure the image, pixel, and daily batch limits in `backend/.env.example`. Production storage should use the existing private object-storage configuration; local development uses the private local storage provider.
+Uploads are validated and saved before a durable MongoDB-backed worker queue processes them. The API returns `202 Accepted` after queueing; OCR and Gemini structuring run in the separate worker process. Per-image OCR text and completed structuring chunks are saved so an interrupted job can resume without repeating completed work. Worker leases, heartbeats, stale-job recovery and capped automatic retry backoff protect processing across restarts. Gemini provider/chunk failures retain the existing Admin retry flow, and drafts still require explicit Admin approval.
+
+### Run question extraction locally
+
+From `backend/`, install dependencies with `npm install`, provision the ignored English model, and set `TESSERACT_CACHE_PATH` to the absolute `backend/tessdata` directory. The API and worker share `MONGO_URI`. Relevant non-secret configuration names are `STORAGE_PROVIDER`, `STORAGE_BUCKET`, `STORAGE_REGION`, `STORAGE_ENDPOINT`, `FILE_STORAGE_DIR` (local storage), `TESSERACT_CACHE_PATH`, and the `QUESTION_EXTRACTION_WORKER_*` / `QUESTION_EXTRACTION_MAX_PROCESSING_ATTEMPTS` settings documented in `backend/.env.example`. For object storage, configure `STORAGE_ACCESS_KEY_ID` and `STORAGE_SECRET_ACCESS_KEY` only through a secure local or deployment secret store; never put their values in source control or expose them to the frontend. In production, use the private object-storage provider so examination images survive service restarts.
+
+Run the API with:
+
+```powershell
+npm start
+```
+
+In a second terminal, run the worker with:
+
+```powershell
+npm run worker:question-extraction
+```
+
+The worker requires local pinned English language data and verifies storage access before claiming jobs. Worker settings include `QUESTION_EXTRACTION_WORKER_CONCURRENCY` (default `1`), `QUESTION_EXTRACTION_WORKER_POLL_MS`, `QUESTION_EXTRACTION_WORKER_LEASE_MS`, `QUESTION_EXTRACTION_WORKER_HEARTBEAT_MS`, `QUESTION_EXTRACTION_MAX_PROCESSING_ATTEMPTS`, `QUESTION_EXTRACTION_RETRY_BASE_MS`, and `QUESTION_EXTRACTION_RETRY_CAP_MS`.
+
+To verify a batch, open `/api/question-extractions` or its batch detail endpoint as an authorized Admin. It should progress from **Queued** to **Processing OCR**, **Structuring**, and then **Needs Review** (or a visible failure state). The worker emits structured lifecycle logs with batch IDs and safe error codes, never lock tokens or credentials.
+
+### Render Background Worker
+
+Create a separate Render Background Worker with Root Directory `backend`, the same non-secret MongoDB and private object-storage configuration as the API, and a writable cache directory. Its start command is:
+
+```text
+npm run worker:question-extraction
+```
+
+Its build must install backend dependencies and run `npm run provision:ocr-language-data`; set `TESSERACT_CACHE_PATH` to the provisioned model directory. Provision the model independently for the web service and worker. Do not use Render's ephemeral local disk for uploaded examination images. The worker stops claiming jobs on `SIGTERM`/`SIGINT`; an interrupted active job is recovered after its lease expires.
 
 Credentialed CORS accepts only the configured exact origins (`FRONTEND_URL`, `VERCEL_FRONTEND_URL`, and comma-separated `FRONTEND_ORIGINS`), the production frontend origins, and localhost development origins. Add each deployed preview origin explicitly; wildcard `vercel.app` and `netlify.app` origins are intentionally rejected.
 

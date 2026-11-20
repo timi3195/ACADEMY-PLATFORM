@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import apiClient from '../services/apiClient';
 
@@ -6,6 +6,27 @@ const formatBytes = (bytes) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 const isAllowedImage = (file) =>
   /\.(jpe?g|png)$/i.test(file.name) &&
   ['image/jpeg', 'image/png'].includes(file.type);
+export const isActiveQuestionExtractionBatch = (batch) =>
+  Boolean(batch && (
+    ['uploaded', 'queued', 'processing'].includes(batch.status) ||
+    (batch.status === 'extracted' && batch.processingStage === 'structuring' && batch.processingRetryAfter)
+  ));
+export const getQuestionExtractionStatusLabel = (batch) => {
+  if (batch.status === 'queued' || batch.status === 'uploaded') return 'Queued';
+  if (batch.status === 'processing') {
+    return batch.processingStage === 'structuring' ? 'Structuring' : 'Processing OCR';
+  }
+  if (batch.status === 'extracted' && batch.processingStage === 'structuring' && batch.processingRetryAfter) {
+    return 'Structuring';
+  }
+  return ({
+    needs_review: 'Needs Review',
+    partially_failed: 'Partially Failed',
+    failed: 'Failed',
+    approved: 'Approved',
+    extracted: 'OCR completed'
+  })[batch.status] || batch.status.replaceAll('_', ' ');
+};
 
 const toDraftForm = (draft) => ({
   questionNumber: draft.questionNumber || '',
@@ -47,18 +68,28 @@ export default function LecturerQuestionExtractions() {
   const [reviewMessage, setReviewMessage] = useState('');
   const [reviewError, setReviewError] = useState('');
   const [reviewing, setReviewing] = useState(false);
+  const formBatchId = useRef('');
 
   useEffect(() => {
     if (!selectedBatch) {
+      formBatchId.current = '';
       setDraftForms({});
       setSelectedDraftIds([]);
       return;
     }
-    setDraftForms(Object.fromEntries((selectedBatch.drafts || []).map((draft) => [
+    if (formBatchId.current !== selectedBatch.batchId) {
+      formBatchId.current = selectedBatch.batchId;
+      setDraftForms(Object.fromEntries((selectedBatch.drafts || []).map((draft) => [
+        draft._id,
+        toDraftForm(draft)
+      ])));
+      setSelectedDraftIds([]);
+      return;
+    }
+    setDraftForms((current) => Object.fromEntries((selectedBatch.drafts || []).map((draft) => [
       draft._id,
-      toDraftForm(draft)
+      current[draft._id] || toDraftForm(draft)
     ])));
-    setSelectedDraftIds([]);
   }, [selectedBatch]);
 
   const previews = useMemo(() => files.map((file) => ({
@@ -90,6 +121,32 @@ export default function LecturerQuestionExtractions() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  const hasActiveBatches = batches.some(isActiveQuestionExtractionBatch);
+  const selectedBatchIsActive = isActiveQuestionExtractionBatch(selectedBatch);
+  useEffect(() => {
+    if (!hasActiveBatches && !selectedBatchIsActive) return undefined;
+    let active = true;
+    const refresh = async () => {
+      try {
+        const requests = [apiClient.get('/api/question-extractions')];
+        if (selectedBatchIsActive && selectedBatch?.batchId) {
+          requests.push(apiClient.get(`/api/question-extractions/${encodeURIComponent(selectedBatch.batchId)}`));
+        }
+        const [batchResponse, detailResponse] = await Promise.all(requests);
+        if (!active) return;
+        setBatches(batchResponse.data.batches || []);
+        if (detailResponse) setSelectedBatch(detailResponse.data.batch);
+      } catch (requestError) {
+        if (active) setError(requestError.message || 'Unable to refresh extraction progress.');
+      }
+    };
+    const timer = setInterval(refresh, 5000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [hasActiveBatches, selectedBatchIsActive, selectedBatch?.batchId]);
 
   useEffect(() => {
     let active = true;
@@ -480,7 +537,7 @@ export default function LecturerQuestionExtractions() {
               </div>
             )}
             <button type="submit" disabled={uploading || files.length === 0 || sourcePapersLoading || Boolean(sourcePapersError)}>
-              {uploading ? 'Uploading and extracting…' : 'Upload images and extract drafts'}
+              {uploading ? 'Uploading and queueing…' : 'Upload images and extract drafts'}
             </button>
           </form>
         )}
@@ -493,21 +550,21 @@ export default function LecturerQuestionExtractions() {
             {batches.map((batch) => (
               <article key={batch.batchId} style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                 <div>
-                  <strong>{batch.status.replaceAll('_', ' ')}</strong>
+                  <strong>{getQuestionExtractionStatusLabel(batch)}</strong>
                   <div>{batch.academicSession} · {batch.imageCount} image(s) · {batch.questionCount} draft(s)</div>
                   {batch.sourcePaperMetadata && (
                     <div>Source: {batch.sourcePaperMetadata.title} ({batch.sourcePaperMetadata.examinationYear})</div>
                   )}
-                  {batch.processingRetryAfter && new Date(batch.processingRetryAfter) > new Date() && (
-                    <small>Processing lease expires {new Date(batch.processingRetryAfter).toLocaleTimeString()}.</small>
+                  {batch.nextAttemptAt && new Date(batch.nextAttemptAt) > new Date() && (
+                    <small>Retry scheduled {new Date(batch.nextAttemptAt).toLocaleTimeString()}.</small>
                   )}
                   <small>{new Date(batch.createdAt).toLocaleString()}</small>
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <button type="button" onClick={() => openBatch(batch.batchId)}>View batch</button>
-                  {['uploaded', 'processing', 'extracted', 'partially_failed', 'failed'].includes(batch.status) && (
+                  {['extracted', 'partially_failed', 'failed'].includes(batch.status) && (
                     <button type="button" disabled={retryingBatch === batch.batchId} onClick={() => retryBatch(batch)}>
-                      {retryingBatch === batch.batchId ? 'Retrying…' : 'Retry unfinished work'}
+                      {retryingBatch === batch.batchId ? 'Scheduling…' : 'Retry unfinished work'}
                     </button>
                   )}
                 </div>
@@ -520,7 +577,7 @@ export default function LecturerQuestionExtractions() {
       {selectedBatch && (
         <section className="wp-section">
           <h2>Batch details</h2>
-          <p>Status: <strong>{selectedBatch.status.replaceAll('_', ' ')}</strong> · review: <strong>{selectedBatch.reviewStatus || 'pending'}</strong> · {selectedBatch.images?.length || 0} image(s) · {selectedBatch.drafts?.length || 0} draft(s)</p>
+          <p>Status: <strong>{getQuestionExtractionStatusLabel(selectedBatch)}</strong> · review: <strong>{selectedBatch.reviewStatus || 'pending'}</strong> · {selectedBatch.images?.length || 0} image(s) · {selectedBatch.drafts?.length || 0} draft(s)</p>
           {selectedBatch.sourcePaperMetadata && (
             <p>Source paper: {selectedBatch.sourcePaperMetadata.title} · {selectedBatch.sourcePaperMetadata.examinationYear} · {selectedBatch.sourcePaperMetadata.level} · {selectedBatch.sourcePaperMetadata.semester}</p>
           )}
