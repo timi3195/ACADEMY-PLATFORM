@@ -2,7 +2,10 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const express = require("express");
 const request = require("supertest");
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+const {
+  GoogleGenerativeAI,
+  GoogleGenerativeAIAbortError
+} = require("@google/generative-ai");
 const User = require("../models/User");
 
 const PRIMARY_MODEL = "primary-test-model";
@@ -31,7 +34,7 @@ const successfulResult = (message = "A helpful answer") => ({
   }
 });
 
-const withProviderMocks = async (run, respond) => {
+const withProviderMocks = async (run, respond, { abortOnCalls = [] } = {}) => {
   const originalGetGenerativeModel = GoogleGenerativeAI.prototype.getGenerativeModel;
   const originalUserFindById = User.findById;
   const originalSetTimeout = global.setTimeout;
@@ -41,12 +44,20 @@ const withProviderMocks = async (run, respond) => {
   const waits = [];
   const errors = [];
   const infos = [];
+  let timeoutCount = 0;
 
   GoogleGenerativeAI.prototype.getGenerativeModel = function getGenerativeModel({ model }) {
     return {
-      generateContent: async (requestBody) => {
-        calls.push({ model, requestBody });
-        return respond(model, calls.length, requestBody);
+      generateContent: async (requestBody, requestOptions) => {
+        calls.push({ model, requestBody, requestOptions });
+        const callNumber = calls.length;
+        if (abortOnCalls.includes(callNumber)) await Promise.resolve();
+        if (requestOptions?.signal?.aborted) {
+          throw new GoogleGenerativeAIAbortError(
+            "Request aborted when fetching: This operation was aborted"
+          );
+        }
+        return respond(model, callNumber, requestBody, requestOptions);
       }
     };
   };
@@ -62,6 +73,13 @@ const withProviderMocks = async (run, respond) => {
       waits.push(milliseconds);
       queueMicrotask(() => callback(...args));
       return 0;
+    }
+    if (milliseconds === 6500) {
+      timeoutCount += 1;
+      if (abortOnCalls.includes(timeoutCount)) {
+        queueMicrotask(() => callback(...args));
+        return 0;
+      }
     }
     return originalSetTimeout(callback, milliseconds, ...args);
   };
@@ -122,6 +140,89 @@ test("chat falls back after retryable primary failures and reports the actual mo
       throw Object.assign(new Error("This model is currently experiencing high demand."), {
         status: 503,
         statusText: "Service Unavailable"
+      });
+    }
+    return successfulResult();
+  });
+});
+
+test("chat retries an SDK-aborted primary request and succeeds on the primary model", async () => {
+  const gemini = loadGeminiService(FALLBACK_MODEL);
+  await withProviderMocks(async ({ calls, waits }) => {
+    const result = await makeChatRequest(gemini);
+
+    assert.equal(result.model, PRIMARY_MODEL);
+    assert.deepEqual(calls.map((call) => call.model), [PRIMARY_MODEL, PRIMARY_MODEL]);
+    assert.deepEqual(waits, [750]);
+    assert.notEqual(calls[0].requestOptions.signal, calls[1].requestOptions.signal);
+    assert.equal(calls[0].requestOptions.signal.aborted, true);
+    assert.equal(calls[1].requestOptions.signal.aborted, false);
+  }, async () => successfulResult(), { abortOnCalls: [1] });
+});
+
+test("chat uses its fallback after retrying primary request timeouts", async () => {
+  const gemini = loadGeminiService(FALLBACK_MODEL);
+  await withProviderMocks(async ({ calls, waits, infos }) => {
+    const result = await makeChatRequest(gemini);
+
+    assert.equal(result.model, FALLBACK_MODEL);
+    assert.deepEqual(calls.map((call) => call.model), [
+      PRIMARY_MODEL,
+      PRIMARY_MODEL,
+      PRIMARY_MODEL,
+      FALLBACK_MODEL
+    ]);
+    assert.deepEqual(waits, [750, 1500]);
+    assert.ok(calls.slice(0, 3).every((call) => call.requestOptions.signal.aborted));
+    assert.equal(calls[3].requestOptions.signal.aborted, false);
+    assert.ok(calls.every((call, index) =>
+      calls.slice(index + 1).every((nextCall) =>
+        call.requestOptions.signal !== nextCall.requestOptions.signal
+      )
+    ));
+    assert.equal(infos[0][0], "[GEMINI_CHAT_FALLBACK_SUCCESS]");
+    assert.match(infos[0][1], new RegExp(FALLBACK_MODEL));
+  }, async () => successfulResult(), { abortOnCalls: [1, 2, 3] });
+});
+
+test("chat returns temporary unavailability when both models time out", async () => {
+  const gemini = loadGeminiService(FALLBACK_MODEL);
+  await withProviderMocks(async ({ calls, errors }) => {
+    await assert.rejects(makeChatRequest(gemini), (error) => {
+      assert.equal(error.message, "The AI assistant is temporarily busy. Please try again in a moment.");
+      assert.equal(error.statusCode, 502);
+      assert.equal(error.temporarilyUnavailable, true);
+      assert.equal(error.providerRetryCount, 2);
+      return true;
+    });
+
+    assert.deepEqual(calls.map((call) => call.model), [
+      PRIMARY_MODEL,
+      PRIMARY_MODEL,
+      PRIMARY_MODEL,
+      FALLBACK_MODEL
+    ]);
+    assert.equal(calls[3].requestOptions.signal.aborted, true);
+    assert.equal(errors.length, 2);
+    const fallbackDiagnostic = JSON.parse(errors[1][1]);
+    assert.equal(fallbackDiagnostic.model, FALLBACK_MODEL);
+    assert.equal(fallbackDiagnostic.httpStatus, null);
+    assert.equal(fallbackDiagnostic.retryCount, 0);
+    assert.equal(fallbackDiagnostic.temporarilyUnavailable, true);
+  }, async () => successfulResult(), { abortOnCalls: [1, 2, 3, 4] });
+});
+
+test("chat retries recognized Node.js timeout codes", async () => {
+  const gemini = loadGeminiService(FALLBACK_MODEL);
+  await withProviderMocks(async ({ calls }) => {
+    const result = await makeChatRequest(gemini);
+
+    assert.equal(result.model, PRIMARY_MODEL);
+    assert.deepEqual(calls.map((call) => call.model), [PRIMARY_MODEL, PRIMARY_MODEL]);
+  }, async (model, callNumber) => {
+    if (callNumber === 1) {
+      throw Object.assign(new Error("Socket timed out"), {
+        code: "UND_ERR_CONNECT_TIMEOUT"
       });
     }
     return successfulResult();
@@ -258,10 +359,12 @@ test("successful chat fallback persists the conversation once", async () => {
       assert.equal(conversation.messages.length, 2);
     }, async (model) => {
       if (model === PRIMARY_MODEL) {
-        throw Object.assign(new Error("Provider unavailable"), { status: 503 });
+        throw new GoogleGenerativeAIAbortError(
+          "Request aborted when fetching: This operation was aborted"
+        );
       }
       return successfulResult();
-    });
+    }, { abortOnCalls: [1, 2, 3] });
   } finally {
     AIConversation.findById = originals.findById;
     AIConversation.prototype.save = originals.save;
