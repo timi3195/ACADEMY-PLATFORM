@@ -1,4 +1,7 @@
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+const {
+  GoogleGenerativeAI,
+  GoogleGenerativeAIAbortError
+} = require("@google/generative-ai");
 const User = require("../models/User");
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -13,7 +16,26 @@ const MAX_PROVIDER_RETRIES = 2;
 const PROVIDER_RETRY_BASE_DELAY_MS = 750;
 const CHAT_PROVIDER_REQUEST_TIMEOUT_MS = 6500;
 const RETRYABLE_PROVIDER_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
-const RETRYABLE_NETWORK_CODES = new Set(["ECONNRESET", "ETIMEDOUT", "EAI_AGAIN", "ECONNREFUSED"]);
+const RETRYABLE_NETWORK_CODES = new Set([
+  "ECONNRESET",
+  "ETIMEDOUT",
+  "ESOCKETTIMEDOUT",
+  "EAI_AGAIN",
+  "ECONNREFUSED",
+  "ECONNABORTED",
+  "ABORT_ERR",
+  "ERR_ABORTED",
+  "UND_ERR_ABORTED",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "ERR_SOCKET_CONNECTION_TIMEOUT"
+]);
+const RETRYABLE_ABORT_NAMES = new Set([
+  "AbortError",
+  "TimeoutError",
+  "GoogleGenerativeAIAbortError"
+]);
 const quotaReservations = new WeakMap();
 const LEARNING_PATH_ACTIVITY_TYPES = new Set([
   "read-notes",
@@ -136,13 +158,27 @@ const getProviderErrorMessage = (error, sensitiveValues) => {
   return safeDiagnosticText(message, sensitiveValues);
 };
 
+const hasRetryableAbortOrNetworkCause = (error) => {
+  const visited = new Set();
+  let current = error;
+  while (current && typeof current === "object" && !visited.has(current)) {
+    visited.add(current);
+    if (
+      current instanceof GoogleGenerativeAIAbortError ||
+      RETRYABLE_ABORT_NAMES.has(current.name) ||
+      RETRYABLE_NETWORK_CODES.has(current.code)
+    ) {
+      return true;
+    }
+    current = current.cause;
+  }
+  return false;
+};
+
 const isRetryableProviderError = (error) => {
   const status = Number(error?.statusCode || error?.status || error?.response?.status);
-  const code = error?.code || error?.cause?.code;
   return RETRYABLE_PROVIDER_STATUSES.has(status) ||
-    error?.name === "AbortError" ||
-    error?.name === "TimeoutError" ||
-    (typeof code === "string" && RETRYABLE_NETWORK_CODES.has(code));
+    hasRetryableAbortOrNetworkCause(error);
 };
 
 const retryProviderRequest = async (request, wait = (milliseconds) =>
@@ -206,6 +242,7 @@ const providerFailure = (error, code = "AI_PROVIDER_ERROR", context = {}) => {
     googleErrorStatus,
     providerCode,
     retryCount,
+    temporarilyUnavailable,
     errorDetails: details
   };
   console.error("[GEMINI_PROVIDER_FAILURE]", JSON.stringify(diagnostic));
