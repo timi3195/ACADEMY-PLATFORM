@@ -85,7 +85,52 @@ const reserveGeminiQuota = async (userId, prompts, maxPromptLength) => {
   return reservation;
 };
 
-const providerFailure = (error, code = "AI_PROVIDER_ERROR") => {
+const safeDiagnosticText = (value, sensitiveValues = [], maxLength = 500) => {
+  if (typeof value !== "string") return "";
+  let text = value;
+  for (const sensitiveValue of [...new Set(sensitiveValues.filter((item) =>
+    typeof item === "string" && item.length >= 4
+  ))].sort((left, right) => right.length - left.length)) {
+    text = text.split(sensitiveValue).join("[REDACTED_REQUEST_CONTENT]");
+  }
+  return text
+    .replace(/https?:\/\/[^\s]+/gi, "[REDACTED_URL]")
+    .replace(/AIza[0-9A-Za-z_-]{20,}/g, "[REDACTED_API_KEY]")
+    .replace(/\bBearer\s+\S+/gi, "Bearer [REDACTED]")
+    .replace(/\b(api[_-]?key|key|authorization)\s*[:=]\s*["']?[^\s,"'}]+/gi, "$1=[REDACTED]")
+    .replace(/mongodb(?:\+srv)?:\/\/[^\s]+/gi, "[REDACTED_DATABASE_URI]")
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[REDACTED_EMAIL]")
+    .slice(0, maxLength);
+};
+
+const safeErrorDetail = (detail) => {
+  if (!detail || typeof detail !== "object" || Array.isArray(detail)) return null;
+  const safe = {};
+  for (const field of ["@type", "reason", "domain", "status", "code", "field"]) {
+    const value = detail[field];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      safe[field] = value;
+    } else if (typeof value === "string" && /^[A-Za-z0-9_./:-]{1,160}$/.test(value)) {
+      safe[field] = value;
+    }
+  }
+  return Object.keys(safe).length ? safe : null;
+};
+
+const getProviderErrorMessage = (error, sensitiveValues) => {
+  let message = typeof error?.message === "string" ? error.message : "";
+  const sdkMessage = message.match(/:\s*\[\d{3}\s+[^\]]+\]\s*([\s\S]*)$/);
+  if (sdkMessage) message = sdkMessage[1];
+  if (Array.isArray(error?.errorDetails) && error.errorDetails.length) {
+    const serializedDetails = JSON.stringify(error.errorDetails);
+    if (message.endsWith(serializedDetails)) {
+      message = message.slice(0, -serializedDetails.length).trim();
+    }
+  }
+  return safeDiagnosticText(message, sensitiveValues);
+};
+
+const providerFailure = (error, code = "AI_PROVIDER_ERROR", context = {}) => {
   const providerStatus = Number(error?.statusCode || error?.status || error?.response?.status);
   const normalizedStatus = Number.isInteger(providerStatus) && providerStatus >= 100 && providerStatus <= 599
     ? providerStatus
@@ -95,11 +140,46 @@ const providerFailure = (error, code = "AI_PROVIDER_ERROR") => {
     /^[A-Z][A-Z0-9_]{0,63}$/.test(rawProviderCode)
     ? rawProviderCode
     : "";
+  const sensitiveValues = [
+    GEMINI_API_KEY,
+    context.systemInstruction,
+    ...(Array.isArray(context.contents)
+      ? context.contents.flatMap((content) =>
+        (content.parts || []).map((part) => typeof part.text === "string" ? part.text : "")
+      )
+      : [])
+  ];
+  const details = Array.isArray(error?.errorDetails)
+    ? error.errorDetails.map(safeErrorDetail).filter(Boolean).slice(0, 10)
+    : [];
+  const googleErrorCode = Number.isFinite(error?.googleErrorCode)
+    ? error.googleErrorCode
+    : null;
+  const googleErrorStatus = typeof error?.googleErrorStatus === "string" &&
+    /^[A-Z][A-Z0-9_]{0,63}$/.test(error.googleErrorStatus)
+    ? error.googleErrorStatus
+    : "";
+  const providerMessage = getProviderErrorMessage(error, sensitiveValues);
+  const diagnostic = {
+    model: safeDiagnosticText(context.model || GEMINI_MODEL, [], 100),
+    httpStatus: normalizedStatus,
+    httpStatusText: safeDiagnosticText(error?.statusText || "", [], 100),
+    googleErrorMessage: providerMessage,
+    googleErrorCode,
+    googleErrorStatus,
+    providerCode,
+    errorDetails: details
+  };
+  console.error("[GEMINI_PROVIDER_FAILURE]", JSON.stringify(diagnostic));
   const wrapped = new Error("Gemini provider request failed.");
   wrapped.code = code;
   wrapped.statusCode = normalizedStatus || 502;
   wrapped.providerStatus = normalizedStatus;
   wrapped.providerCode = providerCode;
+  wrapped.providerMessage = providerMessage;
+  wrapped.googleErrorCode = googleErrorCode;
+  wrapped.googleErrorStatus = googleErrorStatus;
+  wrapped.providerErrorDetails = details;
   return wrapped;
 };
 
@@ -122,13 +202,13 @@ const requestGemini = async (contents, systemInstruction, userId, generation = {
     await consumeQuota(userId, prompt, generation.maxPromptLength || MAX_PROMPT_LENGTH);
   }
 
-  const client = new GoogleGenerativeAI(GEMINI_API_KEY);
-  const model = client.getGenerativeModel({
-    model: GEMINI_MODEL,
-    systemInstruction
-  });
   let result;
   try {
+    const client = new GoogleGenerativeAI(GEMINI_API_KEY);
+    const model = client.getGenerativeModel({
+      model: GEMINI_MODEL,
+      systemInstruction
+    });
     result = await model.generateContent({
       contents,
       generationConfig: {
@@ -137,7 +217,11 @@ const requestGemini = async (contents, systemInstruction, userId, generation = {
       }
     });
   } catch (error) {
-    throw providerFailure(error);
+    throw providerFailure(error, "AI_PROVIDER_ERROR", {
+      model: GEMINI_MODEL,
+      contents,
+      systemInstruction
+    });
   }
   const response = result.response;
   const finishReason = response.candidates?.[0]?.finishReason ||
@@ -147,7 +231,11 @@ const requestGemini = async (contents, systemInstruction, userId, generation = {
   try {
     text = response.text()?.trim();
   } catch (error) {
-    const wrapped = providerFailure(error, "AI_RESPONSE_UNAVAILABLE");
+    const wrapped = providerFailure(error, "AI_RESPONSE_UNAVAILABLE", {
+      model: GEMINI_MODEL,
+      contents,
+      systemInstruction
+    });
     wrapped.finishReason = finishReason;
     throw wrapped;
   }
@@ -546,3 +634,4 @@ module.exports.buildSystemInstruction = buildSystemInstruction;
 module.exports.buildQuestionStructuringPrompt = buildQuestionStructuringPrompt;
 module.exports.parseLearningPathResponse = parseLearningPathResponse;
 module.exports.validateLearningPathOutput = validateLearningPathOutput;
+module.exports.providerFailure = providerFailure;
