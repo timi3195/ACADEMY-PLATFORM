@@ -10,22 +10,14 @@ const protect = require("../config/middleware/authMiddleware");
 const { getCourseAccess } = require("../services/questionAccessService");
 const storageService = require("../services/storageService");
 const imageValidation = require("../services/questionImageValidationService");
-const ocrService = require("../services/ocrService");
-const questionStructuringService = require("../services/questionStructuringService");
+const { getOcrPages } = require("../services/questionExtractionProcessingService");
 const questionExtractionReviewService = require("../services/questionExtractionReviewService");
 const questionMarkingService = require("../services/questionMarkingService");
 
 const router = express.Router();
-const PROCESSING_LOCK_MS = 30 * 60 * 1000;
 const MAX_RETRIES = 5;
-const MAX_ACTIVE_PROCESSING = 2;
 const MAX_ACTIVE_UPLOADS = 2;
-const UPLOAD_SEMAPHORE = { active: 0 };
 const ACTIVE_UPLOADS = { count: 0 };
-const RETRYABLE_STATUSES = {
-  ocr: ["uploaded", "failed", "partially_failed"],
-  structuring: ["extracted", "failed", "partially_failed"]
-};
 const configuredDailyLimit = Number(process.env.QUESTION_EXTRACTION_DAILY_BATCH_LIMIT);
 const MAX_DAILY_BATCHES = Number.isInteger(configuredDailyLimit) && configuredDailyLimit > 0 && configuredDailyLimit <= 100
   ? configuredDailyLimit
@@ -128,6 +120,8 @@ const toSummary = (batch) => ({
   imageCount: batch.images?.length || 0,
   questionCount: batch.drafts?.length || 0,
   retryCount: batch.retryCount,
+  processingAttemptCount: batch.processingAttemptCount || 0,
+  nextAttemptAt: batch.nextAttemptAt || null,
   processingRetryAfter: batch.processingLockUntil || null,
   processingErrors: batch.processingErrors || [],
   reviewStatus: batch.reviewStatus || "pending",
@@ -168,64 +162,6 @@ const authorizeBatch = async (req, res, batchId) => {
   return batch;
 };
 
-const streamToBuffer = async (stream, maximumBytes) => {
-  const chunks = [];
-  let total = 0;
-  for await (const chunk of stream) {
-    total += chunk.length;
-    if (total > maximumBytes) throw new Error("Stored image exceeds the processing limit.");
-    chunks.push(chunk);
-  }
-  return Buffer.concat(chunks, total);
-};
-
-const loadImageBuffer = async (image) => {
-  const stream = await storageService.getObjectReadStream(image);
-  return streamToBuffer(stream, imageValidation.MAX_IMAGE_BYTES);
-};
-
-const publicProcessingError = (stage) => stage === "ocr"
-  ? "OCR could not read one or more images. The original images remain available for retry."
-  : "AI structuring could not finish. Saved OCR text is preserved; retry structuring or use a smaller source batch.";
-
-const appendProcessingError = (batch, stage, message, imageId = null, details = {}) => {
-  batch.processingErrors.push({
-    stage,
-    imageId,
-    category: details.category || "",
-    providerStatus: details.providerStatus ?? null,
-    chunkIndex: details.chunkIndex ?? null,
-    message,
-    occurredAt: new Date()
-  });
-};
-
-const logProcessingFailure = ({ stage, provider, failure, model = "" }) => {
-  console.error("[QUESTION_EXTRACTION_PROCESSING_FAILURE]", JSON.stringify({
-    stage,
-    category: failure.category || "processing_error",
-    provider,
-    providerStatus: failure.providerStatus || null,
-    providerCode: failure.providerCode || "",
-    model,
-    chunkIndex: failure.chunkIndex || null,
-    chunkCount: failure.chunkCount || null,
-    sourceCharacterCount: failure.sourceCharacterCount || 0,
-    outputCharacterCount: failure.outputCharacterCount ?? null,
-    outputTokenCount: failure.outputTokenCount ?? null,
-    finishReason: failure.finishReason || ""
-  }));
-};
-
-const publicFailureFromError = (error) => {
-  const failure = questionStructuringService.classifyStructuringError(error);
-  if (error?.code === "STRUCTURING_PERSISTENCE_FAILED") {
-    failure.category = "persistence_error";
-    failure.message = "A completed structuring section could not be saved. OCR text is preserved; retry the unfinished work.";
-  }
-  return failure;
-};
-
 const persistDraftMarkingStatus = async (batchId, draftId, marking) => {
   const result = await QuestionExtraction.updateOne({
     batchId,
@@ -238,247 +174,6 @@ const persistDraftMarkingStatus = async (batchId, draftId, marking) => {
   }, { runValidators: true });
   if (result.matchedCount !== 1) {
     throw new Error("The approved question's marking status could not be saved.");
-  }
-};
-
-const getOcrPages = (batch) => (batch.images || [])
-  .map((image, index) => ({
-    imageId: idOf(image._id),
-    pageNumber: index + 1,
-    text: String(image.ocrText || ""),
-    confidence: image.ocrConfidence
-  }))
-  .filter((page) => page.text.trim());
-
-const updateAggregateOcrText = (batch) => {
-  batch.ocrText = (batch.images || [])
-    .map((image, index) => image.ocrText
-      ? `[IMAGE ${index + 1}]\n${image.ocrText}`
-      : "")
-    .filter(Boolean)
-    .join("\n\n");
-};
-
-const persistProcessingBatch = async (batch, token) => {
-  const values = typeof batch.toObject === "function"
-    ? batch.toObject({ depopulate: true })
-    : { ...batch };
-  delete values._id;
-  delete values.__v;
-  values.updatedAt = new Date();
-
-  const result = await QuestionExtraction.updateOne(
-    { _id: batch._id, processingLockToken: token },
-    { $set: values },
-    { runValidators: true }
-  );
-  if (result.matchedCount !== 1) {
-    const error = new Error("Question extraction processing lease was replaced.");
-    error.code = "EXTRACTION_PROCESSING_LEASE_LOST";
-    throw error;
-  }
-  batch.updatedAt = values.updatedAt;
-};
-
-const processBatch = async ({ batchId, stage, isRetry = false }) => {
-  if (UPLOAD_SEMAPHORE.active >= MAX_ACTIVE_PROCESSING) return { accepted: false };
-  UPLOAD_SEMAPHORE.active += 1;
-  const token = crypto.randomUUID();
-
-  try {
-    const now = new Date();
-    const claimFilter = {
-      batchId,
-      $or: [
-        { status: { $in: RETRYABLE_STATUSES[stage] } },
-        { status: "processing", processingLockUntil: { $lte: now } }
-      ]
-    };
-    if (isRetry) claimFilter.retryCount = { $lt: MAX_RETRIES };
-
-    const batch = await QuestionExtraction.findOneAndUpdate(claimFilter, {
-      $set: {
-        status: "processing",
-        processingStage: stage,
-        processingLockToken: token,
-        processingLockUntil: new Date(now.getTime() + PROCESSING_LOCK_MS)
-      },
-      ...(isRetry ? { $inc: { retryCount: 1 } } : {})
-    }, { new: true });
-
-    if (!batch) return { accepted: false };
-    batch.processingErrors = (batch.processingErrors || []).filter((entry) =>
-      stage === "ocr" ? !["ocr", "structuring"].includes(entry.stage) : entry.stage !== "structuring"
-    );
-
-    if (stage === "ocr") {
-      const inputs = [];
-      for (const image of batch.images.filter((entry) => entry.ocrStatus !== "succeeded")) {
-        try {
-          inputs.push({ imageId: idOf(image._id), buffer: await loadImageBuffer(image) });
-        } catch {
-          image.ocrStatus = "failed";
-          image.ocrError = publicProcessingError("ocr");
-          appendProcessingError(batch, "ocr", image.ocrError, image._id);
-          await persistProcessingBatch(batch, token);
-        }
-      }
-
-      const results = inputs.length
-        ? await ocrService.recognizeImages(inputs, async (result) => {
-          const image = batch.images.find((item) => idOf(item._id) === String(result.imageId));
-          if (!image) return;
-          if (result.error || !String(result.text || "").trim()) {
-            image.ocrStatus = "failed";
-            image.ocrError = publicProcessingError("ocr");
-            appendProcessingError(batch, "ocr", image.ocrError, image._id);
-          } else {
-            image.ocrStatus = "succeeded";
-            image.ocrText = result.text;
-            image.ocrConfidence = result.confidence;
-            image.ocrProvider = result.provider;
-            image.ocrVersion = result.version;
-            image.ocrError = "";
-          }
-          await persistProcessingBatch(batch, token);
-        })
-        : [];
-      const completedImageIds = new Set(results.map((result) => String(result.imageId)));
-      for (const input of inputs) {
-        if (completedImageIds.has(String(input.imageId))) continue;
-        const image = batch.images.find((item) => idOf(item._id) === String(input.imageId));
-        if (!image) continue;
-        image.ocrStatus = "failed";
-        image.ocrError = publicProcessingError("ocr");
-        appendProcessingError(batch, "ocr", image.ocrError, image._id);
-      }
-
-      const provider = ocrService.getProviderInfo();
-      batch.ocrProvider = provider.provider;
-      batch.ocrVersion = provider.version;
-      updateAggregateOcrText(batch);
-      batch.status = "extracted";
-      batch.processingStage = "structuring";
-      await persistProcessingBatch(batch, token);
-    } else {
-      updateAggregateOcrText(batch);
-    }
-
-    const pages = getOcrPages(batch);
-    if (!pages.length) {
-      batch.status = "failed";
-      appendProcessingError(batch, "ocr", "No readable OCR text is available. Retry OCR or upload clearer images.");
-    } else {
-      try {
-        const structured = await questionStructuringService.structureQuestionDrafts({
-          pages,
-          userId: String(batch.uploadedBy),
-          completedChunkKeys: batch.structuringCompletedChunks || [],
-          existingDrafts: batch.drafts || [],
-          onChunkSuccess: async (section) => {
-            batch.drafts = questionStructuringService.mergeUniqueDrafts(
-              batch.drafts,
-              section.drafts
-            );
-            batch.structuringCompletedChunks = [
-              ...new Set([...(batch.structuringCompletedChunks || []), section.chunkKey])
-            ];
-            batch.structuringWarnings = [
-              ...new Set([...(batch.structuringWarnings || []), ...(section.warnings || [])])
-            ];
-            batch.aiProvider = section.provider;
-            batch.aiModel = section.model;
-            try {
-              await persistProcessingBatch(batch, token);
-            } catch (error) {
-              error.code = "STRUCTURING_PERSISTENCE_FAILED";
-              throw error;
-            }
-          }
-        });
-        batch.drafts = questionStructuringService.mergeUniqueDrafts(
-          batch.drafts,
-          structured.drafts
-        );
-        batch.structuringCompletedChunks = [
-          ...new Set([
-            ...(batch.structuringCompletedChunks || []),
-            ...(structured.completedChunkKeys || [])
-          ])
-        ];
-        batch.aiProvider = structured.provider || batch.aiProvider || "gemini";
-        batch.aiModel = structured.model || batch.aiModel;
-        batch.structuringWarnings = [
-          ...new Set([...(batch.structuringWarnings || []), ...(structured.warnings || [])])
-        ];
-        const failedImages = batch.images.some((image) => image.ocrStatus !== "succeeded");
-        const failures = structured.failures || [];
-        for (const failure of failures) {
-          appendProcessingError(batch, "structuring", failure.message, null, failure);
-          logProcessingFailure({
-            stage: "structuring",
-            provider: "gemini",
-            failure,
-            model: batch.aiModel
-          });
-        }
-        batch.status = failedImages || failures.length ? "partially_failed" : "needs_review";
-      } catch (error) {
-        const failure = publicFailureFromError(error);
-        batch.status = "partially_failed";
-        appendProcessingError(batch, "structuring", failure.message, null, failure);
-        logProcessingFailure({
-          stage: "structuring",
-          provider: "gemini",
-          failure,
-          model: batch.aiModel
-        });
-      }
-    }
-
-    batch.processingStage = "none";
-    batch.processingLockToken = "";
-    batch.processingLockUntil = null;
-    await persistProcessingBatch(batch, token);
-    return { accepted: true, batch };
-  } catch (error) {
-    const batch = await QuestionExtraction.findOne({ batchId, processingLockToken: token });
-    const message = error.code === "OCR_LANGUAGE_DATA_UNAVAILABLE"
-      ? error.message
-      : error.code === "STRUCTURING_PERSISTENCE_FAILED"
-        ? "A completed structuring section could not be saved. OCR text is preserved; retry the unfinished work."
-        : publicProcessingError(stage);
-    if (batch) {
-      updateAggregateOcrText(batch);
-      batch.status = batch.ocrText ? "partially_failed" : "failed";
-      batch.processingStage = "none";
-      batch.processingLockToken = "";
-      batch.processingLockUntil = null;
-      appendProcessingError(batch, stage, message);
-      await persistProcessingBatch(batch, token);
-    } else if (error.code === "EXTRACTION_PROCESSING_LEASE_LOST") {
-      return { accepted: false, leaseLost: true };
-    }
-    const failure = {
-      category: error.code === "OCR_LANGUAGE_DATA_UNAVAILABLE"
-        ? "configuration"
-        : error.code === "STRUCTURING_PERSISTENCE_FAILED"
-          ? "persistence_error"
-          : error.code === "EXTRACTION_PROCESSING_LEASE_LOST"
-            ? "lease_lost"
-            : "processing_error",
-      providerStatus: Number.isInteger(error.statusCode) ? error.statusCode : null,
-      providerCode: typeof error.code === "string" ? error.code.slice(0, 64) : "",
-      message: message
-    };
-    logProcessingFailure({
-      stage,
-      provider: stage === "ocr" ? "tesseract.js" : "gemini",
-      failure
-    });
-    return { accepted: true, processingFailed: true };
-  } finally {
-    UPLOAD_SEMAPHORE.active -= 1;
   }
 };
 
@@ -554,11 +249,11 @@ router.get("/", async (req, res) => {
     const page = Math.max(1, Math.min(10000, Number.parseInt(req.query.page, 10) || 1));
     const limit = Math.max(1, Math.min(50, Number.parseInt(req.query.limit, 10) || 20));
     const filter = {};
-    if (req.query.status && ["uploaded", "processing", "extracted", "needs_review", "partially_failed", "failed"].includes(req.query.status)) {
+    if (req.query.status && ["uploaded", "queued", "processing", "extracted", "needs_review", "partially_failed", "failed", "approved"].includes(req.query.status)) {
       filter.status = req.query.status;
     }
     const batches = await QuestionExtraction.find(filter)
-      .select("batchId course department academicLevel semester academicSession sourceExamYear sourcePaper sourcePaperMetadata status processingStage images drafts retryCount processingLockUntil processingErrors createdAt updatedAt")
+      .select("batchId course department academicLevel semester academicSession sourceExamYear sourcePaper sourcePaperMetadata status processingStage images drafts retryCount processingAttemptCount nextAttemptAt processingLockUntil processingErrors createdAt updatedAt")
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
@@ -681,17 +376,25 @@ router.post("/", checkDailyUploadLimit, uploadImages, async (req, res) => {
       sourcePaper: sourcePaper?._id || null,
       sourcePaperMetadata,
       images: imageRecords,
-      status: "uploaded",
+      status: "queued",
+      processingStage: "ocr",
+      processingAttemptCount: 0,
+      nextAttemptAt: new Date(),
       reviewStatus: "pending"
     });
     batchPersisted = true;
+    console.log(JSON.stringify({
+      event: "question_extraction_job_enqueued",
+      batchId,
+      stage: "ocr",
+      timestamp: new Date().toISOString()
+    }));
 
-    const processing = await processBatch({ batchId, stage: "ocr" });
-    const refreshed = processing.batch || await QuestionExtraction.findOne({ batchId });
-    if (!processing.accepted) {
-      return res.status(202).json({ success: true, batch: toBatchView(refreshed), message: "Batch is saved and waiting for an available processor." });
-    }
-    return res.status(201).json({ success: true, batch: toBatchView(refreshed) });
+    return res.status(202).json({
+      success: true,
+      batch: toBatchView(batch),
+      message: "Batch saved and queued for OCR processing."
+    });
   } catch (error) {
     if (!batchPersisted) {
       await Promise.all(storedImages.map(async (image) => {
@@ -866,6 +569,9 @@ router.post("/:batchId/retry", async (req, res) => {
     if (batch.status === "needs_review" || batch.status === "approved") {
       return res.status(409).json({ success: false, message: "This batch has completed extraction and does not need retry." });
     }
+    if (batch.status === "queued") {
+      return res.status(409).json({ success: false, message: "This extraction batch is already queued." });
+    }
     if (batch.retryCount >= MAX_RETRIES) {
       return res.status(429).json({ success: false, message: "Maximum extraction retries reached." });
     }
@@ -877,16 +583,40 @@ router.post("/:batchId/retry", async (req, res) => {
     if (stage === "structuring" && !getOcrPages(batch).length) {
       return res.status(409).json({ success: false, message: "OCR text is unavailable. Retry OCR first." });
     }
-    if (UPLOAD_SEMAPHORE.active >= MAX_ACTIVE_PROCESSING) {
-      return res.status(429).json({ success: false, message: "Extraction processors are busy. Please retry shortly." });
+    const now = new Date();
+    const queued = await QuestionExtraction.findOneAndUpdate({
+      _id: batch._id,
+      retryCount: { $lt: MAX_RETRIES },
+      $or: [
+        { status: { $in: ["uploaded", "extracted", "failed", "partially_failed"] } },
+        { status: { $in: ["processing", "extracted"] }, processingLockUntil: { $lte: now } }
+      ]
+    }, {
+      $set: {
+        status: "queued",
+        processingStage: stage,
+        processingLockToken: "",
+        processingLockUntil: null,
+        processingLeaseHeartbeatAt: null,
+        processingAttemptCount: 0,
+        nextAttemptAt: now
+      },
+      $inc: { retryCount: 1 }
+    }, { new: true });
+    if (!queued) {
+      return res.status(409).json({ success: false, message: "This extraction batch is already processing or queued." });
     }
-
-    const processing = await processBatch({ batchId: batch.batchId, stage, isRetry: true });
-    const refreshed = processing.batch || await QuestionExtraction.findOne({ batchId: batch.batchId });
-    if (!processing.accepted) {
-      return res.status(409).json({ success: false, message: "This extraction batch is already processing." });
-    }
-    return res.json({ success: true, batch: toBatchView(refreshed) });
+    console.log(JSON.stringify({
+      event: "question_extraction_retry_enqueued",
+      batchId: batch.batchId,
+      stage,
+      timestamp: new Date().toISOString()
+    }));
+    return res.status(202).json({
+      success: true,
+      batch: toBatchView(queued),
+      message: "Retry scheduled for background processing."
+    });
   } catch (error) {
     return replyError(res, error);
   }
