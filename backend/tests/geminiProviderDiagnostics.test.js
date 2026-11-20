@@ -97,7 +97,7 @@ test("temporary provider failures retry with exponential backoff and eventually 
 
   assert.equal(result, "completed");
   assert.equal(calls, 3);
-  assert.deepEqual(waits, [250, 500]);
+  assert.deepEqual(waits, [750, 1500]);
 });
 
 test("temporary provider failures stop after two retries and retain the retry count", async () => {
@@ -116,7 +116,7 @@ test("temporary provider failures stop after two retries and retain the retry co
   );
 
   assert.equal(calls, 3);
-  assert.deepEqual(waits, [250, 500]);
+  assert.deepEqual(waits, [750, 1500]);
 });
 
 test("permanent provider errors are not retried", async () => {

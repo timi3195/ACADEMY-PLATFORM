@@ -3,13 +3,15 @@ const User = require("../models/User");
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+const GEMINI_CHAT_FALLBACK_MODEL = (process.env.GEMINI_CHAT_FALLBACK_MODEL || "").trim();
 const MAX_PROMPT_LENGTH = 12000;
 const MAX_OUTPUT_TOKENS = 800;
 const DAILY_REQUEST_LIMIT = 50;
 const MONTHLY_REQUEST_LIMIT = 1000;
 const MIN_REQUEST_INTERVAL_MS = 10000;
 const MAX_PROVIDER_RETRIES = 2;
-const PROVIDER_RETRY_BASE_DELAY_MS = 250;
+const PROVIDER_RETRY_BASE_DELAY_MS = 750;
+const CHAT_PROVIDER_REQUEST_TIMEOUT_MS = 6500;
 const RETRYABLE_PROVIDER_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const RETRYABLE_NETWORK_CODES = new Set(["ECONNRESET", "ETIMEDOUT", "EAI_AGAIN", "ECONNREFUSED"]);
 const quotaReservations = new WeakMap();
@@ -138,6 +140,8 @@ const isRetryableProviderError = (error) => {
   const status = Number(error?.statusCode || error?.status || error?.response?.status);
   const code = error?.code || error?.cause?.code;
   return RETRYABLE_PROVIDER_STATUSES.has(status) ||
+    error?.name === "AbortError" ||
+    error?.name === "TimeoutError" ||
     (typeof code === "string" && RETRYABLE_NETWORK_CODES.has(code));
 };
 
@@ -194,7 +198,7 @@ const providerFailure = (error, code = "AI_PROVIDER_ERROR", context = {}) => {
     : 0;
   const temporarilyUnavailable = isRetryableProviderError(error);
   const diagnostic = {
-    model: safeDiagnosticText(context.model || GEMINI_MODEL, [], 100),
+    model: safeDiagnosticText(context.model || GEMINI_MODEL, [GEMINI_API_KEY], 100),
     httpStatus: normalizedStatus,
     httpStatusText: safeDiagnosticText(error?.statusText || "", [], 100),
     googleErrorMessage: providerMessage,
@@ -240,26 +244,64 @@ const requestGemini = async (contents, systemInstruction, userId, generation = {
     await consumeQuota(userId, prompt, generation.maxPromptLength || MAX_PROMPT_LENGTH);
   }
 
+  const client = new GoogleGenerativeAI(GEMINI_API_KEY);
+  const generateWithModel = async (modelName, shouldRetry) => {
+    try {
+      const model = client.getGenerativeModel({
+        model: modelName,
+        systemInstruction
+      });
+      const request = () => {
+        const requestBody = {
+          contents,
+          generationConfig: {
+            maxOutputTokens: generation.maxOutputTokens || MAX_OUTPUT_TOKENS,
+            ...(generation.responseMimeType ? { responseMimeType: generation.responseMimeType } : {})
+          }
+        };
+        if (!generation.allowChatFallback) return model.generateContent(requestBody);
+
+        const controller = new AbortController();
+        const timeout = setTimeout(
+          () => controller.abort(),
+          CHAT_PROVIDER_REQUEST_TIMEOUT_MS
+        );
+        return model.generateContent(requestBody, { signal: controller.signal })
+          .finally(() => clearTimeout(timeout));
+      };
+      return await (shouldRetry ? retryProviderRequest(request) : request());
+    } catch (error) {
+      throw providerFailure(error, "AI_PROVIDER_ERROR", {
+        model: modelName,
+        contents,
+        systemInstruction
+      });
+    }
+  };
+
   let result;
+  let modelUsed = GEMINI_MODEL;
   try {
-    const client = new GoogleGenerativeAI(GEMINI_API_KEY);
-    const model = client.getGenerativeModel({
-      model: GEMINI_MODEL,
-      systemInstruction
-    });
-    result = await retryProviderRequest(() => model.generateContent({
-      contents,
-      generationConfig: {
-        maxOutputTokens: generation.maxOutputTokens || MAX_OUTPUT_TOKENS,
-        ...(generation.responseMimeType ? { responseMimeType: generation.responseMimeType } : {})
-      }
-    }));
-  } catch (error) {
-    throw providerFailure(error, "AI_PROVIDER_ERROR", {
-      model: GEMINI_MODEL,
-      contents,
-      systemInstruction
-    });
+    result = await generateWithModel(GEMINI_MODEL, true);
+  } catch (primaryError) {
+    const shouldUseChatFallback = generation.allowChatFallback &&
+      GEMINI_CHAT_FALLBACK_MODEL &&
+      GEMINI_CHAT_FALLBACK_MODEL !== GEMINI_MODEL &&
+      primaryError.temporarilyUnavailable;
+    if (!shouldUseChatFallback) throw primaryError;
+
+    try {
+      result = await generateWithModel(GEMINI_CHAT_FALLBACK_MODEL, false);
+      modelUsed = GEMINI_CHAT_FALLBACK_MODEL;
+      console.info("[GEMINI_CHAT_FALLBACK_SUCCESS]", JSON.stringify({
+        primaryModel: safeDiagnosticText(GEMINI_MODEL, [GEMINI_API_KEY], 100),
+        model: safeDiagnosticText(modelUsed, [GEMINI_API_KEY], 100),
+        primaryHttpStatus: primaryError.providerStatus,
+        primaryRetryCount: primaryError.providerRetryCount
+      }));
+    } catch {
+      throw primaryError;
+    }
   }
   const response = result.response;
   const finishReason = response.candidates?.[0]?.finishReason ||
@@ -270,7 +312,7 @@ const requestGemini = async (contents, systemInstruction, userId, generation = {
     text = response.text()?.trim();
   } catch (error) {
     const wrapped = providerFailure(error, "AI_RESPONSE_UNAVAILABLE", {
-      model: GEMINI_MODEL,
+      model: modelUsed,
       contents,
       systemInstruction
     });
@@ -293,7 +335,8 @@ const requestGemini = async (contents, systemInstruction, userId, generation = {
       total: response.usageMetadata?.totalTokenCount || 0
     },
     cost: 0,
-    finishReason
+    finishReason,
+    model: modelUsed
   };
 };
 
@@ -444,7 +487,15 @@ class GeminiService {
       role: message.role === "assistant" ? "model" : "user",
       parts: [{ text: message.content }]
     }));
-    return { success: true, ...(await requestGemini(contents, buildSystemInstruction(courseContext), userId)) };
+    return {
+      success: true,
+      ...(await requestGemini(
+        contents,
+        buildSystemInstruction(courseContext),
+        userId,
+        { allowChatFallback: true }
+      ))
+    };
   }
 
   async explainQuestion(question, correctAnswer, courseContext, userId) {
