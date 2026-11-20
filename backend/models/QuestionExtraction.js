@@ -109,6 +109,9 @@ const questionExtractionSchema = new mongoose.Schema({
   processingErrors: [{
     stage: { type: String, enum: ["upload", "ocr", "structuring"] },
     imageId: { type: mongoose.Schema.Types.ObjectId, default: null },
+    category: { type: String, default: "" },
+    providerStatus: { type: Number, default: null },
+    chunkIndex: { type: Number, default: null },
     message: { type: String, required: true },
     occurredAt: { type: Date, default: Date.now }
   }],
@@ -117,6 +120,7 @@ const questionExtractionSchema = new mongoose.Schema({
   aiProvider: { type: String, default: "" },
   aiModel: { type: String, default: "" },
   structuringWarnings: { type: [String], default: [] },
+  structuringCompletedChunks: { type: [String], default: [] },
   retryCount: { type: Number, default: 0 },
   processingLockToken: { type: String, default: "" },
   processingLockUntil: { type: Date, default: null },
