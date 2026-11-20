@@ -530,6 +530,7 @@ test("private extraction images are not served through legacy /uploads paths", a
 
 test("Gemini failure preserves OCR text and permits structuring-only retry", async () => {
   let ocrCalls = 0;
+  const loggedErrors = [];
   ocrImplementation = async (images, onPageResult) => {
     ocrCalls += 1;
     const result = { imageId: images[0].imageId, text: "1. Read source text", confidence: 88, provider: "tesseract.js", version: "test" };
@@ -540,13 +541,32 @@ test("Gemini failure preserves OCR text and permits structuring-only retry", asy
     assert.ok([...records.values()].some((batch) =>
       batch.images.some((image) => image.ocrText === pages[0].text)
     ), "OCR text must be persisted before structuring starts");
-    throw new Error("Gemini quota unavailable");
+    const error = new Error("provider response details must not be logged");
+    error.code = "AI_RATE_LIMITED";
+    error.statusCode = 429;
+    error.providerStatus = 429;
+    throw error;
   };
-  const response = await uploadImages(buildApp(), [{ name: "page.png", buffer: await png() }]);
+  const originalConsoleError = console.error;
+  console.error = (...args) => loggedErrors.push(args);
+  let response;
+  try {
+    response = await uploadImages(buildApp(), [{ name: "page.png", buffer: await png() }]);
+  } finally {
+    console.error = originalConsoleError;
+  }
   assert.equal(response.body.batch.status, "partially_failed");
   assert.match(response.body.batch.ocrText, /Read source text/);
   assert.equal(response.body.batch.drafts.length, 0);
+  assert.equal(response.body.batch.processingErrors[0].category, "rate_limit");
+  assert.match(response.body.batch.processingErrors[0].message, /wait before retrying/i);
   assert.match(records.get(response.body.batch.batchId).images[0].ocrText, /Read source text/);
+  assert.equal(loggedErrors.length, 1);
+  const diagnostic = JSON.parse(loggedErrors[0][1]);
+  assert.equal(diagnostic.stage, "structuring");
+  assert.equal(diagnostic.category, "rate_limit");
+  assert.equal(diagnostic.providerStatus, 429);
+  assert.doesNotMatch(JSON.stringify(diagnostic), /provider response details|Read source text|USER_A/);
 
   structuringImplementation = async () => ({ drafts: [], provider: "gemini", model: "test-model", warnings: [] });
   const retried = await request(buildApp())
@@ -555,6 +575,74 @@ test("Gemini failure preserves OCR text and permits structuring-only retry", asy
   assert.equal(retried.status, 200);
   assert.equal(retried.body.batch.status, "needs_review");
   assert.equal(ocrCalls, 1);
+});
+
+test("successful structuring chunks persist through a partial failure and retry without duplicates", async () => {
+  const completedChunkKey = "completed-test-chunk";
+  const observedCompletedKeys = [];
+  let structuringCalls = 0;
+  structuringImplementation = async ({ pages, completedChunkKeys, onChunkSuccess }) => {
+    structuringCalls += 1;
+    observedCompletedKeys.push([...completedChunkKeys]);
+    const draft = {
+      questionNumber: "1",
+      questionText: "What is two plus two?",
+      options: [{ label: "A", text: "3" }, { label: "B", text: "4" }],
+      answerStatus: "unconfirmed",
+      sourceImage: pages[0].imageId,
+      sourcePage: pages[0].pageNumber,
+      reviewStatus: "pending",
+      extractionWarnings: []
+    };
+    const alreadyCompleted = completedChunkKeys.includes(completedChunkKey);
+    if (!alreadyCompleted) {
+      await onChunkSuccess({
+        chunkKey: completedChunkKey,
+        drafts: [draft],
+        warnings: ["Review OCR wording."],
+        provider: "gemini",
+        model: "test-model"
+      });
+    }
+    return {
+      drafts: [draft],
+      completedChunkKeys: alreadyCompleted ? [] : [completedChunkKey],
+      failures: alreadyCompleted ? [] : [{
+        category: "provider_unavailable",
+        providerStatus: 503,
+        chunkIndex: 2,
+        message: "The Gemini service could not complete this section."
+      }],
+      provider: "gemini",
+      model: "test-model",
+      warnings: []
+    };
+  };
+  const originalConsoleError = console.error;
+  console.error = () => {};
+  let uploaded;
+  try {
+    uploaded = await uploadImages(buildApp(), [{ name: "page.png", buffer: await png() }]);
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  const batchId = uploaded.body.batch.batchId;
+  const initialBatch = records.get(batchId);
+  assert.equal(uploaded.body.batch.status, "partially_failed");
+  assert.equal(initialBatch.structuringCompletedChunks.length, 1);
+  assert.equal(initialBatch.drafts.length, 1);
+  assert.equal(initialBatch.processingErrors[0].category, "provider_unavailable");
+  assert.equal(initialBatch.images[0].ocrText, "1. What is two plus two? A. 3 B. 4");
+
+  const retried = await request(buildApp())
+    .post(`/api/question-extractions/${batchId}/retry`)
+    .send({ stage: "structuring" });
+  assert.equal(retried.status, 200);
+  assert.equal(retried.body.batch.status, "needs_review");
+  assert.equal(records.get(batchId).drafts.length, 1);
+  assert.deepEqual(observedCompletedKeys[1], [completedChunkKey]);
+  assert.equal(structuringCalls, 2);
 });
 
 test("persisted processing leases can be retried after a server interruption", async () => {

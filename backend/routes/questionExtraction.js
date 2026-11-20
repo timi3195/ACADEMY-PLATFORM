@@ -188,13 +188,42 @@ const publicProcessingError = (stage) => stage === "ocr"
   ? "OCR could not read one or more images. The original images remain available for retry."
   : "AI structuring could not finish. Saved OCR text is preserved; retry structuring or use a smaller source batch.";
 
-const appendProcessingError = (batch, stage, message, imageId = null) => {
+const appendProcessingError = (batch, stage, message, imageId = null, details = {}) => {
   batch.processingErrors.push({
     stage,
     imageId,
+    category: details.category || "",
+    providerStatus: details.providerStatus ?? null,
+    chunkIndex: details.chunkIndex ?? null,
     message,
     occurredAt: new Date()
   });
+};
+
+const logProcessingFailure = ({ stage, provider, failure, model = "" }) => {
+  console.error("[QUESTION_EXTRACTION_PROCESSING_FAILURE]", JSON.stringify({
+    stage,
+    category: failure.category || "processing_error",
+    provider,
+    providerStatus: failure.providerStatus || null,
+    providerCode: failure.providerCode || "",
+    model,
+    chunkIndex: failure.chunkIndex || null,
+    chunkCount: failure.chunkCount || null,
+    sourceCharacterCount: failure.sourceCharacterCount || 0,
+    outputCharacterCount: failure.outputCharacterCount ?? null,
+    outputTokenCount: failure.outputTokenCount ?? null,
+    finishReason: failure.finishReason || ""
+  }));
+};
+
+const publicFailureFromError = (error) => {
+  const failure = questionStructuringService.classifyStructuringError(error);
+  if (error?.code === "STRUCTURING_PERSISTENCE_FAILED") {
+    failure.category = "persistence_error";
+    failure.message = "A completed structuring section could not be saved. OCR text is preserved; retry the unfinished work.";
+  }
+  return failure;
 };
 
 const persistDraftMarkingStatus = async (batchId, draftId, marking) => {
@@ -284,7 +313,7 @@ const processBatch = async ({ batchId, stage, isRetry = false }) => {
 
     if (stage === "ocr") {
       const inputs = [];
-      for (const image of batch.images) {
+      for (const image of batch.images.filter((entry) => entry.ocrStatus !== "succeeded")) {
         try {
           inputs.push({ imageId: idOf(image._id), buffer: await loadImageBuffer(image) });
         } catch {
@@ -295,23 +324,25 @@ const processBatch = async ({ batchId, stage, isRetry = false }) => {
         }
       }
 
-      const results = await ocrService.recognizeImages(inputs, async (result) => {
-        const image = batch.images.find((item) => idOf(item._id) === String(result.imageId));
-        if (!image) return;
-        if (result.error || !String(result.text || "").trim()) {
-          image.ocrStatus = "failed";
-          image.ocrError = publicProcessingError("ocr");
-          appendProcessingError(batch, "ocr", image.ocrError, image._id);
-        } else {
-          image.ocrStatus = "succeeded";
-          image.ocrText = result.text;
-          image.ocrConfidence = result.confidence;
-          image.ocrProvider = result.provider;
-          image.ocrVersion = result.version;
-          image.ocrError = "";
-        }
-        await persistProcessingBatch(batch, token);
-      });
+      const results = inputs.length
+        ? await ocrService.recognizeImages(inputs, async (result) => {
+          const image = batch.images.find((item) => idOf(item._id) === String(result.imageId));
+          if (!image) return;
+          if (result.error || !String(result.text || "").trim()) {
+            image.ocrStatus = "failed";
+            image.ocrError = publicProcessingError("ocr");
+            appendProcessingError(batch, "ocr", image.ocrError, image._id);
+          } else {
+            image.ocrStatus = "succeeded";
+            image.ocrText = result.text;
+            image.ocrConfidence = result.confidence;
+            image.ocrProvider = result.provider;
+            image.ocrVersion = result.version;
+            image.ocrError = "";
+          }
+          await persistProcessingBatch(batch, token);
+        })
+        : [];
       const completedImageIds = new Set(results.map((result) => String(result.imageId)));
       for (const input of inputs) {
         if (completedImageIds.has(String(input.imageId))) continue;
@@ -341,18 +372,67 @@ const processBatch = async ({ batchId, stage, isRetry = false }) => {
       try {
         const structured = await questionStructuringService.structureQuestionDrafts({
           pages,
-          userId: String(batch.uploadedBy)
+          userId: String(batch.uploadedBy),
+          completedChunkKeys: batch.structuringCompletedChunks || [],
+          existingDrafts: batch.drafts || [],
+          onChunkSuccess: async (section) => {
+            batch.drafts = questionStructuringService.mergeUniqueDrafts(
+              batch.drafts,
+              section.drafts
+            );
+            batch.structuringCompletedChunks = [
+              ...new Set([...(batch.structuringCompletedChunks || []), section.chunkKey])
+            ];
+            batch.structuringWarnings = [
+              ...new Set([...(batch.structuringWarnings || []), ...(section.warnings || [])])
+            ];
+            batch.aiProvider = section.provider;
+            batch.aiModel = section.model;
+            try {
+              await persistProcessingBatch(batch, token);
+            } catch (error) {
+              error.code = "STRUCTURING_PERSISTENCE_FAILED";
+              throw error;
+            }
+          }
         });
-        batch.drafts = structured.drafts;
-        batch.aiProvider = structured.provider;
-        batch.aiModel = structured.model;
-        batch.structuringWarnings = structured.warnings;
+        batch.drafts = questionStructuringService.mergeUniqueDrafts(
+          batch.drafts,
+          structured.drafts
+        );
+        batch.structuringCompletedChunks = [
+          ...new Set([
+            ...(batch.structuringCompletedChunks || []),
+            ...(structured.completedChunkKeys || [])
+          ])
+        ];
+        batch.aiProvider = structured.provider || batch.aiProvider || "gemini";
+        batch.aiModel = structured.model || batch.aiModel;
+        batch.structuringWarnings = [
+          ...new Set([...(batch.structuringWarnings || []), ...(structured.warnings || [])])
+        ];
         const failedImages = batch.images.some((image) => image.ocrStatus !== "succeeded");
-        batch.status = failedImages ? "partially_failed" : "needs_review";
-      } catch {
+        const failures = structured.failures || [];
+        for (const failure of failures) {
+          appendProcessingError(batch, "structuring", failure.message, null, failure);
+          logProcessingFailure({
+            stage: "structuring",
+            provider: "gemini",
+            failure,
+            model: batch.aiModel
+          });
+        }
+        batch.status = failedImages || failures.length ? "partially_failed" : "needs_review";
+      } catch (error) {
+        const failure = publicFailureFromError(error);
         batch.status = "partially_failed";
-        appendProcessingError(batch, "structuring", publicProcessingError("structuring"));
-        console.error("Question extraction structuring failed; OCR text retained.");
+        appendProcessingError(batch, "structuring", failure.message, null, failure);
+        logProcessingFailure({
+          stage: "structuring",
+          provider: "gemini",
+          failure,
+          model: batch.aiModel
+        });
       }
     }
 
@@ -363,21 +443,39 @@ const processBatch = async ({ batchId, stage, isRetry = false }) => {
     return { accepted: true, batch };
   } catch (error) {
     const batch = await QuestionExtraction.findOne({ batchId, processingLockToken: token });
+    const message = error.code === "OCR_LANGUAGE_DATA_UNAVAILABLE"
+      ? error.message
+      : error.code === "STRUCTURING_PERSISTENCE_FAILED"
+        ? "A completed structuring section could not be saved. OCR text is preserved; retry the unfinished work."
+        : publicProcessingError(stage);
     if (batch) {
       updateAggregateOcrText(batch);
       batch.status = batch.ocrText ? "partially_failed" : "failed";
       batch.processingStage = "none";
       batch.processingLockToken = "";
       batch.processingLockUntil = null;
-      const message = error.code === "OCR_LANGUAGE_DATA_UNAVAILABLE"
-        ? error.message
-        : publicProcessingError(stage);
       appendProcessingError(batch, stage, message);
       await persistProcessingBatch(batch, token);
     } else if (error.code === "EXTRACTION_PROCESSING_LEASE_LOST") {
       return { accepted: false, leaseLost: true };
     }
-    console.error("Question extraction processing failed:", error.message);
+    const failure = {
+      category: error.code === "OCR_LANGUAGE_DATA_UNAVAILABLE"
+        ? "configuration"
+        : error.code === "STRUCTURING_PERSISTENCE_FAILED"
+          ? "persistence_error"
+          : error.code === "EXTRACTION_PROCESSING_LEASE_LOST"
+            ? "lease_lost"
+            : "processing_error",
+      providerStatus: Number.isInteger(error.statusCode) ? error.statusCode : null,
+      providerCode: typeof error.code === "string" ? error.code.slice(0, 64) : "",
+      message: message
+    };
+    logProcessingFailure({
+      stage,
+      provider: stage === "ocr" ? "tesseract.js" : "gemini",
+      failure
+    });
     return { accepted: true, processingFailed: true };
   } finally {
     UPLOAD_SEMAPHORE.active -= 1;

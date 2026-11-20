@@ -525,7 +525,16 @@ export default function LecturerQuestionExtractions() {
             <p>Source paper: {selectedBatch.sourcePaperMetadata.title} · {selectedBatch.sourcePaperMetadata.examinationYear} · {selectedBatch.sourcePaperMetadata.level} · {selectedBatch.sourcePaperMetadata.semester}</p>
           )}
           {(selectedBatch.processingErrors || []).map((entry, index) => (
-            <p key={`${entry.stage}-${index}`} role="status" style={{ color: '#b45309' }}>{entry.message}</p>
+            <p key={`${entry.stage}-${index}`} role="status" style={{ color: '#b45309' }}>
+              <strong>{entry.stage?.replaceAll('_', ' ')}{entry.category ? ` · ${entry.category.replaceAll('_', ' ')}` : ''}:</strong>{' '}
+              {entry.message}
+              {entry.providerStatus ? ` (provider status ${entry.providerStatus})` : ''}
+            </p>
+          ))}
+          {(selectedBatch.structuringWarnings || []).map((warning, index) => (
+            <p key={`structuring-warning-${index}`} role="status" style={{ color: '#b45309' }}>
+              Structuring review: {warning}
+            </p>
           ))}
           {protectedPreviews.length > 0 && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 12 }}>
