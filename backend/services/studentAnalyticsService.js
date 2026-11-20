@@ -715,57 +715,52 @@ const buildAnalyticsPipeline = (
         attemptStates: [
           ...createAttemptSummaryStages(),
           {
-            $facet: {
-              summary: [
-                {
-                  $group: {
-                    _id: null,
-                    totalCompletedAttempts: { $sum: 1 },
-                    gradedAttempts: { $sum: { $cond: ["$finalEligible", 1, 0] } },
-                    pendingAttempts: { $sum: { $cond: [{ $eq: ["$gradingState", "pending"] }, 1, 0] } },
-                    gradingAttempts: { $sum: { $cond: [{ $eq: ["$gradingState", "grading"] }, 1, 0] } },
-                    failedAttempts: { $sum: { $cond: [{ $eq: ["$gradingState", "failed"] }, 1, 0] } },
-                    reviewRequiredAttempts: { $sum: { $cond: [{ $eq: ["$gradingState", "needs_review"] }, 1, 0] } },
-                    unscoredHistoricalAttempts: { $sum: { $cond: [{ $eq: ["$gradingState", "unscored"] }, 1, 0] } },
-                    unverifiedGradingAttempts: { $sum: { $cond: [{ $eq: ["$gradingState", "unverified"] }, 1, 0] } },
-                    totalQuestionsAttempted: { $sum: "$totalQuestions" },
-                    attemptsLast30Days: {
-                      $sum: { $cond: [{ $gte: ["$completedAt", completedSince] }, 1, 0] }
-                    }
-                  }
-                }
-              ],
-              unfinalizedAttempts: [
-                {
-                  $match: {
-                    gradingState: { $in: ["pending", "grading", "failed", "needs_review", "unscored", "unverified"] }
-                  }
-                },
-                { $sort: { completedAt: -1, _id: -1 } },
-                { $limit: MAX_PROVISIONAL_ATTEMPTS },
-                {
-                  $lookup: {
-                    from: Course.collection.name,
-                    localField: "courseId",
-                    foreignField: "_id",
-                    as: "course"
-                  }
-                },
-                { $unwind: { path: "$course", preserveNullAndEmptyArrays: true } },
-                {
-                  $project: {
-                    _id: 0,
-                    attemptId: "$_id",
-                    courseId: 1,
-                    course: { $ifNull: ["$course.title", "Course unavailable"] },
-                    completedAt: 1,
-                    status: "$gradingState",
-                    provisionalScore: 1,
-                    provisionalMaxMarks: 1,
-                    provisionalPercentage: 1
-                  }
-                }
-              ]
+            $group: {
+              _id: null,
+              totalCompletedAttempts: { $sum: 1 },
+              gradedAttempts: { $sum: { $cond: ["$finalEligible", 1, 0] } },
+              pendingAttempts: { $sum: { $cond: [{ $eq: ["$gradingState", "pending"] }, 1, 0] } },
+              gradingAttempts: { $sum: { $cond: [{ $eq: ["$gradingState", "grading"] }, 1, 0] } },
+              failedAttempts: { $sum: { $cond: [{ $eq: ["$gradingState", "failed"] }, 1, 0] } },
+              reviewRequiredAttempts: { $sum: { $cond: [{ $eq: ["$gradingState", "needs_review"] }, 1, 0] } },
+              unscoredHistoricalAttempts: { $sum: { $cond: [{ $eq: ["$gradingState", "unscored"] }, 1, 0] } },
+              unverifiedGradingAttempts: { $sum: { $cond: [{ $eq: ["$gradingState", "unverified"] }, 1, 0] } },
+              totalQuestionsAttempted: { $sum: "$totalQuestions" },
+              attemptsLast30Days: {
+                $sum: { $cond: [{ $gte: ["$completedAt", completedSince] }, 1, 0] }
+              }
+            }
+          }
+        ],
+        unfinalizedAttempts: [
+          ...createAttemptSummaryStages(),
+          {
+            $match: {
+              gradingState: { $in: ["pending", "grading", "failed", "needs_review", "unscored", "unverified"] }
+            }
+          },
+          { $sort: { completedAt: -1, _id: -1 } },
+          { $limit: MAX_PROVISIONAL_ATTEMPTS },
+          {
+            $lookup: {
+              from: Course.collection.name,
+              localField: "courseId",
+              foreignField: "_id",
+              as: "course"
+            }
+          },
+          { $unwind: { path: "$course", preserveNullAndEmptyArrays: true } },
+          {
+            $project: {
+              _id: 0,
+              attemptId: "$_id",
+              courseId: 1,
+              course: { $ifNull: ["$course.title", "Course unavailable"] },
+              completedAt: 1,
+              status: "$gradingState",
+              provisionalScore: 1,
+              provisionalMaxMarks: 1,
+              provisionalPercentage: 1
             }
           }
         ],
@@ -1003,12 +998,20 @@ const buildAnalyticsPipeline = (
             }
           },
           {
+            $addFields: {
+              _analyticsAttemptOrder: {
+                completedAt: "$completedAt",
+                attemptId: "$_id.attemptId"
+              }
+            }
+          },
+          {
             $setWindowFields: {
               partitionBy: {
                 courseId: "$_id.courseId",
                 topic: "$_id.topic"
               },
-              sortBy: { completedAt: -1, "_id.attemptId": -1 },
+              sortBy: { _analyticsAttemptOrder: -1 },
               output: { attemptRank: { $documentNumber: {} } }
             }
           },
@@ -1043,9 +1046,17 @@ const buildAnalyticsPipeline = (
           },
           ...createAttemptSummaryStages(),
           {
+            $addFields: {
+              _analyticsAttemptOrder: {
+                completedAt: "$completedAt",
+                attemptId: "$_id"
+              }
+            }
+          },
+          {
             $setWindowFields: {
               partitionBy: "$courseId",
-              sortBy: { completedAt: -1, _id: -1 },
+              sortBy: { _analyticsAttemptOrder: -1 },
               output: { attemptRank: { $documentNumber: {} } }
             }
           },
@@ -1415,8 +1426,7 @@ const buildRecommendations = ({
 
 const buildStudentAnalytics = (aggregation = {}, generatedAt = new Date()) => {
   const overview = aggregation.overview?.[0] || {};
-  const attemptStates = aggregation.attemptStates?.[0] || {};
-  const attemptStateSummary = attemptStates.summary?.[0] || {};
+  const attemptStateSummary = aggregation.attemptStates?.[0] || {};
   const attempts = aggregation.trend || [];
   const topics = normalizeTopics(aggregation.topics, aggregation.topicTrend);
   const questionTypeBreakdown = normalizeQuestionTypeRows(aggregation.questionTypes);
@@ -1533,7 +1543,7 @@ const buildStudentAnalytics = (aggregation = {}, generatedAt = new Date()) => {
     attemptsLast30Days: attemptStateSummary.attemptsLast30Days || 0
   };
   const recentPerformance = performanceTrend.slice(-5).reverse();
-  const unfinalizedAttempts = attemptStates.unfinalizedAttempts || [];
+  const unfinalizedAttempts = aggregation.unfinalizedAttempts || [];
   const practiceFrequency = {
     attemptsLast30Days: normalizedOverview.attemptsLast30Days,
     averageAttemptsPerWeek: roundOneDecimal((normalizedOverview.attemptsLast30Days / 30) * 7)

@@ -12,7 +12,77 @@ const AIConversation = require("../models/AIConversation");
 const StudentNote = require("../models/StudentNote");
 const LearningPath = require("../models/LearningPath");
 const User = require("../models/User");
+const QuizSession = require("../models/QuizSession");
 const studentAnalytics = require("../services/studentAnalyticsService");
+
+const logStudentAnalyticsDiagnostics = async (userId, accessibleCourseIds) => {
+  if (process.env.ANALYTICS_DEBUG !== "true" ||
+      process.env.NODE_ENV === "production") return;
+
+  try {
+    const completionMatch = studentAnalytics.buildAnalyticsPipeline(userId)[0].$match;
+    const accessibleCourseMatch = studentAnalytics.buildAnalyticsPipeline(userId, {
+      accessibleCourseIds
+    })[0].$match;
+    const userMatch = { user: completionMatch.user };
+    const [diagnostic = {}] = await QuizSession.aggregate([
+      { $match: userMatch },
+      {
+        $facet: {
+          statusCounts: [
+            {
+              $group: {
+                _id: null,
+                totalQuizSessions: { $sum: 1 },
+                statusCompleted: {
+                  $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] }
+                },
+                statusInProgress: {
+                  $sum: { $cond: [{ $eq: ["$status", "in_progress"] }, 1, 0] }
+                },
+                gradingStatusGraded: {
+                  $sum: { $cond: [{ $eq: ["$gradingStatus", "graded"] }, 1, 0] }
+                }
+              }
+            }
+          ],
+          matchingCompletionFilter: [
+            { $match: completionMatch },
+            { $count: "count" }
+          ],
+          remainingAfterAccessibleCourseFilter: [
+            { $match: accessibleCourseMatch },
+            { $count: "count" }
+          ]
+        }
+      }
+    ]).exec();
+    const statusCounts = diagnostic.statusCounts?.[0] || {};
+    const totalQuizSessions = statusCounts.totalQuizSessions || 0;
+    const matchingCompletionCount = diagnostic.matchingCompletionFilter?.[0]?.count || 0;
+    const remainingAfterCourseFilter =
+      diagnostic.remainingAfterAccessibleCourseFilter?.[0]?.count || 0;
+
+    console.info("[ANALYTICS_DEBUG] Student attempt counts", {
+      totalQuizSessions,
+      statusCompleted: statusCounts.statusCompleted || 0,
+      statusInProgress: statusCounts.statusInProgress || 0,
+      gradingStatusGraded: statusCounts.gradingStatusGraded || 0,
+      matchingAnalyticsCompletionFilter: matchingCompletionCount,
+      remainingAfterAccessibleCourseFilter: remainingAfterCourseFilter,
+      accessibleCourseIdCount: Array.isArray(accessibleCourseIds)
+        ? accessibleCourseIds.length
+        : 0,
+      excludedByCompletionFilter: totalQuizSessions - matchingCompletionCount,
+      excludedByAccessibleCourseFilter: matchingCompletionCount - remainingAfterCourseFilter
+    });
+  } catch (error) {
+    console.error("[ANALYTICS_DEBUG] Student attempt counts unavailable", {
+      name: error?.name || "Error",
+      code: error?.code || null
+    });
+  }
+};
 
 const getCourseAnalytics = async (userId, courseId) => {
   const access = await questionAccess.getCourseAccess(userId, courseId);
@@ -48,6 +118,9 @@ router.get("/student", protect, async (req, res) => {
     const accessibleCourseIds = user.role === "student"
       ? await courseMembership.getValidAccessibleCourseIds(user)
       : undefined;
+    if (user.role === "student") {
+      await logStudentAnalyticsDiagnostics(userId, accessibleCourseIds);
+    }
     const analytics = await studentAnalytics.getStudentAnalytics(userId, new Date(), {
       accessibleCourseIds
     });

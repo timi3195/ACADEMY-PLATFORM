@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../utils/auth'
 import { apiGet } from '../utils/api'
+import { fetchStudentAnalytics } from '../services/studentAnalyticsService'
 
 const courseColors = ['sand', 'lavender', 'sea', 'nude']
 
@@ -18,7 +19,7 @@ export default function Dashboard() {
         const [coursesRes, filesRes, analyticsRes] = await Promise.all([
           apiGet('/api/courses'),
           apiGet('/api/files'),
-          apiGet('/api/analytics/student').catch(() => null)
+          fetchStudentAnalytics(user?._id || user?.id).catch(() => null)
         ])
 
         setCourses(Array.isArray(coursesRes?.courses) ? coursesRes.courses : [])
