@@ -84,3 +84,79 @@ test("Gemini provider diagnostics use explicit Google status and code fields whe
     domain: "googleapis.com"
   }]);
 });
+
+test("temporary provider failures retry with exponential backoff and eventually succeed", async () => {
+  const waits = [];
+  let calls = 0;
+  const result = await gemini.retryProviderRequest(async () => {
+    calls += 1;
+    if (calls === 1) throw Object.assign(new Error("Busy"), { status: 503 });
+    if (calls === 2) throw Object.assign(new Error("Rate limited"), { status: 429 });
+    return "completed";
+  }, async (milliseconds) => waits.push(milliseconds));
+
+  assert.equal(result, "completed");
+  assert.equal(calls, 3);
+  assert.deepEqual(waits, [250, 500]);
+});
+
+test("temporary provider failures stop after two retries and retain the retry count", async () => {
+  const waits = [];
+  let calls = 0;
+  await assert.rejects(
+    gemini.retryProviderRequest(async () => {
+      calls += 1;
+      throw Object.assign(new Error("Still busy"), { status: 503 });
+    }, async (milliseconds) => waits.push(milliseconds)),
+    (error) => {
+      assert.equal(error.status, 503);
+      assert.equal(error.providerRetryCount, 2);
+      return true;
+    }
+  );
+
+  assert.equal(calls, 3);
+  assert.deepEqual(waits, [250, 500]);
+});
+
+test("permanent provider errors are not retried", async () => {
+  const waits = [];
+  let calls = 0;
+  await assert.rejects(
+    gemini.retryProviderRequest(async () => {
+      calls += 1;
+      throw Object.assign(new Error("Invalid request"), { status: 400 });
+    }, async (milliseconds) => waits.push(milliseconds)),
+    (error) => {
+      assert.equal(error.status, 400);
+      assert.equal(error.providerRetryCount, 0);
+      return true;
+    }
+  );
+
+  assert.equal(calls, 1);
+  assert.deepEqual(waits, []);
+});
+
+test("exhausted temporary failures keep diagnostics and return a student-friendly message", () => {
+  const logs = [];
+  const originalConsoleError = console.error;
+  console.error = (...args) => logs.push(args);
+  let wrapped;
+  try {
+    wrapped = gemini.providerFailure(Object.assign(new Error("High demand"), {
+      status: 503,
+      statusText: "Service Unavailable",
+      providerRetryCount: 2
+    }), "AI_PROVIDER_ERROR", { model: "gemini-3.8-flash" });
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  assert.equal(wrapped.message, "The AI assistant is temporarily busy. Please try again in a moment.");
+  assert.equal(wrapped.statusCode, 503);
+  assert.equal(wrapped.temporarilyUnavailable, true);
+  const diagnostic = JSON.parse(logs[0][1]);
+  assert.equal(diagnostic.httpStatus, 503);
+  assert.equal(diagnostic.retryCount, 2);
+});

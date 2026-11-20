@@ -8,6 +8,10 @@ const MAX_OUTPUT_TOKENS = 800;
 const DAILY_REQUEST_LIMIT = 50;
 const MONTHLY_REQUEST_LIMIT = 1000;
 const MIN_REQUEST_INTERVAL_MS = 10000;
+const MAX_PROVIDER_RETRIES = 2;
+const PROVIDER_RETRY_BASE_DELAY_MS = 250;
+const RETRYABLE_PROVIDER_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const RETRYABLE_NETWORK_CODES = new Set(["ECONNRESET", "ETIMEDOUT", "EAI_AGAIN", "ECONNREFUSED"]);
 const quotaReservations = new WeakMap();
 const LEARNING_PATH_ACTIVITY_TYPES = new Set([
   "read-notes",
@@ -130,6 +134,31 @@ const getProviderErrorMessage = (error, sensitiveValues) => {
   return safeDiagnosticText(message, sensitiveValues);
 };
 
+const isRetryableProviderError = (error) => {
+  const status = Number(error?.statusCode || error?.status || error?.response?.status);
+  const code = error?.code || error?.cause?.code;
+  return RETRYABLE_PROVIDER_STATUSES.has(status) ||
+    (typeof code === "string" && RETRYABLE_NETWORK_CODES.has(code));
+};
+
+const retryProviderRequest = async (request, wait = (milliseconds) =>
+  new Promise((resolve) => setTimeout(resolve, milliseconds))
+) => {
+  let retries = 0;
+  while (true) {
+    try {
+      return await request();
+    } catch (error) {
+      if (!isRetryableProviderError(error) || retries >= MAX_PROVIDER_RETRIES) {
+        if (error && typeof error === "object") error.providerRetryCount = retries;
+        throw error;
+      }
+      await wait(PROVIDER_RETRY_BASE_DELAY_MS * (2 ** retries));
+      retries += 1;
+    }
+  }
+};
+
 const providerFailure = (error, code = "AI_PROVIDER_ERROR", context = {}) => {
   const providerStatus = Number(error?.statusCode || error?.status || error?.response?.status);
   const normalizedStatus = Number.isInteger(providerStatus) && providerStatus >= 100 && providerStatus <= 599
@@ -160,6 +189,10 @@ const providerFailure = (error, code = "AI_PROVIDER_ERROR", context = {}) => {
     ? error.googleErrorStatus
     : "";
   const providerMessage = getProviderErrorMessage(error, sensitiveValues);
+  const retryCount = Number.isInteger(error?.providerRetryCount)
+    ? error.providerRetryCount
+    : 0;
+  const temporarilyUnavailable = isRetryableProviderError(error);
   const diagnostic = {
     model: safeDiagnosticText(context.model || GEMINI_MODEL, [], 100),
     httpStatus: normalizedStatus,
@@ -168,14 +201,19 @@ const providerFailure = (error, code = "AI_PROVIDER_ERROR", context = {}) => {
     googleErrorCode,
     googleErrorStatus,
     providerCode,
+    retryCount,
     errorDetails: details
   };
   console.error("[GEMINI_PROVIDER_FAILURE]", JSON.stringify(diagnostic));
-  const wrapped = new Error("Gemini provider request failed.");
+  const wrapped = new Error(temporarilyUnavailable
+    ? "The AI assistant is temporarily busy. Please try again in a moment."
+    : "Gemini provider request failed.");
   wrapped.code = code;
   wrapped.statusCode = normalizedStatus || 502;
   wrapped.providerStatus = normalizedStatus;
   wrapped.providerCode = providerCode;
+  wrapped.providerRetryCount = retryCount;
+  wrapped.temporarilyUnavailable = temporarilyUnavailable;
   wrapped.providerMessage = providerMessage;
   wrapped.googleErrorCode = googleErrorCode;
   wrapped.googleErrorStatus = googleErrorStatus;
@@ -209,13 +247,13 @@ const requestGemini = async (contents, systemInstruction, userId, generation = {
       model: GEMINI_MODEL,
       systemInstruction
     });
-    result = await model.generateContent({
+    result = await retryProviderRequest(() => model.generateContent({
       contents,
       generationConfig: {
         maxOutputTokens: generation.maxOutputTokens || MAX_OUTPUT_TOKENS,
         ...(generation.responseMimeType ? { responseMimeType: generation.responseMimeType } : {})
       }
-    });
+    }));
   } catch (error) {
     throw providerFailure(error, "AI_PROVIDER_ERROR", {
       model: GEMINI_MODEL,
@@ -635,3 +673,4 @@ module.exports.buildQuestionStructuringPrompt = buildQuestionStructuringPrompt;
 module.exports.parseLearningPathResponse = parseLearningPathResponse;
 module.exports.validateLearningPathOutput = validateLearningPathOutput;
 module.exports.providerFailure = providerFailure;
+module.exports.retryProviderRequest = retryProviderRequest;
