@@ -18,6 +18,7 @@ const STUDENT_ID = "507f1f77bcf86cd799439011";
 
 test("analytics aggregation selects completed or timestamped historical attempts owned by the student", () => {
   const pipeline = buildAnalyticsPipeline(STUDENT_ID);
+  const facets = pipeline.find((stage) => stage.$facet).$facet;
   const match = pipeline[0].$match;
   assert.equal(String(match.user), STUDENT_ID);
   assert.equal(match.status, undefined);
@@ -31,18 +32,78 @@ test("analytics aggregation selects completed or timestamped historical attempts
   assert.ok(pipeline.some((stage) => stage.$addFields?._analyticsTypedGradingVerified));
   assert.ok(pipeline.some((stage) => stage.$addFields?._analyticsScorePercentage));
   assert.ok(pipeline.some((stage) => stage.$facet));
-  const overviewStages = pipeline.find((stage) => stage.$facet).$facet.overview;
+  const overviewStages = facets.overview;
   assert.ok(overviewStages.some((stage) => stage.$group?._id === "$_id"));
   const snapshotCorrectnessStage = pipeline.find((stage) =>
     stage.$addFields?._analyticsCorrect
   );
   assert.ok(snapshotCorrectnessStage.$addFields._analyticsCorrect.$cond);
-  const facets = pipeline.find((stage) => stage.$facet).$facet;
   assert.ok(facets.questionTypes);
   assert.ok(facets.courseQuestionTypes);
   assert.ok(facets.courseTrend.some((stage) => stage.$setWindowFields));
-  assert.ok(facets.attemptStates);
+  assert.ok(facets.attemptStates.some((stage) => stage.$group?.totalCompletedAttempts));
+  assert.ok(facets.unfinalizedAttempts.some((stage) => stage.$lookup?.from === "courses"));
   assert.ok(facets.topicTrend.some((stage) => stage.$setWindowFields));
+
+  const assertNoNestedFacet = (value, withinFacet = false) => {
+    if (Array.isArray(value)) {
+      value.forEach((item) => assertNoNestedFacet(item, withinFacet));
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    for (const [key, child] of Object.entries(value)) {
+      assert.equal(key === "$facet" && withinFacet, false);
+      assertNoNestedFacet(child, withinFacet || key === "$facet");
+    }
+  };
+  assertNoNestedFacet(pipeline);
+});
+
+test("$documentNumber trend windows use one deterministic composite sort key", () => {
+  const pipeline = buildAnalyticsPipeline(STUDENT_ID);
+  const facets = pipeline.find((stage) => stage.$facet).$facet;
+  const expectedAttemptIds = new Map([
+    ["topicTrend", "$_id.attemptId"],
+    ["courseTrend", "$_id"]
+  ]);
+  const documentNumberStages = [];
+  const collectDocumentNumberStages = (value) => {
+    if (Array.isArray(value)) {
+      value.forEach(collectDocumentNumberStages);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    const outputs = value.$setWindowFields?.output;
+    if (outputs && Object.values(outputs).some((output) =>
+      Object.prototype.hasOwnProperty.call(output, "$documentNumber")
+    )) {
+      documentNumberStages.push(value.$setWindowFields);
+    }
+    Object.values(value).forEach(collectDocumentNumberStages);
+  };
+  collectDocumentNumberStages(pipeline);
+
+  assert.equal(documentNumberStages.length, expectedAttemptIds.size);
+  for (const [facetName, attemptId] of expectedAttemptIds) {
+    const stages = facets[facetName];
+    const windowIndex = stages.findIndex((stage) =>
+      stage.$setWindowFields?.output?.attemptRank?.$documentNumber
+    );
+    assert.notEqual(windowIndex, -1, `${facetName} should contain its attempt-rank window`);
+    const window = stages[windowIndex].$setWindowFields;
+    assert.deepEqual(window.sortBy, { _analyticsAttemptOrder: -1 });
+
+    const orderStage = stages.slice(0, windowIndex).find((stage) =>
+      stage.$addFields?._analyticsAttemptOrder
+    );
+    assert.deepEqual(orderStage?.$addFields?._analyticsAttemptOrder, {
+      completedAt: "$completedAt",
+      attemptId
+    });
+  }
+  for (const window of documentNumberStages) {
+    assert.equal(Object.keys(window.sortBy || {}).length, 1);
+  }
 });
 
 test("analytics query passes authenticated ownership to Mongo aggregation", async () => {
@@ -207,37 +268,35 @@ test("recommendations contain only evidence-backed topic results", () => {
 test("typed analytics separate final scores, provisional results, formats, and readiness evidence", () => {
     const analytics = buildStudentAnalytics({
       attemptStates: [{
-        summary: [{
-          totalCompletedAttempts: 6,
-          gradedAttempts: 3,
-          pendingAttempts: 1,
-          gradingAttempts: 0,
-          failedAttempts: 1,
-          reviewRequiredAttempts: 1,
-          unscoredHistoricalAttempts: 1,
-          unverifiedGradingAttempts: 1,
-          totalQuestionsAttempted: 60,
-          attemptsLast30Days: 4
-        }],
-        unfinalizedAttempts: [{
-          attemptId: "review-attempt",
-          course: "Networking",
-          status: "needs_review",
-          provisionalScore: 4,
-          provisionalMaxMarks: 6
-        }, {
-          attemptId: "failed-attempt",
-          course: "Networking",
-          status: "failed"
-        }, {
-          attemptId: "unscored-attempt",
-          course: "Networking",
-          status: "unscored"
-        }, {
-          attemptId: "unverified-attempt",
-          course: "Networking",
-          status: "unverified"
-        }]
+        totalCompletedAttempts: 6,
+        gradedAttempts: 3,
+        pendingAttempts: 1,
+        gradingAttempts: 0,
+        failedAttempts: 1,
+        reviewRequiredAttempts: 1,
+        unscoredHistoricalAttempts: 1,
+        unverifiedGradingAttempts: 1,
+        totalQuestionsAttempted: 60,
+        attemptsLast30Days: 4
+      }],
+      unfinalizedAttempts: [{
+        attemptId: "review-attempt",
+        course: "Networking",
+        status: "needs_review",
+        provisionalScore: 4,
+        provisionalMaxMarks: 6
+      }, {
+        attemptId: "failed-attempt",
+        course: "Networking",
+        status: "failed"
+      }, {
+        attemptId: "unscored-attempt",
+        course: "Networking",
+        status: "unscored"
+      }, {
+        attemptId: "unverified-attempt",
+        course: "Networking",
+        status: "unverified"
       }],
       overview: [{
         gradedAttempts: 3,
@@ -358,16 +417,14 @@ test("typed analytics separate final scores, provisional results, formats, and r
 test("pending, failed, and review-required sessions do not create a readiness percentage", () => {
     const analytics = buildStudentAnalytics({
       attemptStates: [{
-        summary: [{
-          totalCompletedAttempts: 3,
-          gradedAttempts: 0,
-          pendingAttempts: 1,
-          failedAttempts: 1,
-          reviewRequiredAttempts: 1,
-          totalQuestionsAttempted: 30
-        }],
-        unfinalizedAttempts: []
+        totalCompletedAttempts: 3,
+        gradedAttempts: 0,
+        pendingAttempts: 1,
+        failedAttempts: 1,
+        reviewRequiredAttempts: 1,
+        totalQuestionsAttempted: 30
       }],
+      unfinalizedAttempts: [],
       overview: [],
       questionTypes: []
     });

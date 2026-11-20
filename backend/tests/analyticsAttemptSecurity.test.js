@@ -7,6 +7,7 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || "phase-4d-analytics-test-secr
 const { generateAccessToken } = require("../utils/token");
 const analyticsRouter = require("../routes/analytics");
 const studentAnalytics = require("../services/studentAnalyticsService");
+const QuizSession = require("../models/QuizSession");
 const User = require("../models/User");
 const courseMembership = require("../services/courseMembershipService");
 const AIConversation = require("../models/AIConversation");
@@ -76,6 +77,144 @@ test("analytics is scoped to the authenticated user and ignores a requested user
     assert.equal(response.body.analytics.recommendations[0].reason, "Evidence-based result.");
     assert.equal(response.body.analytics.recommendations[0].evidenceId, undefined);
   });
+});
+
+test("analytics debug diagnostics report counts for the authenticated student without identifiers", async () => {
+  const originalAggregate = QuizSession.aggregate;
+  const originalInfo = console.info;
+  const originalDebug = process.env.ANALYTICS_DEBUG;
+  const originalNodeEnv = process.env.NODE_ENV;
+  const logs = [];
+  let diagnosticPipeline;
+  process.env.ANALYTICS_DEBUG = "true";
+  process.env.NODE_ENV = "development";
+  QuizSession.aggregate = (pipeline) => {
+    diagnosticPipeline = pipeline;
+    return {
+      exec: async () => [{
+        statusCounts: [{
+          totalQuizSessions: 8,
+          statusCompleted: 4,
+          statusInProgress: 2,
+          gradingStatusGraded: 3
+        }],
+        matchingCompletionFilter: [{ count: 5 }],
+        remainingAfterAccessibleCourseFilter: [{ count: 2 }]
+      }]
+    };
+  };
+  console.info = (...args) => logs.push(args);
+
+  try {
+    await withAnalyticsMocks(async () => {
+      const response = await request(buildApp())
+        .get(`/api/analytics/student?userId=${OTHER_STUDENT_ID}`);
+      assert.equal(response.status, 200);
+    });
+
+    assert.equal(String(diagnosticPipeline[0].$match.user), STUDENT_ID);
+    const facets = diagnosticPipeline[1].$facet;
+    assert.equal(String(facets.matchingCompletionFilter[0].$match.user), STUDENT_ID);
+    assert.equal(String(facets.remainingAfterAccessibleCourseFilter[0].$match.user), STUDENT_ID);
+    assert.equal(facets.remainingAfterAccessibleCourseFilter[0].$match.course.$in.length, 1);
+    const serializedLogs = JSON.stringify(logs);
+    assert.match(serializedLogs, /totalQuizSessions/);
+    assert.match(serializedLogs, /accessibleCourseIdCount/);
+    assert.doesNotMatch(serializedLogs, new RegExp(`${STUDENT_ID}|${OTHER_STUDENT_ID}`));
+  } finally {
+    QuizSession.aggregate = originalAggregate;
+    console.info = originalInfo;
+    if (originalDebug === undefined) delete process.env.ANALYTICS_DEBUG;
+    else process.env.ANALYTICS_DEBUG = originalDebug;
+    if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = originalNodeEnv;
+  }
+});
+
+test("student analytics endpoint returns summary and unfinalized results from separate facet outputs", async () => {
+  const originals = {
+    aggregate: QuizSession.aggregate,
+    findById: User.findById,
+    accessibleCourseIds: courseMembership.getValidAccessibleCourseIds,
+    recommendations: studentAnalytics.getAiStudyRecommendations
+  };
+  const courseId = "507f1f77bcf86cd799439041";
+  let pipeline;
+  User.findById = () => ({
+    select: async () => ({
+      _id: STUDENT_ID,
+      role: "student",
+      department: "507f1f77bcf86cd799439031"
+    })
+  });
+  courseMembership.getValidAccessibleCourseIds = async () => [courseId];
+  studentAnalytics.getAiStudyRecommendations = async () => ({
+    recommendations: [],
+    recommendationsSource: "evidence_rules"
+  });
+  QuizSession.aggregate = (value) => {
+    pipeline = value;
+    return {
+      allowDiskUse: async () => [{
+        attemptStates: [{
+          totalCompletedAttempts: 2,
+          gradedAttempts: 1,
+          pendingAttempts: 1,
+          gradingAttempts: 0,
+          failedAttempts: 0,
+          reviewRequiredAttempts: 0,
+          unscoredHistoricalAttempts: 0,
+          unverifiedGradingAttempts: 0,
+          totalQuestionsAttempted: 3,
+          attemptsLast30Days: 2
+        }],
+        overview: [{
+          gradedAttempts: 1,
+          averageScorePercentage: 50,
+          bestScorePercentage: 50,
+          totalQuestions: 2,
+          questionsGraded: 2,
+          totalQuestionsAnswered: 2,
+          totalCorrectAnswers: 1,
+          totalIncorrectAnswers: 1
+        }],
+        unfinalizedAttempts: [{
+          attemptId: "507f1f77bcf86cd799439051",
+          courseId,
+          course: "Networking",
+          status: "pending",
+          provisionalScore: 2,
+          provisionalMaxMarks: 4
+        }],
+        courses: [],
+        courseAttemptStates: [],
+        courseQuestionTypes: [],
+        courseTrend: [],
+        topics: [],
+        topicTrend: [],
+        questionTypes: [],
+        trend: [],
+        unclassified: []
+      }]
+    };
+  };
+
+  try {
+    const response = await request(buildApp()).get("/api/analytics/student");
+    assert.equal(response.status, 200);
+    assert.equal(String(pipeline[0].$match.user), STUDENT_ID);
+    assert.deepEqual(pipeline[0].$match.course.$in.map(String), [courseId]);
+    assert.equal(response.body.analytics.overview.totalCompletedAttempts, 2);
+    assert.equal(response.body.analytics.overview.gradedAttemptCount, 1);
+    assert.equal(response.body.analytics.overview.pendingGradingAttempts, 1);
+    assert.equal(response.body.analytics.unfinalizedAttempts[0].status, "pending");
+    assert.equal(response.body.analytics.unfinalizedAttempts[0].provisionalScore, 2);
+  } finally {
+    QuizSession.aggregate = originals.aggregate;
+    User.findById = originals.findById;
+    courseMembership.getValidAccessibleCourseIds = originals.accessibleCourseIds;
+    studentAnalytics.getAiStudyRecommendations = originals.recommendations;
+  }
 });
 
 test("lecturers cannot access student analytics", async () => {

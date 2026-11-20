@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { apiGet } from "../utils/api";
+import { fetchStudentAnalytics } from "../services/studentAnalyticsService";
 import { fetchStudentLearningRecommendations } from "../services/studentLearningService";
 import { useAuth } from "../utils/auth";
 import { cbtPathForCourse, isValidCbtQuestionCount } from "../utils/cbt";
@@ -578,7 +578,7 @@ function AnalyticsDashboardContent() {
     let active = true;
     setLoading(true);
     setError("");
-    apiGet("/api/analytics/student")
+    fetchStudentAnalytics(user?._id || user?.id)
       .then((response) => {
         if (active) {
           if (response?.analytics?.overview) setAnalytics(response.analytics);
