@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const express = require("express");
 const request = require("supertest");
+const { performance } = require("node:perf_hooks");
 
 process.env.JWT_SECRET = process.env.JWT_SECRET || "ai-chat-course-access-test-secret";
 const { generateAccessToken } = require("../utils/token");
@@ -105,7 +106,8 @@ const withChatMocks = async (run, {
     analyticsCalls: 0,
     analyticsUserId: null,
     geminiCalls: 0,
-    geminiContext: null
+    geminiContext: null,
+    geminiDeadlineAt: null
   };
 
   User.findById = async (userId) => {
@@ -151,9 +153,10 @@ const withChatMocks = async (run, {
     state.analyticsUserId = String(userId);
     return analytics;
   };
-  geminiService.chatWithStudent = async (messages, context) => {
+  geminiService.chatWithStudent = async (messages, context, userId, options) => {
     state.geminiCalls += 1;
     state.geminiContext = context;
+    state.geminiDeadlineAt = options?.deadlineAt;
     return { message: "Study response", tokens: { total: 1 }, cost: 0 };
   };
 
@@ -186,6 +189,9 @@ test("authorized student can chat about an accessible course", async () => {
     assert.equal(response.status, 200);
     assert.equal(response.body.message, "Study response");
     assert.equal(state.geminiCalls, 1);
+    assert.ok(Number.isFinite(state.geminiDeadlineAt));
+    assert.ok(state.geminiDeadlineAt > performance.now());
+    assert.ok(state.geminiDeadlineAt <= performance.now() + geminiService.CHAT_REQUEST_DEADLINE_MS);
     assert.equal(state.analyticsUserId, STUDENT_ID);
     assert.equal(state.legacyPerformanceCalls, 0);
     assert.deepEqual(state.geminiContext.cbtPerformance, {

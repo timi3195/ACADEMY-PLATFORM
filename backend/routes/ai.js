@@ -2,6 +2,7 @@ const express = require("express");
 const mongoose = require("mongoose");
 const multer = require("multer");
 const path = require("path");
+const { performance } = require("node:perf_hooks");
 const storageService = require("../services/storageService");
 const router = express.Router();
 
@@ -113,6 +114,7 @@ const parseTargetExamDate = (value) => {
  * Send message to AI Study Assistant
  */
 router.post("/chat", protect, async (req, res) => {
+  const deadlineAt = performance.now() + geminiService.CHAT_REQUEST_DEADLINE_MS;
   try {
     const { courseId, message, conversationId } = req.body;
 
@@ -206,7 +208,8 @@ router.post("/chat", protect, async (req, res) => {
     const aiResponse = await geminiService.chatWithStudent(
       messagesForAI,
       courseContext,
-      req.user.id
+      req.user.id,
+      { deadlineAt }
     );
 
     // Add assistant message

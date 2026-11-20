@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const express = require("express");
 const request = require("supertest");
+const { performance } = require("node:perf_hooks");
 const {
   GoogleGenerativeAI,
   GoogleGenerativeAIAbortError
@@ -32,6 +33,76 @@ const successfulResult = (message = "A helpful answer") => ({
     candidates: [{ finishReason: "STOP" }],
     usageMetadata: { promptTokenCount: 2, candidatesTokenCount: 3, totalTokenCount: 5 }
   }
+});
+
+test("chat retries a timed-out fallback once and succeeds within the shared deadline", async () => {
+  const gemini = loadGeminiService(FALLBACK_MODEL);
+  await withProviderMocks(async ({ calls, waits, infos }) => {
+    const result = await makeChatRequest(gemini);
+
+    assert.equal(result.model, FALLBACK_MODEL);
+    assert.deepEqual(calls.map((call) => call.model), [
+      PRIMARY_MODEL,
+      PRIMARY_MODEL,
+      PRIMARY_MODEL,
+      FALLBACK_MODEL,
+      FALLBACK_MODEL
+    ]);
+    assert.deepEqual(waits, [750, 1500, 750]);
+    assert.equal(calls[3].requestOptions.signal.aborted, true);
+    assert.equal(calls[4].requestOptions.signal.aborted, false);
+    assert.notEqual(calls[3].requestOptions.signal, calls[4].requestOptions.signal);
+    assert.equal(infos[0][0], "[GEMINI_CHAT_FALLBACK_SUCCESS]");
+    assert.match(infos[0][1], /"fallbackRetryCount":1/);
+  }, async (model) => {
+    if (model === PRIMARY_MODEL) {
+      throw Object.assign(new Error("High demand"), { status: 503 });
+    }
+    return successfulResult();
+  }, { abortOnCalls: [1, 2, 3, 4] });
+});
+
+test("chat does not retry the fallback when the shared deadline cannot cover the delay and timeout", async () => {
+  const gemini = loadGeminiService(FALLBACK_MODEL);
+  await withProviderMocks(async ({ calls, waits }) => {
+    await assert.rejects(
+      makeChatRequest(gemini, { deadlineAt: performance.now() + 8700 }),
+      (error) => {
+        assert.equal(error.temporarilyUnavailable, true);
+        return true;
+      }
+    );
+
+    assert.deepEqual(calls.map((call) => call.model), [
+      PRIMARY_MODEL,
+      PRIMARY_MODEL,
+      PRIMARY_MODEL,
+      FALLBACK_MODEL
+    ]);
+    assert.deepEqual(waits, [750, 1500]);
+  }, async (model) => {
+    if (model === PRIMARY_MODEL) {
+      throw Object.assign(new Error("High demand"), { status: 503 });
+    }
+    throw new GoogleGenerativeAIAbortError("Fallback request timed out.");
+  });
+});
+
+test("chat makes no provider request when the shared deadline is exhausted", async () => {
+  const gemini = loadGeminiService(FALLBACK_MODEL);
+  await withProviderMocks(async ({ calls, errors }) => {
+    await assert.rejects(
+      makeChatRequest(gemini, { deadlineAt: performance.now() - 1 }),
+      (error) => {
+        assert.equal(error.temporarilyUnavailable, true);
+        return true;
+      }
+    );
+
+    assert.equal(calls.length, 0);
+    assert.equal(errors.length, 1);
+    assert.equal(JSON.parse(errors[0][1]).abortOrigin, "application_timeout");
+  }, async () => successfulResult());
 });
 
 const withProviderMocks = async (run, respond, { abortOnCalls = [] } = {}) => {
@@ -74,7 +145,7 @@ const withProviderMocks = async (run, respond, { abortOnCalls = [] } = {}) => {
       queueMicrotask(() => callback(...args));
       return 0;
     }
-    if (milliseconds === 6500) {
+    if (milliseconds === 6500 || milliseconds === 8000) {
       timeoutCount += 1;
       if (abortOnCalls.includes(timeoutCount)) {
         queueMicrotask(() => callback(...args));
@@ -97,10 +168,11 @@ const withProviderMocks = async (run, respond, { abortOnCalls = [] } = {}) => {
   }
 };
 
-const makeChatRequest = (gemini) => gemini.chatWithStudent(
+const makeChatRequest = (gemini, options = {}) => gemini.chatWithStudent(
   [{ role: "user", content: "A private test prompt" }],
   { courseName: "Test course" },
-  USER_ID
+  USER_ID,
+  options
 );
 
 test("chat uses the primary model and does not call fallback when the primary succeeds", async () => {
@@ -200,16 +272,52 @@ test("chat returns temporary unavailability when both models time out", async ()
       PRIMARY_MODEL,
       PRIMARY_MODEL,
       PRIMARY_MODEL,
+      FALLBACK_MODEL,
       FALLBACK_MODEL
     ]);
     assert.equal(calls[3].requestOptions.signal.aborted, true);
-    assert.equal(errors.length, 2);
+    assert.equal(calls[4].requestOptions.signal.aborted, true);
+    assert.equal(errors.length, 3);
+    const primaryDiagnostic = JSON.parse(errors[0][1]);
+    assert.equal(primaryDiagnostic.abortOrigin, "application_timeout");
+    assert.equal(primaryDiagnostic.requestTimeoutMs, 6500);
     const fallbackDiagnostic = JSON.parse(errors[1][1]);
     assert.equal(fallbackDiagnostic.model, FALLBACK_MODEL);
     assert.equal(fallbackDiagnostic.httpStatus, null);
     assert.equal(fallbackDiagnostic.retryCount, 0);
     assert.equal(fallbackDiagnostic.temporarilyUnavailable, true);
-  }, async () => successfulResult(), { abortOnCalls: [1, 2, 3, 4] });
+    assert.equal(fallbackDiagnostic.abortOrigin, "application_timeout");
+    assert.equal(fallbackDiagnostic.requestTimeoutMs, 8000);
+  }, async () => successfulResult(), { abortOnCalls: [1, 2, 3, 4, 5] });
+});
+
+test("diagnostics distinguish an SDK abort from the application timeout", async () => {
+  const gemini = loadGeminiService(FALLBACK_MODEL);
+  await withProviderMocks(async ({ calls, errors }) => {
+    await assert.rejects(makeChatRequest(gemini), (error) => {
+      assert.equal(error.statusCode, 503);
+      assert.equal(error.temporarilyUnavailable, true);
+      return true;
+    });
+
+    assert.deepEqual(calls.map((call) => call.model), [
+      PRIMARY_MODEL,
+      PRIMARY_MODEL,
+      PRIMARY_MODEL,
+      FALLBACK_MODEL,
+      FALLBACK_MODEL
+    ]);
+    assert.equal(calls[3].requestOptions.signal.aborted, false);
+    const fallbackDiagnostic = JSON.parse(errors[1][1]);
+    assert.equal(fallbackDiagnostic.model, FALLBACK_MODEL);
+    assert.equal(fallbackDiagnostic.abortOrigin, "provider_or_network_abort");
+    assert.equal(fallbackDiagnostic.requestTimeoutMs, null);
+  }, async (model) => {
+    if (model === PRIMARY_MODEL) {
+      throw Object.assign(new Error("High demand"), { status: 503 });
+    }
+    throw new GoogleGenerativeAIAbortError("Request aborted by upstream.");
+  });
 });
 
 test("chat retries recognized Node.js timeout codes", async () => {
@@ -231,7 +339,7 @@ test("chat retries recognized Node.js timeout codes", async () => {
 
 test("chat keeps the friendly temporary-unavailability error when both models fail", async () => {
   const gemini = loadGeminiService(FALLBACK_MODEL);
-  await withProviderMocks(async ({ calls, errors }) => {
+  await withProviderMocks(async ({ calls, errors, waits }) => {
     await assert.rejects(makeChatRequest(gemini), (error) => {
       assert.equal(error.message, "The AI assistant is temporarily busy. Please try again in a moment.");
       assert.equal(error.statusCode, 503);
@@ -243,9 +351,11 @@ test("chat keeps the friendly temporary-unavailability error when both models fa
       PRIMARY_MODEL,
       PRIMARY_MODEL,
       PRIMARY_MODEL,
+      FALLBACK_MODEL,
       FALLBACK_MODEL
     ]);
-    assert.equal(errors.length, 2);
+    assert.deepEqual(waits, [750, 1500, 750]);
+    assert.equal(errors.length, 3);
     assert.match(errors[0][1], new RegExp(PRIMARY_MODEL));
     assert.match(errors[1][1], new RegExp(FALLBACK_MODEL));
   }, async () => {

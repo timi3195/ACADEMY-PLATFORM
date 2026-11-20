@@ -14,7 +14,11 @@ const MONTHLY_REQUEST_LIMIT = 1000;
 const MIN_REQUEST_INTERVAL_MS = 10000;
 const MAX_PROVIDER_RETRIES = 2;
 const PROVIDER_RETRY_BASE_DELAY_MS = 750;
+const CHAT_REQUEST_DEADLINE_MS = 26000;
 const CHAT_PROVIDER_REQUEST_TIMEOUT_MS = 6500;
+const CHAT_FALLBACK_REQUEST_TIMEOUT_MS = 8000;
+const CHAT_FALLBACK_MAX_RETRIES = 1;
+const CHAT_FALLBACK_RETRY_DELAY_MS = 750;
 const RETRYABLE_PROVIDER_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const RETRYABLE_NETWORK_CODES = new Set([
   "ECONNRESET",
@@ -181,8 +185,24 @@ const isRetryableProviderError = (error) => {
     hasRetryableAbortOrNetworkCause(error);
 };
 
-const retryProviderRequest = async (request, wait = (milliseconds) =>
-  new Promise((resolve) => setTimeout(resolve, milliseconds))
+const annotateAbortError = (error, origin, timeoutMs) => {
+  const message = typeof error?.message === "string" ? error.message : String(error);
+  const annotated = new Error(message, { cause: error });
+  annotated.name = typeof error?.name === "string" ? error.name : "Error";
+  if (error && typeof error === "object") {
+    for (const field of ["status", "statusCode", "statusText", "code", "errorDetails"]) {
+      if (error[field] !== undefined) annotated[field] = error[field];
+    }
+  }
+  annotated.geminiAbortOrigin = origin;
+  if (Number.isFinite(timeoutMs)) annotated.geminiRequestTimeoutMs = timeoutMs;
+  return annotated;
+};
+
+const retryProviderRequest = async (
+  request,
+  wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  canRetry = () => true
 ) => {
   let retries = 0;
   while (true) {
@@ -193,7 +213,12 @@ const retryProviderRequest = async (request, wait = (milliseconds) =>
         if (error && typeof error === "object") error.providerRetryCount = retries;
         throw error;
       }
-      await wait(PROVIDER_RETRY_BASE_DELAY_MS * (2 ** retries));
+      const delay = PROVIDER_RETRY_BASE_DELAY_MS * (2 ** retries);
+      if (!canRetry(delay)) {
+        if (error && typeof error === "object") error.providerRetryCount = retries;
+        throw error;
+      }
+      await wait(delay);
       retries += 1;
     }
   }
@@ -233,6 +258,12 @@ const providerFailure = (error, code = "AI_PROVIDER_ERROR", context = {}) => {
     ? error.providerRetryCount
     : 0;
   const temporarilyUnavailable = isRetryableProviderError(error);
+  const abortOrigin = ["application_timeout", "provider_or_network_abort"].includes(error?.geminiAbortOrigin)
+    ? error.geminiAbortOrigin
+    : "";
+  const requestTimeoutMs = Number.isFinite(error?.geminiRequestTimeoutMs)
+    ? error.geminiRequestTimeoutMs
+    : null;
   const diagnostic = {
     model: safeDiagnosticText(context.model || GEMINI_MODEL, [GEMINI_API_KEY], 100),
     httpStatus: normalizedStatus,
@@ -243,6 +274,8 @@ const providerFailure = (error, code = "AI_PROVIDER_ERROR", context = {}) => {
     providerCode,
     retryCount,
     temporarilyUnavailable,
+    abortOrigin,
+    requestTimeoutMs,
     errorDetails: details
   };
   console.error("[GEMINI_PROVIDER_FAILURE]", JSON.stringify(diagnostic));
@@ -271,6 +304,11 @@ const requestGemini = async (contents, systemInstruction, userId, generation = {
   }
 
   const prompt = `${systemInstruction}\n${contents.map((content) => content.parts?.map((part) => part.text || "").join(" ") || "").join("\n")}`;
+  const chatDeadlineAt = generation.allowChatFallback
+    ? (Number.isFinite(generation.deadlineAt)
+      ? generation.deadlineAt
+      : performance.now() + CHAT_REQUEST_DEADLINE_MS)
+    : null;
   if (generation.quotaReservation) {
     const reservation = quotaReservations.get(generation.quotaReservation);
     if (!reservation || reservation.userId !== String(userId) || reservation.remaining < 1) {
@@ -282,13 +320,13 @@ const requestGemini = async (contents, systemInstruction, userId, generation = {
   }
 
   const client = new GoogleGenerativeAI(GEMINI_API_KEY);
-  const generateWithModel = async (modelName, shouldRetry) => {
+  const generateWithModel = async (modelName, shouldRetry, canRetry) => {
     try {
       const model = client.getGenerativeModel({
         model: modelName,
         systemInstruction
       });
-      const request = () => {
+      const request = async () => {
         const requestBody = {
           contents,
           generationConfig: {
@@ -298,15 +336,51 @@ const requestGemini = async (contents, systemInstruction, userId, generation = {
         };
         if (!generation.allowChatFallback) return model.generateContent(requestBody);
 
+        const remainingMs = chatDeadlineAt - performance.now();
+        if (remainingMs <= 0) {
+          const deadlineError = new Error("Chat request deadline exceeded.");
+          deadlineError.name = "TimeoutError";
+          throw annotateAbortError(deadlineError, "application_timeout", 0);
+        }
+        const modelTimeoutMs = modelName === GEMINI_MODEL
+          ? CHAT_PROVIDER_REQUEST_TIMEOUT_MS
+          : CHAT_FALLBACK_REQUEST_TIMEOUT_MS;
+        const requestTimeoutMs = Math.max(1, Math.min(modelTimeoutMs, Math.floor(remainingMs)));
         const controller = new AbortController();
+        let timeoutFired = false;
         const timeout = setTimeout(
-          () => controller.abort(),
-          CHAT_PROVIDER_REQUEST_TIMEOUT_MS
+          () => {
+            timeoutFired = true;
+            controller.abort();
+          },
+          requestTimeoutMs
         );
-        return model.generateContent(requestBody, { signal: controller.signal })
-          .finally(() => clearTimeout(timeout));
+        try {
+          const response = await model.generateContent(requestBody, { signal: controller.signal });
+          if (timeoutFired || performance.now() >= chatDeadlineAt) {
+            const deadlineError = new Error("Chat request deadline exceeded.");
+            deadlineError.name = "TimeoutError";
+            throw annotateAbortError(deadlineError, "application_timeout", requestTimeoutMs);
+          }
+          return response;
+        } catch (error) {
+          if (timeoutFired || performance.now() >= chatDeadlineAt) {
+            throw annotateAbortError(error, "application_timeout", requestTimeoutMs);
+          }
+          if (
+            error instanceof GoogleGenerativeAIAbortError ||
+            RETRYABLE_ABORT_NAMES.has(error?.name)
+          ) {
+            throw annotateAbortError(error, "provider_or_network_abort");
+          }
+          throw error;
+        } finally {
+          clearTimeout(timeout);
+        }
       };
-      return await (shouldRetry ? retryProviderRequest(request) : request());
+      return await (shouldRetry
+        ? retryProviderRequest(request, undefined, canRetry)
+        : request());
     } catch (error) {
       throw providerFailure(error, "AI_PROVIDER_ERROR", {
         model: modelName,
@@ -319,22 +393,46 @@ const requestGemini = async (contents, systemInstruction, userId, generation = {
   let result;
   let modelUsed = GEMINI_MODEL;
   try {
-    result = await generateWithModel(GEMINI_MODEL, true);
+    const canRetryPrimary = generation.allowChatFallback
+      ? (delay) => performance.now() + delay < chatDeadlineAt
+      : undefined;
+    result = await generateWithModel(
+      GEMINI_MODEL,
+      true,
+      canRetryPrimary
+    );
   } catch (primaryError) {
     const shouldUseChatFallback = generation.allowChatFallback &&
       GEMINI_CHAT_FALLBACK_MODEL &&
       GEMINI_CHAT_FALLBACK_MODEL !== GEMINI_MODEL &&
+      performance.now() < chatDeadlineAt &&
       primaryError.temporarilyUnavailable;
     if (!shouldUseChatFallback) throw primaryError;
 
     try {
-      result = await generateWithModel(GEMINI_CHAT_FALLBACK_MODEL, false);
+      let fallbackRetries = 0;
+      while (true) {
+        try {
+          result = await generateWithModel(GEMINI_CHAT_FALLBACK_MODEL, false);
+          break;
+        } catch (fallbackError) {
+          const remainingMs = chatDeadlineAt - performance.now();
+          const retryDelay = CHAT_FALLBACK_RETRY_DELAY_MS;
+          const canRetryFallback = fallbackError.temporarilyUnavailable &&
+            fallbackRetries < CHAT_FALLBACK_MAX_RETRIES &&
+            remainingMs >= retryDelay + CHAT_FALLBACK_REQUEST_TIMEOUT_MS;
+          if (!canRetryFallback) throw fallbackError;
+          await new Promise((resolve) => setTimeout(resolve, retryDelay));
+          fallbackRetries += 1;
+        }
+      }
       modelUsed = GEMINI_CHAT_FALLBACK_MODEL;
       console.info("[GEMINI_CHAT_FALLBACK_SUCCESS]", JSON.stringify({
         primaryModel: safeDiagnosticText(GEMINI_MODEL, [GEMINI_API_KEY], 100),
         model: safeDiagnosticText(modelUsed, [GEMINI_API_KEY], 100),
         primaryHttpStatus: primaryError.providerStatus,
-        primaryRetryCount: primaryError.providerRetryCount
+        primaryRetryCount: primaryError.providerRetryCount,
+        fallbackRetryCount: fallbackRetries
       }));
     } catch {
       throw primaryError;
@@ -519,7 +617,7 @@ const parseLearningPathResponse = (message, options) => {
 };
 
 class GeminiService {
-  async chatWithStudent(messages, courseContext, userId) {
+  async chatWithStudent(messages, courseContext, userId, { deadlineAt } = {}) {
     const contents = messages.map((message) => ({
       role: message.role === "assistant" ? "model" : "user",
       parts: [{ text: message.content }]
@@ -530,7 +628,12 @@ class GeminiService {
         contents,
         buildSystemInstruction(courseContext),
         userId,
-        { allowChatFallback: true }
+        {
+          allowChatFallback: true,
+          deadlineAt: Number.isFinite(deadlineAt)
+            ? deadlineAt
+            : performance.now() + CHAT_REQUEST_DEADLINE_MS
+        }
       ))
     };
   }
@@ -762,3 +865,4 @@ module.exports.parseLearningPathResponse = parseLearningPathResponse;
 module.exports.validateLearningPathOutput = validateLearningPathOutput;
 module.exports.providerFailure = providerFailure;
 module.exports.retryProviderRequest = retryProviderRequest;
+module.exports.CHAT_REQUEST_DEADLINE_MS = CHAT_REQUEST_DEADLINE_MS;
