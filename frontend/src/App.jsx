@@ -19,6 +19,7 @@ import AIChatPage from './pages/AIChatPage'
 import AnalyticsDashboard from './pages/AnalyticsDashboard'
 import LecturerDashboard from './pages/LecturerDashboard'
 import LecturerQuestionExtractions from './pages/LecturerQuestionExtractions'
+import ManualQuestionEditor from './pages/ManualQuestionEditor'
 import CBTQuiz from './pages/CBTQuiz'
 import ExaminationHistory from './pages/ExaminationHistory'
 import MainLayout from './layouts/MainLayout'
@@ -85,6 +86,8 @@ export default function App() {
         <Route path="/admin" element={<AdminOnly><AdminPanel /></AdminOnly>} />
         <Route path="/admin/content" element={<AdminOnly><LecturerDashboard /></AdminOnly>} />
         <Route path="/admin/question-extractions" element={<AdminOnly><LecturerQuestionExtractions /></AdminOnly>} />
+        <Route path="/admin/questions" element={<AdminOnly><ManualQuestionEditor /></AdminOnly>} />
+        <Route path="/admin/questions/:questionId/edit" element={<AdminOnly><ManualQuestionEditor /></AdminOnly>} />
 
         {/* Catch all */}
         <Route path="*" element={<Navigate to="/" replace />} />
