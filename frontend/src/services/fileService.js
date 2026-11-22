@@ -23,6 +23,13 @@ export const fileService = {
       responseType: 'blob'
     });
     return response;
+  },
+
+  async viewPastQuestionPaper(id) {
+    const response = await apiClient.get(`/api/files/past-questions/${id}`, {
+      responseType: 'blob'
+    });
+    return response;
   }
 };
 

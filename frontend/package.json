@@ -7,7 +7,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "postinstall": "chmod +x node_modules/.bin/* 2>/dev/null || true"
+    "postinstall": "node scripts/fixBinPermissions.js"
   },
   "dependencies": {
     "axios": "^1.16.1",
