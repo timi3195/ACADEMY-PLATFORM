@@ -222,6 +222,7 @@ questionSchema.index({ extractionKey: 1 }, { unique: true, sparse: true });
 questionSchema.index({ question: "text", topic: "text", explanation: "text" });
 
 questionSchema.path('options').validate(function(value) {
+  if (this.approvalStatus === "draft") return true;
   if (this.questionType && this.questionType !== "objective") return true;
   if ((!value || value.length < 2) && (!this.subQuestions || this.subQuestions.length === 0)) {
     return false;
@@ -238,7 +239,8 @@ questionSchema.path('answer').validate(function(value) {
 }, 'Answer must be provided unless this question has sub-questions.');
 
 questionSchema.path('blankCount').validate(function(value) {
-  return this.questionType !== "fill_in_gap" ||
+  return this.approvalStatus === "draft" ||
+    this.questionType !== "fill_in_gap" ||
     (Number.isInteger(value) && value >= 1 && value <= 20);
 }, "Fill-in-the-gap questions must specify between 1 and 20 blanks.");
 

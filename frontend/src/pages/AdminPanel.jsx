@@ -290,12 +290,13 @@ export default function AdminPanel() {
           difficulty: sub.difficulty,
         })) : [],
         course: questionCourse,
-        department: courses.find(c => c._id === questionCourse)?.department?._id || ''
+        department: courses.find(c => c._id === questionCourse)?.department?._id || '',
+        approvalStatus: 'draft'
       }
 
       const res = await apiPost('/api/questions', payload)
       if (res.success) {
-        alert('Question added successfully!')
+        alert('Question saved as a draft. Add a source past-question paper in Add and manage questions before publishing it for CBT.')
         setQuestionData({
           topic: '',
           question: '',
@@ -471,6 +472,9 @@ export default function AdminPanel() {
           </button>
           <button type="button" onClick={() => navigate('/admin/question-extractions')} className="mt-4 ml-2 rounded-lg bg-white px-4 py-2 font-semibold text-red-700">
             Review extracted questions
+          </button>
+          <button type="button" onClick={() => navigate('/admin/questions')} className="mt-4 ml-2 rounded-lg bg-white px-4 py-2 font-semibold text-red-700">
+            Add and manage questions
           </button>
         </div>
       </div>

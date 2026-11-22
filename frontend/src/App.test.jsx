@@ -9,7 +9,7 @@ describe('admin route access', () => {
   it('keeps the admin dashboard and existing content route behind AdminOnly', () => {
     const routes = React.Children.toArray(App().props.children.props.children)
 
-    for (const path of ['/admin', '/admin/content']) {
+    for (const path of ['/admin', '/admin/content', '/admin/questions', '/admin/questions/:questionId/edit']) {
       const route = routes.find((candidate) => candidate.props.path === path)
       expect(route).toBeDefined()
       expect(route.props.element.type.name).toBe('AdminOnly')
