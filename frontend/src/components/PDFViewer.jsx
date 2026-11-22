@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
+import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import Mammoth from 'mammoth';
 import fileService from '../services/fileService';
 import { detectFileKind } from '../utils/fileType';
 
-pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
 export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload, maxPages, materialId, pastQuestionPaperId, disablePreviewLimit = false }) {
   const [numPages, setNumPages] = useState(null);
