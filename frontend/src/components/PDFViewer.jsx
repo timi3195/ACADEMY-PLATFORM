@@ -6,7 +6,7 @@ import { detectFileKind } from '../utils/fileType';
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
-export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload, maxPages, materialId, disablePreviewLimit = false }) {
+export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload, maxPages, materialId, pastQuestionPaperId, disablePreviewLimit = false }) {
   const [numPages, setNumPages] = useState(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [scale, setScale] = useState(1);
@@ -16,7 +16,10 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload,
   const [fileKind, setFileKind] = useState(null);
   const [docHtml, setDocHtml] = useState('');
 
-  const storageKey = useMemo(() => `pdf-page:${fileUrl || materialId || 'default'}`, [fileUrl, materialId]);
+  const storageKey = useMemo(
+    () => `pdf-page:${fileUrl || materialId || pastQuestionPaperId || 'default'}`,
+    [fileUrl, materialId, pastQuestionPaperId]
+  );
   const resolvedMaterialId = materialId || (typeof fileUrl === 'string' ? fileUrl.match(/\/api\/files\/(?:view|download)\/([^/?#]+)/)?.[1] : null);
   const effectiveMaxPages = disablePreviewLimit ? 0 : Number(maxPages || 0);
 
@@ -29,7 +32,7 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload,
     }
 
     const loadAuthorizedFile = async () => {
-      if (!resolvedMaterialId && !fileUrl) return;
+      if (!resolvedMaterialId && !pastQuestionPaperId && !fileUrl) return;
 
       const savedPage = Number(window.localStorage.getItem(storageKey)) || 1;
       setPageNumber(savedPage);
@@ -45,8 +48,10 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload,
         let contentType = 'application/octet-stream';
         let finalFileName = fileName || 'material';
 
-        if (resolvedMaterialId) {
-          const response = await fileService.viewFile(resolvedMaterialId);
+        if (pastQuestionPaperId || resolvedMaterialId) {
+          const response = pastQuestionPaperId
+            ? await fileService.viewPastQuestionPaper(pastQuestionPaperId)
+            : await fileService.viewFile(resolvedMaterialId);
           const headers = response?.headers || {};
           contentType = headers['content-type'] || headers['Content-Type'] || 'application/octet-stream';
           const disposition = headers['content-disposition'] || headers['Content-Disposition'] || '';
@@ -109,7 +114,7 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload,
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [fileUrl, resolvedMaterialId, storageKey, fileName, disablePreviewLimit]);
+  }, [fileUrl, resolvedMaterialId, pastQuestionPaperId, storageKey, fileName, disablePreviewLimit]);
 
   useEffect(() => {
     if (pageNumber > 1) {

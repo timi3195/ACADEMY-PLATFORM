@@ -2,10 +2,12 @@ import React, { useEffect, useState } from 'react'
 import { apiGet } from '../utils/api'
 import EmptyState from '../components/EmptyState'
 import ErrorState from '../components/ErrorState'
+import PDFViewer from '../components/PDFViewer'
 
 export default function PastQuestions() {
   const [papers, setPapers] = useState([])
   const [selectedYear, setSelectedYear] = useState('')
+  const [openPaperId, setOpenPaperId] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -67,12 +69,30 @@ export default function PastQuestions() {
       ) : (
         <div className="grid gap-4">
           {papers.filter((paper) => !selectedYear || paper.examinationYear === selectedYear).map((paper) => (
-            <article key={paper._id} className="p-4 border border-gray-200 rounded-lg bg-white shadow-sm flex items-center justify-between gap-4">
-              <div>
-                <h3 className="text-lg font-bold text-gray-900">{paper.title}</h3>
-                <p className="text-sm text-gray-600">{paper.course?.code || paper.course?.title} • {paper.level} • {paper.semester} • {paper.examinationYear}</p>
+            <article key={paper._id} className="p-4 border border-gray-200 rounded-lg bg-white shadow-sm">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">{paper.title}</h3>
+                  <p className="text-sm text-gray-600">{paper.course?.code || paper.course?.title} • {paper.level} • {paper.semester} • {paper.examinationYear}</p>
+                </div>
+                <button
+                  type="button"
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg"
+                  aria-expanded={openPaperId === paper._id}
+                  onClick={() => setOpenPaperId((currentId) => currentId === paper._id ? '' : paper._id)}
+                >
+                  {openPaperId === paper._id ? 'Close Past Question' : 'Open Past Question'}
+                </button>
               </div>
-              <a className="bg-blue-600 text-white px-4 py-2 rounded-lg" href={paper.fileUrl} target="_blank" rel="noreferrer">Open paper</a>
+              {openPaperId === paper._id && (
+                <div className="mt-4">
+                  <PDFViewer
+                    fileName={paper.originalName || paper.title}
+                    pastQuestionPaperId={paper._id}
+                    canDownload={false}
+                  />
+                </div>
+              )}
             </article>
           ))}
         </div>
