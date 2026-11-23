@@ -453,18 +453,25 @@ export function StudentAnalyticsView({
                 ? "Not enough completed attempts to determine a trend."
                 : analytics.trend?.direction || "Not available"}
             </p>
-            <TrendChart attempts={attempts} />
-            <h3>Recent performance</h3>
-            {recentAttempts.length ? (
-              <ul className="student-analytics-recent">
-                {recentAttempts.map((attempt) => (
-                  <li key={String(attempt.attemptId)}>
-                    <span>{formatDate(attempt.completedAt)}</span>
-                    <strong>{formatPercent(attempt.scorePercentage)}</strong>
-                  </li>
-                ))}
-              </ul>
-            ) : <p className="student-analytics-muted">No fully graded attempts are available for a recent-performance summary.</p>}
+            <div className="student-analytics-performance-grid">
+              <div className="student-analytics-performance-chart">
+                <h3>Score trend</h3>
+                <TrendChart attempts={attempts} />
+              </div>
+              <aside className="student-analytics-performance-recent" aria-labelledby="student-analytics-recent-title">
+                <h3 id="student-analytics-recent-title">Recent performance</h3>
+                {recentAttempts.length ? (
+                  <ul className="student-analytics-recent">
+                    {recentAttempts.map((attempt) => (
+                      <li key={String(attempt.attemptId)}>
+                        <span>{formatDate(attempt.completedAt)}</span>
+                        <strong>{formatPercent(attempt.scorePercentage)}</strong>
+                      </li>
+                    ))}
+                  </ul>
+                ) : <p className="student-analytics-muted">No fully graded attempts are available for a recent-performance summary.</p>}
+              </aside>
+            </div>
           </section>
 
           <section className="topics-section student-analytics-section">

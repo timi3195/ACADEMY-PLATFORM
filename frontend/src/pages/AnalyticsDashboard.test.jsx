@@ -95,6 +95,8 @@ describe("StudentAnalyticsView", () => {
     expect(markup).toContain("Subnetting");
     expect(markup).not.toContain("Review subnetting and practise related questions.");
     expect(markup).toContain("Chronological completed practice-test score trend");
+    expect(markup).toContain("student-analytics-performance-grid");
+    expect(markup).toContain('aria-labelledby="student-analytics-recent-title"');
   });
 
   it("shows question types, readiness evidence, and provisional grades separately", () => {

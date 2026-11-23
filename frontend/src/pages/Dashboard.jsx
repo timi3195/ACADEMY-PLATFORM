@@ -38,6 +38,7 @@ export default function Dashboard() {
   const courseList = useMemo(
     () =>
       courses.slice(0, 4).map((course, index) => ({
+        id: course._id,
         name: course.title || 'Untitled course',
         hours: `${course.creditUnits || 0} credits`,
         color: courseColors[index % courseColors.length],
@@ -105,14 +106,19 @@ export default function Dashboard() {
               <div className="mini-course">Loading courses...</div>
             ) : courseList.length ? (
               courseList.map((course) => (
-                <div key={`${course.name}-${course.code}`} className={`mini-course ${course.color}`}>
+                <Link
+                  key={course.id || `${course.name}-${course.code}`}
+                  to={`/courses/${course.id}`}
+                  className={`mini-course ${course.color}`}
+                  aria-label={`Open ${course.name} course`}
+                >
                   <div className="mini-course-dot" />
                   <div className="mini-course-copy">
                     <span>{course.name}</span>
                     <small>{course.hours}</small>
                   </div>
                   <span className="mini-course-arrow">›</span>
-                </div>
+                </Link>
               ))
             ) : (
               <div className="mini-course">

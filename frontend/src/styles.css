@@ -603,6 +603,17 @@ select{
   border-radius:14px;
   padding:10px 10px 10px 12px;
   color:#22252d;
+  text-align:left;
+  text-decoration:none;
+  transition:background-color .18s ease, border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}.mini-course:hover{
+  background:#fff;
+  border-color:rgba(56, 87, 166, 0.24);
+  box-shadow:0 6px 16px rgba(24, 39, 75, 0.1);
+  transform:translateY(-1px);
+}.mini-course:focus-visible{
+  outline:3px solid #5368d4;
+  outline-offset:3px;
 }.mini-course-dot{
   width:18px;
   height:18px;
