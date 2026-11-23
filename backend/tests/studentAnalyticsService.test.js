@@ -18,6 +18,7 @@ const STUDENT_ID = "507f1f77bcf86cd799439011";
 
 test("analytics aggregation selects completed or timestamped historical attempts owned by the student", () => {
   const pipeline = buildAnalyticsPipeline(STUDENT_ID);
+  assert.doesNotMatch(JSON.stringify(pipeline), /\$(?:regexReplace|replaceAll)\b/);
   const facets = pipeline.find((stage) => stage.$facet).$facet;
   const match = pipeline[0].$match;
   assert.equal(String(match.user), STUDENT_ID);
