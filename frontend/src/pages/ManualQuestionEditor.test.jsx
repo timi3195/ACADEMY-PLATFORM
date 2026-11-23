@@ -107,4 +107,28 @@ describe('manual question editor', () => {
     expect(apiPost.mock.calls[0][1].sourcePaperId).toBe(sourcePaper._id)
     expect(await screen.findByText('Question published and CBT marking is ready.')).toBeTruthy()
   })
+
+  it('publishes an original practice question without past-paper provenance', async () => {
+    renderEditor()
+    fireEvent.change(await screen.findByLabelText('Subject / course'), { target: { value: course._id } })
+    fireEvent.change(screen.getByLabelText('Question origin'), { target: { value: 'original_practice' } })
+    fireEvent.change(screen.getByLabelText('Topic'), { target: { value: 'Networks' } })
+    fireEvent.change(screen.getByLabelText('Question text'), { target: { value: 'What is a computer network?' } })
+    fireEvent.change(screen.getByLabelText('Option A'), { target: { value: 'Connected devices' } })
+    fireEvent.change(screen.getByLabelText('Option B'), { target: { value: 'A single isolated device' } })
+    fireEvent.change(screen.getByLabelText('Correct answer'), { target: { value: 'Connected devices' } })
+
+    expect(screen.queryByLabelText('Uploaded source paper')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Publish question' }))
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(1))
+    const payload = apiPost.mock.calls[0][1]
+    expect(payload.questionOrigin).toBe('original_practice')
+    expect(payload.approvalStatus).toBe('approved')
+    expect(payload.sourcePaperId).toBe('')
+    expect(payload.batchId).toBe('')
+    expect(payload.sourcePage).toBeNull()
+    expect(payload.sourceExcerpt).toBe('')
+    expect(await screen.findByText('Question published and CBT marking is ready.')).toBeTruthy()
+  })
 })

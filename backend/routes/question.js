@@ -185,6 +185,10 @@ const buildQuestionInput = async (payload, userId, existing) => {
   if (!["draft", "approved"].includes(approvalStatus)) {
     throw inputError("Question status must be draft or published.");
   }
+  const questionOrigin = payload.questionOrigin ?? existing?.questionOrigin ?? "verified_past_paper";
+  if (!["verified_past_paper", "original_practice"].includes(questionOrigin)) {
+    throw inputError("Select a supported question origin.");
+  }
 
   const year = readText(payload.year, existing?.year ?? String(new Date().getFullYear()), "Examination year");
   if (!/^\d{4}$/.test(year)) throw inputError("Examination year must be a four-digit year.");
@@ -242,7 +246,19 @@ const buildQuestionInput = async (payload, userId, existing) => {
   }
 
   const resolvedSource = await resolveSource(payload, course, existing);
-  if (approvalStatus === "approved" && !resolvedSource.sourcePaper) {
+  if (questionOrigin === "original_practice" &&
+      (resolvedSource.sourcePaper ||
+       resolvedSource.extractionBatchId ||
+       resolvedSource.sourcePaperMetadata ||
+       resolvedSource.sourceExamYear ||
+       resolvedSource.sourceAcademicSession ||
+       existing?.extractionDraftId ||
+       existing?.extractionKey)) {
+    throw inputError("Original practice questions cannot include past-paper provenance or extraction batches.");
+  }
+  if (questionOrigin === "verified_past_paper" &&
+      approvalStatus === "approved" &&
+      !resolvedSource.sourcePaper) {
     throw inputError("An uploaded source past-question paper is required before publishing this question.");
   }
   if (resolvedSource.sourceExamYear && year !== resolvedSource.sourceExamYear) {
@@ -259,6 +275,10 @@ const buildQuestionInput = async (payload, userId, existing) => {
   }
   const sourceExcerpt = readText(payload.sourceExcerpt, existing?.sourceExcerpt, "Source excerpt");
   if (sourceExcerpt.length > 5000) throw inputError("Source excerpt must be 5,000 characters or fewer.");
+  if (questionOrigin === "original_practice" &&
+      (sourcePage !== null || sourceExcerpt)) {
+    throw inputError("Original practice questions cannot include source pages or excerpts.");
+  }
 
   const previousOptions = existing?.options || [];
   const previousOptionIds = existing?.optionIds || [];
@@ -282,14 +302,15 @@ const buildQuestionInput = async (payload, userId, existing) => {
     session,
     marks,
     difficulty,
+    questionOrigin,
     approvalStatus,
     approvedBy: approvalStatus === "approved" ? userId : null,
     approvedAt: approvalStatus === "approved" ? (existing?.approvalStatus === "approved" && !payload.approvalStatus
       ? existing.approvedAt
       : new Date()) : null,
     ...resolvedSource,
-    sourcePage,
-    sourceExcerpt
+    sourcePage: questionOrigin === "original_practice" ? null : sourcePage,
+    sourceExcerpt: questionOrigin === "original_practice" ? "" : sourceExcerpt
   };
   if (questionType === "fill_in_gap") next.blankCount = blankCount;
   if (hasSubQuestions) next.subQuestions = subQuestions;

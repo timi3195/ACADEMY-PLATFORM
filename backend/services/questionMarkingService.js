@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const Question = require("../models/Question");
+const Course = require("../models/course");
 const QuestionMarkingVersion = require("../models/QuestionMarkingVersion");
 const PastQuestionPaper = require("../models/PastQuestionPaper");
 const gemini = require("../utils/gemini");
@@ -216,6 +217,27 @@ const validateTheory = (output, totalMarks) => {
 };
 
 const buildQuestionInput = (question, sourcePaper) => {
+  const questionOrigin = question.questionOrigin || "verified_past_paper";
+  if (!["verified_past_paper", "original_practice"].includes(questionOrigin)) {
+    return { error: "The question origin is missing or unsupported." };
+  }
+  const hasSourceProvenance = Boolean(
+    question.sourcePaper ||
+    question.sourcePaperMetadata ||
+    question.sourceExamYear ||
+    question.sourceAcademicSession ||
+    (question.sourcePage !== undefined && question.sourcePage !== null && question.sourcePage !== "") ||
+    question.sourceExcerpt ||
+    question.extractionBatchId ||
+    question.extractionDraftId ||
+    question.extractionKey
+  );
+  if (questionOrigin === "original_practice" && (sourcePaper || hasSourceProvenance)) {
+    return { error: "Original practice questions cannot include past-paper provenance." };
+  }
+  if (questionOrigin === "verified_past_paper" && !sourcePaper) {
+    return { error: "A verified past-question paper is required for this question origin." };
+  }
   const questionType = question.questionType ||
     (Array.isArray(question.options) && question.options.length >= 2 ? "objective" : "");
   if (!TYPES.has(questionType)) return { error: "The question type is missing or unsupported." };
@@ -232,7 +254,7 @@ const buildQuestionInput = (question, sourcePaper) => {
     questionSession: String(question.session || "Rain"),
     sourceExamYear: String(question.sourceExamYear || ""),
     sourceAcademicSession: String(question.sourceAcademicSession || ""),
-    source: {
+    source: sourcePaper ? {
       paperId: idOf(sourcePaper),
       title: sourcePaper.title,
       examinationYear: String(sourcePaper.examinationYear),
@@ -240,7 +262,7 @@ const buildQuestionInput = (question, sourcePaper) => {
       semester: sourcePaper.semester,
       page: Number.isInteger(question.sourcePage) ? question.sourcePage : null,
       excerpt: String(question.sourceExcerpt || "").slice(0, 1000)
-    }
+    } : null
   };
   if (!input.questionText || input.questionText.length > 5000) {
     return { error: "The approved question text is invalid." };
@@ -330,16 +352,22 @@ const generateForQuestion = async (questionId, userId) => {
 
   const questionType = question.questionType ||
     (Array.isArray(question.options) && question.options.length >= 2 ? "objective" : "");
+  const questionOrigin = question.questionOrigin || "verified_past_paper";
+  const course = await Course.findById(question.course);
   const sourcePaper = question.sourcePaper
     ? await PastQuestionPaper.findById(question.sourcePaper)
     : null;
-  const prepared = sourcePaper && questionType
+  const prepared = questionType && (
+    questionOrigin === "original_practice" ||
+    (questionOrigin === "verified_past_paper" && sourcePaper)
+  )
     ? buildQuestionInput(question, sourcePaper)
     : { input: null };
   const contentHash = prepared.input
     ? buildContentHash(question, prepared.input)
     : digest(JSON.stringify({
       question: idOf(question._id),
+      questionOrigin,
       questionType,
       text: String(question.question || ""),
       topic: String(question.topic || ""),
@@ -368,19 +396,38 @@ const generateForQuestion = async (questionId, userId) => {
 
   let sourceError = "";
   let sourceMismatch = false;
-  if (!question.sourcePaper) {
+  if (!course ||
+      idOf(course._id) !== idOf(question.course) ||
+      idOf(course.department) !== idOf(question.department)) {
+    sourceError = "The question does not have a valid course and department association.";
+    sourceMismatch = true;
+  } else if (!["verified_past_paper", "original_practice"].includes(questionOrigin)) {
+    sourceError = "The question origin is missing or unsupported.";
+    sourceMismatch = true;
+  } else if (questionOrigin === "original_practice" &&
+      (sourcePaper || question.sourcePaper || question.sourcePaperMetadata ||
+       question.sourceExamYear || question.sourceAcademicSession ||
+       (question.sourcePage !== undefined && question.sourcePage !== null && question.sourcePage !== "") ||
+       question.sourceExcerpt || question.extractionBatchId ||
+       question.extractionDraftId || question.extractionKey)) {
+    sourceError = "Original practice questions cannot include past-paper provenance.";
+    sourceMismatch = true;
+  } else if (questionOrigin === "verified_past_paper" && !question.sourcePaper) {
     sourceError = "No uploaded source paper is linked to this question.";
-  } else if (!sourcePaper) {
+  } else if (questionOrigin === "verified_past_paper" && !sourcePaper) {
     sourceError = "The linked source paper is unavailable.";
-  } else if (idOf(sourcePaper.course) !== idOf(question.course) ||
+  } else if (questionOrigin === "verified_past_paper" &&
+      (idOf(sourcePaper.course) !== idOf(question.course) ||
       idOf(sourcePaper.department) !== idOf(question.department) ||
-      (question.sourceExamYear &&
-       String(question.sourceExamYear) !== String(sourcePaper.examinationYear)) ||
-      (question.sourcePaperMetadata &&
-       (question.sourcePaperMetadata.title !== sourcePaper.title ||
-        String(question.sourcePaperMetadata.examinationYear) !== String(sourcePaper.examinationYear) ||
-        question.sourcePaperMetadata.level !== sourcePaper.level ||
-        question.sourcePaperMetadata.semester !== sourcePaper.semester))) {
+      sourcePaper.level !== course.level ||
+      sourcePaper.semester !== course.semester ||
+      String(question.year || "") !== String(sourcePaper.examinationYear) ||
+      String(question.sourceExamYear || "") !== String(sourcePaper.examinationYear) ||
+      !question.sourcePaperMetadata ||
+      question.sourcePaperMetadata.title !== sourcePaper.title ||
+      String(question.sourcePaperMetadata.examinationYear) !== String(sourcePaper.examinationYear) ||
+      question.sourcePaperMetadata.level !== sourcePaper.level ||
+      question.sourcePaperMetadata.semester !== sourcePaper.semester)) {
     sourceError = "The source paper does not match the approved question's course provenance.";
     sourceMismatch = true;
   }
@@ -408,6 +455,7 @@ const generateForQuestion = async (questionId, userId) => {
     questionSession: question.session || "Rain",
     sourceExamYear: String(question.sourceExamYear || ""),
     sourceAcademicSession: String(question.sourceAcademicSession || ""),
+    questionOrigin,
     sourcePaper: sourcePaper?._id || null,
     sourcePaperMetadata,
     sourcePage: Number.isInteger(question.sourcePage) ? question.sourcePage : null,

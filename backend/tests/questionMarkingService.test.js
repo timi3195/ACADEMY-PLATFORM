@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const Question = require("../models/Question");
+const Course = require("../models/course");
 const QuestionMarkingVersion = require("../models/QuestionMarkingVersion");
 const PastQuestionPaper = require("../models/PastQuestionPaper");
 const gemini = require("../utils/gemini");
@@ -16,6 +17,12 @@ let questions;
 let papers;
 let versions;
 let generationCalls;
+const courseRecord = {
+  _id: COURSE_ID,
+  department: DEPARTMENT_ID,
+  level: "ND1",
+  semester: "First"
+};
 
 const makeQuestion = (overrides = {}) => ({
   _id: QUESTION_ID,
@@ -77,6 +84,7 @@ const setupMocks = () => {
   versions = new Map();
   generationCalls = 0;
   Question.findById = async (id) => questions.get(String(id)) || null;
+  Course.findById = async (id) => String(id) === COURSE_ID ? courseRecord : null;
   PastQuestionPaper.findById = async (id) => papers.get(String(id)) || null;
   QuestionMarkingVersion.findOne = async ({ generationKey }) =>
     [...versions.values()].find((version) => version.generationKey === generationKey) || null;
@@ -105,6 +113,7 @@ const setupMocks = () => {
 
 const restoreMocks = () => {
   Question.findById = originals.questionFindById;
+  Course.findById = originals.courseFindById;
   PastQuestionPaper.findById = originals.paperFindById;
   QuestionMarkingVersion.findOne = originals.versionFindOne;
   QuestionMarkingVersion.countDocuments = originals.versionCountDocuments;
@@ -115,6 +124,7 @@ const restoreMocks = () => {
 
 test.before(() => {
   originals.questionFindById = Question.findById;
+  originals.courseFindById = Course.findById;
   originals.paperFindById = PastQuestionPaper.findById;
   originals.versionFindOne = QuestionMarkingVersion.findOne;
   originals.versionCountDocuments = QuestionMarkingVersion.countDocuments;
@@ -276,6 +286,39 @@ test("missing and cross-course provenance never trigger AI marking", async () =>
   const mismatched = await markingService.generateForQuestion(QUESTION_ID, "reviewer-id");
   assert.equal(mismatched.status, "invalid");
   assert.equal(generationCalls, 0);
+});
+
+test("verified marking rejects a paper with mismatched course academic metadata", async () => {
+  papers.set(PAPER_ID, makePaper({ semester: "Second" }));
+  const result = await markingService.generateForQuestion(QUESTION_ID, "reviewer-id");
+  assert.equal(result.status, "invalid");
+  assert.match(result.version.validationErrors[0], /course provenance/i);
+  assert.equal(generationCalls, 0);
+});
+
+test("original practice questions can receive ready marking without a source paper", async () => {
+  const originalId = "507f1f77bcf86cd799439029";
+  questions.set(originalId, makeQuestion({
+    _id: originalId,
+    questionOrigin: "original_practice",
+    year: "2026",
+    sourcePaper: null,
+    sourcePaperMetadata: undefined,
+    sourceExamYear: "",
+    sourceAcademicSession: "",
+    sourcePage: null,
+    sourceExcerpt: ""
+  }));
+  const prepared = markingService.buildQuestionInput(questions.get(originalId), null);
+  assert.ok(prepared.input);
+  assert.equal(prepared.input.source, null);
+
+  const generated = await markingService.generateForQuestion(originalId, "reviewer-id");
+  assert.equal(generated.status, "ready");
+  assert.equal(generated.version.questionOrigin, "original_practice");
+  assert.equal(generated.version.sourcePaper, null);
+  assert.equal(generated.version.sourcePaperMetadata, undefined);
+  assert.equal(generationCalls, 1);
 });
 
 test("fill-in and theory question records are represented without objective answer fields", async () => {

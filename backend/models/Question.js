@@ -45,6 +45,12 @@ const questionSchema = new mongoose.Schema({
     default: undefined
   },
 
+  questionOrigin: {
+    type: String,
+    enum: ["verified_past_paper", "original_practice"],
+    default: "verified_past_paper"
+  },
+
   blankCount: {
     type: Number,
     min: 1,

@@ -597,6 +597,34 @@ test("starting a mixed-format attempt stores ordered, provenance-backed immutabl
   }, { eligibleEntries: entries });
 });
 
+test("starting an original-practice attempt records origin without a source-paper snapshot", async () => {
+  const entries = JSON.parse(JSON.stringify(typedEntries)).map((entry) => ({
+    ...entry,
+    paper: null,
+    question: {
+      ...entry.question,
+      questionOrigin: "original_practice",
+      sourcePaper: null,
+      sourcePaperMetadata: null,
+      sourceExamYear: null,
+      sourcePage: null,
+      sourceExcerpt: null
+    }
+  }));
+  await withQuizMocks(async (state) => {
+    const response = await request(buildApp())
+      .post("/api/quiz/start")
+      .send({ courseId: COURSE_ID, questionCount: 10 });
+
+    assert.equal(response.status, 201);
+    assert.equal(state.attempt.questions.length, 10);
+    for (const snapshot of state.attempt.questions) {
+      assert.equal(snapshot.questionOrigin, "original_practice");
+      assert.equal(snapshot.sourceSnapshot, undefined);
+    }
+  }, { eligibleEntries: entries });
+});
+
 test("a second start for the same student and course is rejected while an attempt is active", async () => {
   await withQuizMocks(async (state) => {
     const first = await request(buildApp())

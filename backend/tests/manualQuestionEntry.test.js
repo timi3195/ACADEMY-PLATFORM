@@ -94,18 +94,19 @@ const createReadyMarkingVersion = (question) => {
     questionSession: question.session || "Rain",
     sourceExamYear: String(question.sourceExamYear || ""),
     sourceAcademicSession: String(question.sourceAcademicSession || ""),
+    questionOrigin: question.questionOrigin || "verified_past_paper",
     questionType,
     version: 1,
     contentHash,
     status: "ready",
-    sourcePaper: paper._id,
-    sourcePaperMetadata: {
+    sourcePaper: paper?._id || null,
+    sourcePaperMetadata: paper ? {
       title: paper.title,
       examinationYear: String(paper.examinationYear),
       level: paper.level,
       semester: paper.semester
-    },
-    sourcePage: question.sourcePage || null,
+    } : undefined,
+    sourcePage: question.sourcePage ?? null,
     sourceExcerpt: String(question.sourceExcerpt || "").slice(0, 1000),
     marking,
     createdAt: new Date()
@@ -304,6 +305,7 @@ test("publishes valid multiple-choice questions and rejects incomplete publicati
 
   assert.equal(response.status, 200);
   assert.equal(response.body.question.approvalStatus, "approved");
+  assert.equal(response.body.question.questionOrigin, "verified_past_paper");
   assert.equal(response.body.question.answer, "2");
   assert.equal(response.body.markingStatus, "ready");
   assert.ok(response.body.markingVersion);
@@ -337,6 +339,60 @@ test("publishing without a source paper is rejected before creating the question
 
   assert.equal(response.status, 400);
   assert.match(response.body.message, /source past-question paper is required/i);
+  assert.equal(questions.size, 0);
+  assert.equal(markingCalls.length, 0);
+});
+
+test("publishes an approved original practice question and generates source-free marking", async () => {
+  const response = await request(buildApp())
+    .post("/api/questions")
+    .send({
+      course: COURSE_ID,
+      questionOrigin: "original_practice",
+      topic: "Algebra",
+      question: "Which value solves x + 2 = 4?",
+      questionType: "objective",
+      options: ["2", "3"],
+      answer: "2",
+      year: "2025",
+      approvalStatus: "approved"
+    });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.question.questionOrigin, "original_practice");
+  assert.equal(response.body.question.approvalStatus, "approved");
+  assert.equal(response.body.question.sourcePaper, null);
+  assert.equal(response.body.markingStatus, "ready");
+  assert.ok(response.body.markingVersion);
+  const question = questions.get(QUESTION_ID);
+  const markingVersion = [...markingVersions.values()][0];
+  assert.equal(question.sourcePaperMetadata, undefined);
+  assert.equal(markingVersion.sourcePaper, null);
+  assert.equal(markingVersion.questionOrigin, "original_practice");
+  assert.equal(
+    practiceTestService.isEligibleQuestion(question, courses.get(COURSE_ID), null, markingVersion),
+    true
+  );
+});
+
+test("original practice questions cannot carry source-paper or extraction provenance", async () => {
+  const response = await request(buildApp())
+    .post("/api/questions")
+    .send({
+      course: COURSE_ID,
+      batchId: BATCH_ID,
+      questionOrigin: "original_practice",
+      topic: "Algebra",
+      question: "Question with extraction provenance",
+      questionType: "objective",
+      options: ["2", "3"],
+      answer: "2",
+      year: "2024",
+      approvalStatus: "approved"
+    });
+
+  assert.equal(response.status, 400);
+  assert.match(response.body.message, /cannot include past-paper provenance/i);
   assert.equal(questions.size, 0);
   assert.equal(markingCalls.length, 0);
 });
