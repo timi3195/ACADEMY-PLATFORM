@@ -42,7 +42,7 @@ export default function PastQuestions() {
   }
 
   return (
-    <div className="page">
+    <div className="page past-questions-page">
       <h2>Past Questions</h2>
       <p className="text-sm text-gray-600 mb-4">Browse past-question papers uploaded by the administrator for your courses.</p>
 
@@ -67,10 +67,10 @@ export default function PastQuestions() {
       ) : papers.filter((paper) => !selectedYear || paper.examinationYear === selectedYear).length === 0 ? (
         <EmptyState title="No past question papers available" description="There are no uploaded papers for this selection yet." icon="📝" />
       ) : (
-        <div className="grid gap-4">
+        <div className="past-questions-list grid gap-4">
           {papers.filter((paper) => !selectedYear || paper.examinationYear === selectedYear).map((paper) => (
-            <article key={paper._id} className="p-4 border border-gray-200 rounded-lg bg-white shadow-sm">
-              <div className="flex items-center justify-between gap-4">
+            <article key={paper._id} className="past-question-card p-4 border border-gray-200 rounded-lg bg-white shadow-sm">
+              <div className="past-question-card-header flex items-center justify-between gap-4">
                 <div>
                   <h3 className="text-lg font-bold text-gray-900">{paper.title}</h3>
                   <p className="text-sm text-gray-600">{paper.course?.code || paper.course?.title} • {paper.level} • {paper.semester} • {paper.examinationYear}</p>

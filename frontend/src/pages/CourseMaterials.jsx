@@ -110,8 +110,8 @@ export default function CourseMaterials() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto py-8">
-      <div className="flex items-center justify-between mb-6">
+    <div className="course-materials-page max-w-4xl mx-auto py-8">
+      <div className="course-materials-header flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Course Materials</h1>
         <Link to={`/courses/${courseId}`} className="text-sm text-blue-600">Back to course</Link>
       </div>
@@ -134,7 +134,7 @@ export default function CourseMaterials() {
       {files.length === 0 ? (
         <p className="text-gray-600">No materials uploaded for this course yet.</p>
       ) : (
-        <div className="space-y-4">
+        <div className="course-materials-list space-y-4">
           {files.map(f => {
             // Use backend 'accessible' field if available
             const isAccessible = 'accessible' in f ? f.accessible : true
@@ -146,7 +146,7 @@ export default function CourseMaterials() {
                 id={`course-material-${f._id}`}
                 key={f._id}
                 tabIndex={-1}
-                className={`p-4 rounded-lg border ${isAccessible ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}
+                className={`course-material-card p-4 rounded-lg border ${isAccessible ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}
               >
                 <div className="flex items-center justify-between mb-3">
                   <div>

@@ -544,7 +544,7 @@ export default function CBTQuiz() {
 
   if (result) {
     return (
-      <div className="page">
+      <div className="page cbt-practice-page">
         <h2>{result.completionReason === 'expired' ? 'Examination Time Expired' : 'Quiz Submitted'}</h2>
         <section className="card" aria-live="polite">
           <CBTResultFeedback
@@ -561,7 +561,7 @@ export default function CBTQuiz() {
   }
 
   return (
-      <div className="page">
+      <div className="page cbt-practice-page">
         <h2>CBT Practice</h2>
         {!activeAttempt && <p className="mb-4"><Link to="/examination-history">View examination history</Link></p>}
         <p className="text-sm text-gray-600 mb-4">Practice using approved, marked questions from verified past papers and original administrator-created practice questions.</p>
@@ -668,8 +668,8 @@ export default function CBTQuiz() {
           </section>
         ) : (
           <>
-            <section className="card" aria-label="Question navigation">
-              <div className="flex flex-wrap items-center justify-between gap-3">
+            <section className="card cbt-navigation-card" aria-label="Question navigation">
+              <div className="cbt-navigation-summary flex flex-wrap items-center justify-between gap-3">
                 <p className="font-semibold">Question {index + 1} of {questions.length}</p>
                 <p className="text-sm text-gray-600">{questions.length - unansweredCount} answered</p>
                 {remainingSeconds !== null && (
@@ -678,7 +678,7 @@ export default function CBTQuiz() {
                   </p>
                 )}
               </div>
-              <div className="mt-4 flex flex-wrap gap-2">
+              <div className="cbt-question-navigation mt-4 flex flex-wrap gap-2">
                 {questions.map((item, questionIndex) => {
                   const hasAnswer = hasCbtAnswer(item, answers[questionIndex])
                   return (
@@ -702,7 +702,7 @@ export default function CBTQuiz() {
             </section>
 
             {question && (
-              <section className="card">
+              <section className="card cbt-question-card">
                 <p className="text-sm font-semibold text-gray-600">
                   Question {index + 1}{question.topic ? ` · ${question.topic}` : ''}
                 </p>
@@ -773,7 +773,7 @@ export default function CBTQuiz() {
                   </button>
                 )}
 
-                <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+                <div className="cbt-question-actions mt-6 flex flex-wrap items-center justify-between gap-3">
                   <button type="button" onClick={() => setIndex((current) => Math.max(0, current - 1))} disabled={index === 0}>
                     Previous
                   </button>

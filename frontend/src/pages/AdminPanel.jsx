@@ -462,9 +462,9 @@ export default function AdminPanel() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-      <div className="bg-gradient-to-r from-red-600 to-orange-600 text-white px-6 py-8">
-        <div className="max-w-6xl mx-auto">
+    <div className="admin-panel-page min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+      <header className="admin-panel-header bg-gradient-to-r from-red-600 to-orange-600 text-white px-6 py-8">
+        <div className="admin-panel-header-content max-w-6xl mx-auto">
           <h1 className="text-4xl font-bold mb-2">🛡️ Admin Panel</h1>
           <p className="text-red-100">Manage courses, CBT sets, materials, and past questions</p>
           <button type="button" onClick={() => navigate('/admin/content')} className="mt-4 rounded-lg bg-white px-4 py-2 font-semibold text-red-700">
@@ -477,10 +477,10 @@ export default function AdminPanel() {
             Add and manage questions
           </button>
         </div>
-      </div>
+      </header>
 
-      <div className="max-w-6xl mx-auto px-6 py-8">
-        <div className="flex gap-2 mb-6 flex-wrap">
+      <div className="admin-panel-content max-w-6xl mx-auto px-6 py-8">
+        <div className="admin-panel-tabs flex gap-2 mb-6 flex-wrap">
           {['addCourse', 'uploadMaterial', 'uploadPastQuestion', 'uploadCBT', 'viewCourses', 'manageStudentDepartments', 'viewMaterials', 'viewQuestions'].map(tab => (
             <button
               key={tab}

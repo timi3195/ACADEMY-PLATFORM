@@ -122,10 +122,10 @@ export default function CourseDetail() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+    <div className="course-detail-page min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
       {/* Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-8">
-        <div className="max-w-6xl mx-auto">
+      <header className="course-detail-header bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-8">
+        <div className="course-detail-header-content max-w-6xl mx-auto">
           <Link to="/" className="text-blue-100 hover:text-white mb-4 inline-block">← Back to Dashboard</Link>
           <h1 className="text-4xl font-bold mb-2">{course.title}</h1>
           <div className="flex flex-wrap items-center gap-4 text-blue-100">
@@ -137,19 +137,19 @@ export default function CourseDetail() {
             )}
           </div>
         </div>
-      </div>
+      </header>
 
       {/* Main Content */}
-      <div className="max-w-6xl mx-auto px-6 py-8">
+      <div className="course-detail-content max-w-6xl mx-auto px-6 py-8">
         {/* Tabs */}
-        <div className="flex gap-4 border-b border-gray-200 mb-6">
+        <div className="course-detail-tabs flex gap-4 border-b border-gray-200 mb-6">
           {['overview', 'materials', 'questions'].map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`px-4 py-3 font-semibold capitalize transition ${
+              className={`course-detail-tab px-4 py-3 font-semibold capitalize transition ${
                 activeTab === tab
-                  ? 'text-blue-600 border-b-2 border-blue-600'
+                  ? 'active text-blue-600 border-b-2 border-blue-600'
                   : 'text-gray-600 hover:text-gray-800'
               }`}
             >
@@ -161,7 +161,7 @@ export default function CourseDetail() {
         </div>
 
         {/* Tab Content */}
-        <div className="bg-white rounded-lg shadow-lg p-8">
+        <div className="course-detail-panel bg-white rounded-lg shadow-lg p-8">
           {/* Overview Tab */}
           {activeTab === 'overview' && (
             <div className="space-y-6">
@@ -170,7 +170,7 @@ export default function CourseDetail() {
                 <p className="text-gray-700">{course.description || 'No description available.'}</p>
               </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="course-detail-stat-grid grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="bg-blue-50 p-4 rounded-lg">
                   <p className="text-sm text-gray-600">Credit Units</p>
                   <p className="text-2xl font-bold text-blue-600">{course.creditUnits}</p>

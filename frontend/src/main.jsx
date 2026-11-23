@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import { ThemeProvider } from './context/ThemeContext'
 import './styles.css'
+import './mobile-responsive.css'
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
