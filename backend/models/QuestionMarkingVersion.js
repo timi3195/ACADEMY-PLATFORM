@@ -27,6 +27,11 @@ const questionMarkingVersionSchema = new mongoose.Schema({
     enum: ["objective", "fill_in_gap", "theory"],
     required: true
   },
+  questionOrigin: {
+    type: String,
+    enum: ["verified_past_paper", "original_practice"],
+    default: "verified_past_paper"
+  },
   contentHash: { type: String, required: true },
   promptVersion: { type: String, required: true },
   schemaVersion: { type: String, required: true },

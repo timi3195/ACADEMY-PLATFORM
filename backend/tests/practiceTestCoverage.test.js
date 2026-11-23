@@ -29,13 +29,17 @@ const courseA = {
   _id: COURSE_A,
   title: "Cloud Computing",
   code: "NCC221",
-  department: DEPARTMENT_A
+  department: DEPARTMENT_A,
+  level: "HND2",
+  semester: "First"
 };
 const courseB = {
   _id: COURSE_B,
   title: "Accounting",
   code: "NAC101",
-  department: DEPARTMENT_B
+  department: DEPARTMENT_B,
+  level: "HND2",
+  semester: "First"
 };
 const student = {
   _id: STUDENT,
@@ -60,7 +64,7 @@ const secondSourcePaper = {
   _id: PAPER_B,
   title: "Cloud Computing 2025",
   examinationYear: "2025",
-  semester: "Second",
+  semester: "First",
   fileUrl: "other-private-paper-url",
   storageKey: "other-private-storage-key"
 };
@@ -82,7 +86,7 @@ const makeQuestion = (index, overrides = {}) => ({
   options: ["Correct", "Incorrect"],
   optionIds: [`correct-${index}`, `incorrect-${index}`],
   answer: "Correct",
-  year: index % 2 ? "2024" : "2025",
+  year: "2024",
   session: index % 2 ? "Rain" : "Harmattan",
   approvalStatus: "approved",
   approvedBy: ADMIN,
@@ -145,24 +149,41 @@ const makeMarkingVersion = (question, paper, overrides = {}) => {
     questionSession: question.session || "Rain",
     sourceExamYear: String(question.sourceExamYear || ""),
     sourceAcademicSession: String(question.sourceAcademicSession || ""),
+    questionOrigin: question.questionOrigin || "verified_past_paper",
     version: 1,
     questionType,
     contentHash: questionMarkingService.buildContentHash(question, prepared.input),
     status: "ready",
     marking,
-    sourcePaper: paper._id,
-    sourcePaperMetadata: metadataFor(paper),
-    sourcePage: question.sourcePage || null,
+    sourcePaper: paper?._id || null,
+    sourcePaperMetadata: paper ? metadataFor(paper) : undefined,
+    sourcePage: question.sourcePage ?? null,
     sourceExcerpt: String(question.sourceExcerpt || "").slice(0, 1000),
     createdAt: new Date("2026-01-02T00:00:00.000Z"),
     ...overrides
   };
 };
 
+const makeOriginalQuestion = (index, overrides = {}) => makeQuestion(index, {
+  questionOrigin: "original_practice",
+  sourcePaper: null,
+  sourcePaperMetadata: undefined,
+  sourceExamYear: "",
+  sourceAcademicSession: "",
+  sourcePage: null,
+  sourceExcerpt: "",
+  extractionKey: undefined,
+  extractionBatchId: "",
+  extractionDraftId: "",
+  ...overrides
+});
+
 const defaultMarkingVersions = (questions, papers) => questions
   .map((question) => {
     const paper = papers.find((item) => String(item._id) === String(question.sourcePaper));
-    return paper && makeMarkingVersion(question, paper);
+    return question.questionOrigin === "original_practice"
+      ? makeMarkingVersion(question, null)
+      : paper && makeMarkingVersion(question, paper);
   })
   .filter(Boolean);
 
@@ -301,6 +322,83 @@ test("the course pool requires reviewer approval, matching course, valid format,
   }, { questions: candidates });
 });
 
+test("approved original practice requires explicit origin, source-free provenance, and ready marking", async () => {
+  const readyOriginal = makeOriginalQuestion(1);
+  const unapprovedOriginal = makeOriginalQuestion(2, {
+    approvalStatus: "draft",
+    approvedBy: null,
+    approvedAt: null
+  });
+  const unmarkedOriginal = makeOriginalQuestion(3);
+  const sourceLessVerified = makeQuestion(4, {
+    sourcePaper: null,
+    sourcePaperMetadata: undefined,
+    sourceExamYear: "",
+    sourceAcademicSession: "",
+    sourcePage: null,
+    sourceExcerpt: ""
+  });
+  const readyVersion = makeMarkingVersion(readyOriginal, null);
+
+  await withMocks(async () => {
+    const pool = await practiceTestService.getEligibleQuestionsForCourse(courseA);
+    assert.deepEqual(pool.map((question) => question._id), [readyOriginal._id]);
+    assert.equal(
+      practiceTestService.isEligibleQuestion(unapprovedOriginal, courseA, null, readyVersion),
+      false
+    );
+    assert.equal(
+      practiceTestService.isEligibleQuestion(unmarkedOriginal, courseA, null, null),
+      false
+    );
+  }, {
+    questions: [readyOriginal, unapprovedOriginal, unmarkedOriginal, sourceLessVerified],
+    markingVersions: [readyVersion]
+  });
+});
+
+test("original and verified questions combine for CBT thresholds and report origin-specific formats", async () => {
+  const verified = Array.from({ length: 5 }, (_, index) =>
+    makeQuestion(index + 1, { year: sourcePaper.examinationYear })
+  );
+  const original = Array.from({ length: 5 }, (_, index) =>
+    makeOriginalQuestion(index + 6, {
+      questionType: index === 4 ? "theory" : "objective",
+      options: index === 4 ? [] : ["Correct", "Incorrect"],
+      optionIds: index === 4 ? [] : [`correct-${index + 6}`, `incorrect-${index + 6}`]
+    })
+  );
+  const markingVersions = [
+    ...verified.map((question) => makeMarkingVersion(question, sourcePaper)),
+    ...original.map((question) => makeMarkingVersion(question, null))
+  ];
+
+  await withMocks(async () => {
+    const coverage = await practiceTestService.buildCourseCoverage(courseA);
+    const assembled = await practiceTestService.assemblePracticeTest(courseA, 10);
+    assert.equal(coverage.eligibleQuestionCount, 10);
+    assert.equal(coverage.verifiedSourceQuestionCount, 5);
+    assert.equal(coverage.originalPracticeQuestionCount, 5);
+    assert.deepEqual(coverage.questionOriginCounts, {
+      verified_past_paper: 5,
+      original_practice: 5
+    });
+    assert.deepEqual(coverage.verifiedSourceQuestionTypeCounts, {
+      objective: 5,
+      fill_in_gap: 0,
+      theory: 0
+    });
+    assert.deepEqual(coverage.originalPracticeQuestionTypeCounts, {
+      objective: 4,
+      fill_in_gap: 0,
+      theory: 1
+    });
+    assert.deepEqual(coverage.availableTestLengths, [10]);
+    assert.equal(assembled.ok, true);
+    assert.equal(assembled.questions.length, 10);
+  }, { questions: [...verified, ...original], markingVersions });
+});
+
 test("coverage counts each eligible format and distinct verified source papers", async () => {
   const questions = Array.from({ length: 25 }, (_, index) => {
     const paper = index < 15 ? sourcePaper : secondSourcePaper;
@@ -312,6 +410,7 @@ test("coverage counts each eligible format and distinct verified source papers",
         : { questionType: type, options: [], optionIds: [] };
     return makeQuestion(index + 1, {
       ...typeFields,
+      year: paper.examinationYear,
       sourcePaper: paper._id,
       sourcePaperMetadata: metadataFor(paper),
       sourceExamYear: paper.examinationYear
@@ -338,7 +437,7 @@ test("coverage counts each eligible format and distinct verified source papers",
     assert.deepEqual(coverage.academicYears, ["2025", "2024"]);
     assert.deepEqual(coverage.academicSessions, ["2023/2024"]);
     assert.deepEqual(coverage.examSessions, ["Harmattan", "Rain"]);
-    assert.deepEqual(coverage.pastPaperSemesters, ["First", "Second"]);
+    assert.deepEqual(coverage.pastPaperSemesters, ["First"]);
     assert.deepEqual(coverage.topicCategories, ["Cloud basics", "Networks"]);
     assert.equal(state.paperFilter._id.$in.length, 2);
   }, { questions, papers });
@@ -481,7 +580,9 @@ test("coverage is batched across accessible courses and excludes cross-departmen
     _id: "507f1f77bcf86cd799439023",
     title: "Computer Networks",
     code: "NCC222",
-    department: DEPARTMENT_A
+    department: DEPARTMENT_A,
+    level: "HND2",
+    semester: "First"
   };
   const paperForCourseC = {
     ...sourcePaper,
@@ -504,6 +605,7 @@ test("coverage is batched across accessible courses and excludes cross-departmen
   };
   const questionForCourseC = makeQuestion(3, {
     course: courseC._id,
+    year: paperForCourseC.examinationYear,
     sourcePaper: paperForCourseC._id,
     sourcePaperMetadata: metadataFor(paperForCourseC),
     sourceExamYear: paperForCourseC.examinationYear

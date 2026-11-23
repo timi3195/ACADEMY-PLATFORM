@@ -27,6 +27,11 @@ const attemptQuestionSchema = new mongoose.Schema({
     enum: ["objective", "fill_in_gap", "theory"],
     immutable: true
   },
+  questionOrigin: {
+    type: String,
+    enum: ["verified_past_paper", "original_practice"],
+    immutable: true
+  },
   questionOrder: { type: Number, min: 1, immutable: true },
   blankCount: { type: Number, min: 1, max: 20, immutable: true },
   marks: { type: Number, min: 0, immutable: true },

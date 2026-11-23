@@ -118,7 +118,7 @@ router.post("/start", protect, async (req, res) => {
         eligibleQuestionCount: selection.eligibleQuestionCount,
         availableTestLengths,
         message: selection.eligibleQuestionCount === 0
-          ? "No approved, source-verified questions with usable AI marking are available for this course yet."
+          ? "No approved eligible questions with usable AI marking are available for this course yet."
           : `Only ${selection.eligibleQuestionCount} eligible questions are available; ${questionCount} were requested.`
       });
     }
@@ -138,12 +138,13 @@ router.post("/start", protect, async (req, res) => {
         questionId: question._id,
         question: question.question,
         questionType,
+        questionOrigin: question.questionOrigin || "verified_past_paper",
         questionOrder: index + 1,
         blankCount: questionType === "fill_in_gap" ? question.blankCount : undefined,
         marks: Number(question.marks),
         topic: question.topic,
         presentedOptions,
-        sourceSnapshot: {
+        sourceSnapshot: paper ? {
           paperId: paper._id,
           title: paper.title,
           examinationYear: String(paper.examinationYear),
@@ -151,7 +152,7 @@ router.post("/start", protect, async (req, res) => {
           semester: paper.semester,
           page: Number.isInteger(question.sourcePage) ? question.sourcePage : undefined,
           excerpt: String(question.sourceExcerpt || "").slice(0, 1000)
-        },
+        } : undefined,
         markingVersionId: markingVersion._id,
         markingSnapshot: cloneMarkingSnapshot(markingVersion.marking),
         selectedAnswers: questionType === "fill_in_gap" ? Array(question.blankCount).fill("") : undefined,

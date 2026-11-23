@@ -19,6 +19,7 @@ const emptyQuestion = (course = '', year = currentYear()) => ({
   session: 'Rain',
   marks: 2,
   difficulty: 'medium',
+  questionOrigin: 'verified_past_paper',
   approvalStatus: 'draft',
   sourcePaperId: '',
   batchId: '',
@@ -33,11 +34,12 @@ export const validateManualQuestion = (
   hasSourcePaper = Boolean(form.sourcePaperId)
 ) => {
   const errors = []
+  const questionOrigin = form.questionOrigin || 'verified_past_paper'
   if (!form.course) errors.push('Select a course.')
   if (!form.topic.trim()) errors.push('Enter a topic.')
   if (!form.question.trim()) errors.push('Enter the question text.')
   if (!/^\d{4}$/.test(form.year.trim())) errors.push('Enter a four-digit examination year.')
-  if (sourceYear && form.year.trim() !== String(sourceYear)) {
+  if (questionOrigin === 'verified_past_paper' && sourceYear && form.year.trim() !== String(sourceYear)) {
     errors.push('The examination year must match the linked source paper.')
   }
   if (!Number.isFinite(Number(form.marks)) || Number(form.marks) <= 0 || Number(form.marks) > 100) {
@@ -58,7 +60,13 @@ export const validateManualQuestion = (
     }
     if (!form.answer.trim()) errors.push('Enter a correct answer before publishing.')
   }
-  if (!hasSourcePaper) errors.push('Select an uploaded source paper before publishing.')
+  if (questionOrigin === 'verified_past_paper' && !hasSourcePaper) {
+    errors.push('Select an uploaded source paper before publishing.')
+  }
+  if (questionOrigin === 'original_practice' &&
+      (form.sourcePaperId || form.batchId || form.sourcePage || form.sourceExcerpt)) {
+    errors.push('Original practice questions cannot include past-paper provenance.')
+  }
   return errors
 }
 
@@ -75,6 +83,7 @@ const questionToForm = (question) => ({
   session: question.session || 'Rain',
   marks: question.marks ?? 2,
   difficulty: question.difficulty || 'medium',
+  questionOrigin: question.questionOrigin || 'verified_past_paper',
   approvalStatus: question.approvalStatus || 'draft',
   sourcePaperId: paperIdOf(question.sourcePaper),
   batchId: question.extractionBatchId || '',
@@ -222,10 +231,12 @@ export default function ManualQuestionEditor() {
     event.preventDefault()
     setNotice('')
     setError('')
-    const selectedPaper = papers.find((paper) => String(paper._id) === String(form.sourcePaperId))
-    const sourceYear = batch?.sourceExamYear ||
-      batch?.sourcePaperMetadata?.examinationYear ||
-      selectedPaper?.examinationYear
+    const selectedPaper = form.questionOrigin === 'verified_past_paper'
+      ? papers.find((paper) => String(paper._id) === String(form.sourcePaperId))
+      : null
+    const sourceYear = form.questionOrigin === 'verified_past_paper'
+      ? batch?.sourceExamYear || batch?.sourcePaperMetadata?.examinationYear || selectedPaper?.examinationYear
+      : null
     const errors = validateManualQuestion(
       form,
       status,
@@ -237,6 +248,7 @@ export default function ManualQuestionEditor() {
 
     const payload = {
       ...form,
+      questionOrigin: form.questionOrigin || 'verified_past_paper',
       approvalStatus: status,
       options: form.questionType === 'objective'
         ? form.options.map((option) => option.trim()).filter(Boolean)
@@ -261,8 +273,9 @@ export default function ManualQuestionEditor() {
       } else {
         setForm((current) => ({
           ...emptyQuestion(current.course, current.year),
-          sourcePaperId: current.sourcePaperId,
-          batchId: current.batchId,
+          questionOrigin: current.questionOrigin || 'verified_past_paper',
+          sourcePaperId: current.questionOrigin === 'original_practice' ? '' : current.sourcePaperId,
+          batchId: current.questionOrigin === 'original_practice' ? '' : current.batchId,
           sourceExcerpt: ''
         }))
       }
@@ -299,8 +312,9 @@ export default function ManualQuestionEditor() {
   const startAnotherQuestion = () => {
     setForm((current) => ({
       ...emptyQuestion(current.course, current.year),
-      sourcePaperId: current.sourcePaperId,
-      batchId: current.batchId
+      questionOrigin: current.questionOrigin || 'verified_past_paper',
+      sourcePaperId: current.questionOrigin === 'original_practice' ? '' : current.sourcePaperId,
+      batchId: current.questionOrigin === 'original_practice' ? '' : current.batchId
     }))
     setValidationErrors([])
     setError('')
@@ -387,6 +401,30 @@ export default function ManualQuestionEditor() {
               </select>
             </label>
             <label>
+              Question origin
+              <select
+                aria-label="Question origin"
+                value={form.questionOrigin || 'verified_past_paper'}
+                onChange={(event) => {
+                  const questionOrigin = event.target.value
+                  setForm((current) => ({
+                    ...current,
+                    questionOrigin,
+                    ...(questionOrigin === 'original_practice'
+                      ? { sourcePaperId: '', batchId: '', sourcePage: '', sourceExcerpt: '' }
+                      : {})
+                  }))
+                  setNotice('')
+                  setError('')
+                }}
+                disabled={Boolean(batch || form.batchId)}
+                style={{ display: 'block', width: '100%', marginTop: 6, padding: 10 }}
+              >
+                <option value="verified_past_paper">Verified past-paper question</option>
+                <option value="original_practice">Original practice question</option>
+              </select>
+            </label>
+            <label>
               Exam year
               <input value={form.year} onChange={(event) => updateForm('year', event.target.value)} inputMode="numeric" maxLength={4} required style={{ display: 'block', width: '100%', marginTop: 6, padding: 10 }} />
             </label>
@@ -409,32 +447,34 @@ export default function ManualQuestionEditor() {
                 <option value="hard">Hard</option>
               </select>
             </label>
-            <label>
-              Uploaded source paper
-              <select
-                value={form.sourcePaperId}
-                onChange={(event) => {
-                  const paper = papers.find((item) => String(item._id) === event.target.value)
-                  setForm((current) => ({
-                    ...current,
-                    sourcePaperId: event.target.value,
-                    ...(paper ? { year: String(paper.examinationYear) } : {})
-                  }))
-                  setNotice('')
-                  setError('')
-                }}
-                disabled={Boolean(batch || form.batchId)}
-                style={{ display: 'block', width: '100%', marginTop: 6, padding: 10 }}
-              >
-                <option value="">No linked paper</option>
-                {papers.map((paper) => (
-                  <option key={paper._id} value={paper._id}>{paper.title} ({paper.examinationYear}, {paper.level}, {paper.semester})</option>
-                ))}
-                {form.sourcePaperId && batch?.sourcePaperMetadata && (
-                  <option value={form.sourcePaperId}>{batch.sourcePaperMetadata.title}</option>
-                )}
-              </select>
-            </label>
+            {form.questionOrigin !== 'original_practice' && (
+              <label>
+                Uploaded source paper
+                <select
+                  value={form.sourcePaperId}
+                  onChange={(event) => {
+                    const paper = papers.find((item) => String(item._id) === event.target.value)
+                    setForm((current) => ({
+                      ...current,
+                      sourcePaperId: event.target.value,
+                      ...(paper ? { year: String(paper.examinationYear) } : {})
+                    }))
+                    setNotice('')
+                    setError('')
+                  }}
+                  disabled={Boolean(batch || form.batchId)}
+                  style={{ display: 'block', width: '100%', marginTop: 6, padding: 10 }}
+                >
+                  <option value="">No linked paper</option>
+                  {papers.map((paper) => (
+                    <option key={paper._id} value={paper._id}>{paper.title} ({paper.examinationYear}, {paper.level}, {paper.semester})</option>
+                  ))}
+                  {form.sourcePaperId && batch?.sourcePaperMetadata && (
+                    <option value={form.sourcePaperId}>{batch.sourcePaperMetadata.title}</option>
+                  )}
+                </select>
+              </label>
+            )}
           </div>
           {selectedCourse && <p>Academic level: {selectedCourse.level} · semester: {selectedCourse.semester}</p>}
 
@@ -481,10 +521,12 @@ export default function ManualQuestionEditor() {
             Explanation (optional)
             <textarea value={form.explanation} onChange={(event) => updateForm('explanation', event.target.value)} rows={3} style={{ display: 'block', width: '100%', marginTop: 6, padding: 10 }} />
           </label>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-            <label>Source page (optional)<input type="number" min="1" value={form.sourcePage} onChange={(event) => updateForm('sourcePage', event.target.value)} style={{ display: 'block', width: '100%', marginTop: 6, padding: 10 }} /></label>
-            <label>Source excerpt (optional)<textarea value={form.sourceExcerpt} onChange={(event) => updateForm('sourceExcerpt', event.target.value)} maxLength={5000} rows={2} style={{ display: 'block', width: '100%', marginTop: 6, padding: 10 }} /></label>
-          </div>
+          {form.questionOrigin !== 'original_practice' && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+              <label>Source page (optional)<input type="number" min="1" value={form.sourcePage} onChange={(event) => updateForm('sourcePage', event.target.value)} style={{ display: 'block', width: '100%', marginTop: 6, padding: 10 }} /></label>
+              <label>Source excerpt (optional)<textarea value={form.sourceExcerpt} onChange={(event) => updateForm('sourceExcerpt', event.target.value)} maxLength={5000} rows={2} style={{ display: 'block', width: '100%', marginTop: 6, padding: 10 }} /></label>
+            </div>
+          )}
 
           {validationErrors.length > 0 && (
             <ul role="alert" style={{ color: '#b91c1c' }}>

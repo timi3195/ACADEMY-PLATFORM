@@ -564,7 +564,7 @@ export default function CBTQuiz() {
       <div className="page">
         <h2>CBT Practice</h2>
         {!activeAttempt && <p className="mb-4"><Link to="/examination-history">View examination history</Link></p>}
-        <p className="text-sm text-gray-600 mb-4">Practice using approved questions from verified past papers.</p>
+        <p className="text-sm text-gray-600 mb-4">Practice using approved, marked questions from verified past papers and original administrator-created practice questions.</p>
         {error && <ErrorState message={error} />}
         {recoveryMessage && <p className="text-sm text-blue-700" role="status">{recoveryMessage}</p>}
         {!online && <p className="text-sm text-red-700" role="alert">Network unavailable. Changes are not confirmed as saved until the server responds.</p>}
@@ -576,7 +576,7 @@ export default function CBTQuiz() {
 
         {questions.length === 0 ? (
           <section className="card">
-            <p className="text-sm text-gray-600 mb-3">Review approved, AI-marked past-paper coverage for your accessible courses.</p>
+            <p className="text-sm text-gray-600 mb-3">Review eligible question coverage for your accessible courses.</p>
             {loadingCourses || recoveringAttempt ? (
               <p className="text-sm text-gray-600">Checking for a saved examination and loading courses...</p>
             ) : courses.length === 0 ? (
@@ -588,13 +588,16 @@ export default function CBTQuiz() {
                     <div className="rounded-lg border border-gray-200 bg-gray-50 p-3" key={course.courseId}>
                       <p className="font-semibold">{course.courseName} ({course.courseCode})</p>
                       <p className="text-sm text-gray-600">
-                        {course.eligibleQuestionCount} eligible approved questions with usable AI marking
+                        {course.eligibleQuestionCount} total eligible questions with usable AI marking
                       </p>
                       <p className="text-sm text-gray-600">
                         Formats: {course.objectiveQuestionCount} objective · {course.fillInGapQuestionCount} fill-in-the-gap · {course.theoryQuestionCount} theory
                       </p>
                       <p className="text-sm text-gray-600">
-                        {course.distinctSourcePaperCount} verified past-paper source(s), {course.verifiedSourceQuestionCount} question(s) with source provenance
+                        Original practice: {course.originalPracticeQuestionCount || 0} question(s) · {course.originalPracticeQuestionTypeCounts?.objective || 0} objective · {course.originalPracticeQuestionTypeCounts?.fill_in_gap || 0} fill-in-the-gap · {course.originalPracticeQuestionTypeCounts?.theory || 0} theory
+                      </p>
+                      <p className="text-sm text-gray-600">
+                        Verified past-paper: {course.verifiedSourceQuestionCount || 0} question(s) · {course.verifiedSourceQuestionTypeCounts?.objective || 0} objective · {course.verifiedSourceQuestionTypeCounts?.fill_in_gap || 0} fill-in-the-gap · {course.verifiedSourceQuestionTypeCounts?.theory || 0} theory · {course.distinctSourcePaperCount} source(s)
                       </p>
                       <p className="text-sm text-gray-600">
                         Years: {course.academicYears.length ? course.academicYears.join(', ') : 'Not available'}
