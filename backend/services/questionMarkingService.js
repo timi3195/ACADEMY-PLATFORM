@@ -344,8 +344,13 @@ const persistInitialVersion = async (versionData) => {
   }
 };
 
-const generateForQuestion = async (questionId, userId) => {
-  const question = await Question.findById(questionId);
+const generateForQuestion = async (questionId, userId, options = {}) => {
+  const question = options.expectedCourseId
+    ? await Question.findOne({ _id: questionId, course: options.expectedCourseId })
+    : await Question.findById(questionId);
+  if (!question && options.expectedCourseId) {
+    return { status: "invalid", reason: "The question is no longer in the expected course." };
+  }
   if (!question || question.approvalStatus !== "approved") {
     return { status: "invalid", reason: "Only an approved question can receive an AI marking record." };
   }

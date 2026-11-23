@@ -84,6 +84,10 @@ const setupMocks = () => {
   versions = new Map();
   generationCalls = 0;
   Question.findById = async (id) => questions.get(String(id)) || null;
+  Question.findOne = async ({ _id, course }) => {
+    const question = questions.get(String(_id));
+    return question && String(question.course) === String(course) ? question : null;
+  };
   Course.findById = async (id) => String(id) === COURSE_ID ? courseRecord : null;
   PastQuestionPaper.findById = async (id) => papers.get(String(id)) || null;
   QuestionMarkingVersion.findOne = async ({ generationKey }) =>
@@ -113,6 +117,7 @@ const setupMocks = () => {
 
 const restoreMocks = () => {
   Question.findById = originals.questionFindById;
+  Question.findOne = originals.questionFindOne;
   Course.findById = originals.courseFindById;
   PastQuestionPaper.findById = originals.paperFindById;
   QuestionMarkingVersion.findOne = originals.versionFindOne;
@@ -124,6 +129,7 @@ const restoreMocks = () => {
 
 test.before(() => {
   originals.questionFindById = Question.findById;
+  originals.questionFindOne = Question.findOne;
   originals.courseFindById = Course.findById;
   originals.paperFindById = PastQuestionPaper.findById;
   originals.versionFindOne = QuestionMarkingVersion.findOne;
@@ -273,6 +279,22 @@ test("approved question generation is content-hashed, versioned and idempotent",
   assert.equal(changed.status, "ready");
   assert.equal(changed.version.version, 2);
   assert.notEqual(changed.version.contentHash, first.version.contentHash);
+});
+
+test("course-scoped generation rejects a question reassigned after preflight", async () => {
+  const expectedCourseId = questions.get(QUESTION_ID).course;
+  questions.get(QUESTION_ID).course = "507f1f77bcf86cd799439099";
+
+  const result = await markingService.generateForQuestion(
+    QUESTION_ID,
+    "reviewer-id",
+    { expectedCourseId }
+  );
+
+  assert.equal(result.status, "invalid");
+  assert.match(result.reason, /no longer in the expected course/);
+  assert.equal(versions.size, 0);
+  assert.equal(generationCalls, 0);
 });
 
 test("missing and cross-course provenance never trigger AI marking", async () => {

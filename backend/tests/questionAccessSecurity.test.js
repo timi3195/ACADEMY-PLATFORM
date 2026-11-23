@@ -9,6 +9,7 @@ const questionRouter = require("../routes/question");
 const Question = require("../models/Question");
 const Course = require("../models/course");
 const User = require("../models/User");
+const questionMarkingService = require("../services/questionMarkingService");
 
 const STUDENT_A = "507f1f77bcf86cd799439011";
 const STUDENT_B = "507f1f77bcf86cd799439012";
@@ -95,9 +96,10 @@ const withQuestionMocks = async (run) => {
     create: Question.create,
     insertMany: Question.insertMany,
     courseFindById: Course.findById,
-    userFindById: User.findById
+    userFindById: User.findById,
+    generateForQuestion: questionMarkingService.generateForQuestion
   };
-  const state = { query: null, pipeline: null, created: null, inserted: null };
+  const state = { query: null, pipeline: null, created: null, inserted: null, markingGeneration: null };
   User.findById = async (id) => users[String(id)] || null;
   Course.findById = async (id) => String(id) === COURSE_ID ? course : null;
   Question.find = (query) => {
@@ -126,6 +128,10 @@ const withQuestionMocks = async (run) => {
     state.inserted = payload;
     return payload;
   };
+  questionMarkingService.generateForQuestion = async (questionId, userId) => {
+    state.markingGeneration = { questionId, userId };
+    return { status: "ready", version: { _id: "507f1f77bcf86cd799439052" } };
+  };
 
   try {
     await run(state);
@@ -136,6 +142,7 @@ const withQuestionMocks = async (run) => {
     Question.insertMany = originals.insertMany;
     Course.findById = originals.courseFindById;
     User.findById = originals.userFindById;
+    questionMarkingService.generateForQuestion = originals.generateForQuestion;
   }
 };
 
@@ -287,6 +294,7 @@ test("administrators retain full question-management access and new questions ar
       question: "Question",
       options: ["A", "B"],
       answer: "A",
+      questionOrigin: "original_practice",
       explanation: "Admin-only answer"
     });
     assert.equal(list.status, 200);
@@ -296,6 +304,12 @@ test("administrators retain full question-management access and new questions ar
     assert.equal(state.created.approvalStatus, "approved");
     assert.equal(state.created.approvedBy, ADMIN);
     assert.equal(state.created.optionIds.length, 2);
+    assert.equal(state.created.questionOrigin, "original_practice");
+    assert.deepEqual(state.markingGeneration, {
+      questionId: "507f1f77bcf86cd799439051",
+      userId: ADMIN
+    });
+    assert.equal(created.body.markingStatus, "ready");
   });
 });
 
