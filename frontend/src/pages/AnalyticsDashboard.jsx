@@ -340,8 +340,9 @@ export function StudentAnalyticsView({
         <>
           <section className="student-analytics-summary" aria-label="Performance overview">
             <article className="student-analytics-card">
-              <span>Completed practice tests</span>
+              <span>Total examinations</span>
               <strong>{overview.totalCompletedAttempts}</strong>
+              <small>Each completed attempt counted once</small>
             </article>
             <article className="student-analytics-card">
               <span>Average score</span>
@@ -349,8 +350,13 @@ export function StudentAnalyticsView({
               <small>Fully graded attempts only</small>
             </article>
             <article className="student-analytics-card">
-              <span>Best score</span>
+              <span>Highest score</span>
               <strong>{formatPercent(overview.bestScorePercentage)}</strong>
+              <small>Fully graded attempts only</small>
+            </article>
+            <article className="student-analytics-card">
+              <span>Lowest score</span>
+              <strong>{formatPercent(overview.lowestScorePercentage)}</strong>
               <small>Fully graded attempts only</small>
             </article>
             <article className="student-analytics-card">
@@ -488,6 +494,8 @@ export function StudentAnalyticsView({
                       <div><dt>Completed attempts</dt><dd>{course.completedAttempts}</dd></div>
                       <div><dt>Fully graded attempts</dt><dd>{course.gradedAttempts}</dd></div>
                       <div><dt>Average score</dt><dd>{formatPercent(course.averageScorePercentage)}</dd></div>
+                      <div><dt>Highest score</dt><dd>{formatPercent(course.bestScorePercentage)}</dd></div>
+                      <div><dt>Lowest score</dt><dd>{formatPercent(course.lowestScorePercentage)}</dd></div>
                       <div>
                         <dt>Score trend</dt>
                         <dd>

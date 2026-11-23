@@ -24,6 +24,7 @@ import CBTQuiz from './pages/CBTQuiz'
 import ExaminationHistory from './pages/ExaminationHistory'
 import MainLayout from './layouts/MainLayout'
 import AuthLayout from './layouts/AuthLayout'
+import RouteScrollReset from './layouts/RouteScrollReset'
 
 function Protected({ children }) {
   const { user, loading } = useAuth()
@@ -62,36 +63,39 @@ function AdminOnly({ children }) {
 export default function App() {
   return (
     <AuthProvider>
-      <Routes>
-        {/* Public Routes */}
-        <Route path="/login" element={<PublicOnly><Login /></PublicOnly>} />
-        <Route path="/register" element={<PublicOnly><Register /></PublicOnly>} />
-        <Route path="/auth/callback" element={<OAuthCallback />} />
-        <Route path="/verify-email" element={<VerifyEmail />} />
-        <Route path="/forgot-password" element={<PublicOnly><ForgotPassword /></PublicOnly>} />
-        <Route path="/reset-password" element={<PublicOnly><ResetPassword /></PublicOnly>} />
+      <>
+        <RouteScrollReset />
+        <Routes>
+          {/* Public Routes */}
+          <Route path="/login" element={<PublicOnly><Login /></PublicOnly>} />
+          <Route path="/register" element={<PublicOnly><Register /></PublicOnly>} />
+          <Route path="/auth/callback" element={<OAuthCallback />} />
+          <Route path="/verify-email" element={<VerifyEmail />} />
+          <Route path="/forgot-password" element={<PublicOnly><ForgotPassword /></PublicOnly>} />
+          <Route path="/reset-password" element={<PublicOnly><ResetPassword /></PublicOnly>} />
 
-        {/* Protected Routes */}
-        <Route path="/" element={<Protected><Dashboard /></Protected>} />
-        <Route path="/courses" element={<Protected><Courses /></Protected>} />
-        <Route path="/courses/:courseId" element={<Protected><CourseDetail /></Protected>} />
-        <Route path="/courses/:courseId/materials" element={<Protected><CourseMaterials /></Protected>} />
-        <Route path="/notes" element={<Protected><Notes /></Protected>} />
-        <Route path="/past-questions" element={<Protected><PastQuestions /></Protected>} />
-        <Route path="/cbt" element={<Protected><CBTQuiz /></Protected>} />
-        <Route path="/examination-history" element={<Protected><ExaminationHistory /></Protected>} />
-        <Route path="/ai" element={<Protected><AI /></Protected>} />
-        <Route path="/ai-chat" element={<Protected><AIChatPage /></Protected>} />
-        <Route path="/analytics" element={<Protected><AnalyticsDashboard /></Protected>} />
-        <Route path="/admin" element={<AdminOnly><AdminPanel /></AdminOnly>} />
-        <Route path="/admin/content" element={<AdminOnly><LecturerDashboard /></AdminOnly>} />
-        <Route path="/admin/question-extractions" element={<AdminOnly><LecturerQuestionExtractions /></AdminOnly>} />
-        <Route path="/admin/questions" element={<AdminOnly><ManualQuestionEditor /></AdminOnly>} />
-        <Route path="/admin/questions/:questionId/edit" element={<AdminOnly><ManualQuestionEditor /></AdminOnly>} />
+          {/* Protected Routes */}
+          <Route path="/" element={<Protected><Dashboard /></Protected>} />
+          <Route path="/courses" element={<Protected><Courses /></Protected>} />
+          <Route path="/courses/:courseId" element={<Protected><CourseDetail /></Protected>} />
+          <Route path="/courses/:courseId/materials" element={<Protected><CourseMaterials /></Protected>} />
+          <Route path="/notes" element={<Protected><Notes /></Protected>} />
+          <Route path="/past-questions" element={<Protected><PastQuestions /></Protected>} />
+          <Route path="/cbt" element={<Protected><CBTQuiz /></Protected>} />
+          <Route path="/examination-history" element={<Protected><ExaminationHistory /></Protected>} />
+          <Route path="/ai" element={<Protected><AI /></Protected>} />
+          <Route path="/ai-chat" element={<Protected><AIChatPage /></Protected>} />
+          <Route path="/analytics" element={<Protected><AnalyticsDashboard /></Protected>} />
+          <Route path="/admin" element={<AdminOnly><AdminPanel /></AdminOnly>} />
+          <Route path="/admin/content" element={<AdminOnly><LecturerDashboard /></AdminOnly>} />
+          <Route path="/admin/question-extractions" element={<AdminOnly><LecturerQuestionExtractions /></AdminOnly>} />
+          <Route path="/admin/questions" element={<AdminOnly><ManualQuestionEditor /></AdminOnly>} />
+          <Route path="/admin/questions/:questionId/edit" element={<AdminOnly><ManualQuestionEditor /></AdminOnly>} />
 
-        {/* Catch all */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+          {/* Catch all */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </>
     </AuthProvider>
   )
 }

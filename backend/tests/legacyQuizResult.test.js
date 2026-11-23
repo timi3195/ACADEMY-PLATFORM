@@ -162,3 +162,97 @@ test("typed results are final only when question marks and persisted totals reco
       : question)
   }).status, "unverified");
 });
+
+const createAdminFillAttempt = () => ({
+  attemptFormatVersion: 2,
+  gradingStatus: "graded",
+  score: 2,
+  totalMarks: 4,
+  percentage: 50,
+  questions: [{
+    questionId: "question-1",
+    questionType: "fill_in_gap",
+    blankCount: 2,
+    marks: 4,
+    selectedAnswers: [" ALPHA\t", "not accepted"],
+    markingSnapshot: {
+      markingSource: "admin_authored",
+      fillInGap: {
+        totalMarks: 4,
+        blanks: [
+          {
+            blankNumber: 1,
+            expectedAnswer: "alpha",
+            acceptableAnswers: ["alpha", "first letter"],
+            marks: 2
+          },
+          {
+            blankNumber: 2,
+            expectedAnswer: "beta",
+            acceptableAnswers: ["beta"],
+            marks: 2
+          }
+        ]
+      }
+    },
+    gradingResult: {
+      status: "graded",
+      awardedMarks: 2,
+      maxMarks: 4,
+      blanks: [
+        {
+          status: "graded",
+          blankNumber: 1,
+          response: " ALPHA\t",
+          awardedMarks: 2,
+          maxMarks: 2,
+          criteria: []
+        },
+        {
+          status: "graded",
+          blankNumber: 2,
+          response: "not accepted",
+          awardedMarks: 0,
+          maxMarks: 2,
+          criteria: []
+        }
+      ]
+    }
+  }]
+});
+
+test("admin fill marks verify against saved answers and the marking snapshot", () => {
+  assert.deepEqual(getVerifiedTypedResult(createAdminFillAttempt()), {
+    status: "verified",
+    score: 2,
+    totalMarks: 4,
+    percentage: 50
+  });
+});
+
+test("admin fill marks reject inconsistent allocations and corrupted answer records", () => {
+  const incorrectAward = createAdminFillAttempt();
+  incorrectAward.questions[0].gradingResult.blanks[0].awardedMarks = 0;
+  incorrectAward.questions[0].gradingResult.awardedMarks = 0;
+  incorrectAward.score = 0;
+  incorrectAward.percentage = 0;
+  assert.equal(getVerifiedTypedResult(incorrectAward).status, "unverified");
+
+  const incorrectAllocation = createAdminFillAttempt();
+  incorrectAllocation.questions[0].gradingResult.blanks[0].maxMarks = 3;
+  assert.equal(getVerifiedTypedResult(incorrectAllocation).status, "unverified");
+
+  const mismatchedResponse = createAdminFillAttempt();
+  mismatchedResponse.questions[0].gradingResult.blanks[0].response = "beta";
+  assert.equal(getVerifiedTypedResult(mismatchedResponse).status, "unverified");
+
+  const corruptedSnapshot = createAdminFillAttempt();
+  corruptedSnapshot.questions[0].markingSnapshot.fillInGap.blanks[1].marks = 3;
+  assert.equal(getVerifiedTypedResult(corruptedSnapshot).status, "unverified");
+});
+
+test("admin fill mark verification rejects duplicated blank indexes", () => {
+  const attempt = createAdminFillAttempt();
+  attempt.questions[0].gradingResult.blanks[1].blankNumber = 1;
+  assert.equal(getVerifiedTypedResult(attempt).status, "unverified");
+});

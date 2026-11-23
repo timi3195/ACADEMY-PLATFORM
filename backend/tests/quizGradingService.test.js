@@ -640,6 +640,7 @@ test("student attempt serialization omits nested answers, marking guides, and th
       awardedMarks: null,
       maxMarks: 4,
       referenceAnswer: "private-reference-answer",
+      uncertaintyReason: "private-marking-diagnostic",
       explanation: "private-theory-explanation",
       criteria: [{
         criterionId: "private-criterion-id",
@@ -666,6 +667,7 @@ test("student attempt serialization omits nested answers, marking guides, and th
     "private-objective-explanation",
     "private-lost-marks",
     "private-reference-answer",
+    "private-marking-diagnostic",
     "private-rubric-description",
     "private-acceptable-alternative",
     "private-rubric-feedback",

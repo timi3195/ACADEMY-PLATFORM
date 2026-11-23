@@ -601,7 +601,7 @@ router.get("/results/:userId", protect, async (req, res) => {
     }
 
     const records = await QuizSession.find({ user: requestedUserId })
-      .select("-questions.markingSnapshot -questions.markingVersionId -gradingToken -gradingStartedAt -gradingAttemptCount -gradingErrorCode")
+      .select("-questions.markingVersionId -gradingToken -gradingStartedAt -gradingAttemptCount -gradingErrorCode")
       .populate("course")
       .sort({ createdAt: -1 });
     const results = records

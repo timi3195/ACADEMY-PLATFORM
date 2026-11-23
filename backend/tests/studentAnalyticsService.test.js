@@ -302,6 +302,7 @@ test("typed analytics separate final scores, provisional results, formats, and r
         gradedAttempts: 3,
         averageScorePercentage: 72,
         bestScorePercentage: 90,
+        lowestScorePercentage: 55,
         totalQuestions: 30,
         questionsGraded: 30,
         totalQuestionsAnswered: 28,
@@ -315,6 +316,7 @@ test("typed analytics separate final scores, provisional results, formats, and r
         completedAttempts: 3,
         averageScorePercentage: 72,
         bestScorePercentage: 90,
+        lowestScorePercentage: 55,
         totalQuestions: 30,
         questionsGraded: 30,
         questionsAnswered: 28,
@@ -388,6 +390,8 @@ test("typed analytics separate final scores, provisional results, formats, and r
     assert.equal(analytics.overview.totalQuestionsAttempted, 60);
     assert.equal(analytics.overview.averageScorePercentage, 72);
     assert.equal(analytics.overview.bestScorePercentage, 90);
+    assert.equal(analytics.overview.lowestScorePercentage, 55);
+    assert.equal(analytics.courses[0].lowestScorePercentage, 55);
     assert.equal(analytics.practiceFrequency.attemptsLast30Days, 4);
     assert.equal(analytics.practiceFrequency.averageAttemptsPerWeek, 0.9);
     assert.deepEqual(analytics.questionTypeBreakdown.map((item) => item.questionType), [

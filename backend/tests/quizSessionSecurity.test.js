@@ -441,6 +441,13 @@ const withQuizMocks = async (run, {
       },
       sort: async () => state.attempts.map((record) => {
         const copy = { ...record };
+        if (projection.includes("-questions.markingSnapshot")) {
+          copy.questions = record.questions.map((question) => {
+            const safeQuestion = { ...question };
+            delete safeQuestion.markingSnapshot;
+            return safeQuestion;
+          });
+        }
         if (projection.includes("-questions.correctOptionId")) {
           copy.questions = record.questions.map((question) => {
             const safeQuestion = { ...question };
@@ -1073,7 +1080,8 @@ test("student quiz history strips nested objective answers and theory rubrics wh
       "private-history-accepted-answer",
       "private-history-reference-answer",
       "private-history-rubric-description",
-      "private-history-alternative"
+      "private-history-alternative",
+      "private-history-diagnostic"
     ]) {
       assert.equal(serialized.includes(secret), false, `${secret} must not reach students`);
     }
@@ -1088,6 +1096,10 @@ test("student quiz history strips nested objective answers and theory rubrics wh
     assert.equal(
       adminResponse.body.results[0].questions[1].gradingResult.criteria[0].description,
       "private-history-rubric-description"
+    );
+    assert.equal(
+      adminResponse.body.results[0].questions[1].gradingResult.uncertaintyReason,
+      "private-history-diagnostic"
     );
   }, {
     attempt: createAttempt({
@@ -1152,6 +1164,7 @@ test("student quiz history strips nested objective answers and theory rubrics wh
             awardedMarks: 3,
             maxMarks: 3,
             referenceAnswer: "private-history-reference-answer",
+            uncertaintyReason: "private-history-diagnostic",
             criteria: [{
               criterionId: "private-history-criterion-id",
               description: "private-history-rubric-description",
@@ -1162,6 +1175,68 @@ test("student quiz history strips nested objective answers and theory rubrics wh
           }
         }
       ]
+    })
+  });
+});
+
+test("student quiz history verifies admin-authored fill scores without returning marking snapshots", async () => {
+  const expectedAnswer = "private accepted answer";
+  const studentAnswer = "student response";
+  await withQuizMocks(async () => {
+    const response = await request(buildApp()).get(`/api/quiz/results/${STUDENT_A}`);
+    assert.equal(response.status, 200);
+    const result = response.body.results[0];
+    assert.equal(result.gradingStatus, "graded");
+    assert.equal(result.score, 2);
+    assert.equal(result.totalMarks, 2);
+    assert.equal(result.percentage, 100);
+    const serialized = JSON.stringify(result);
+    assert.equal(serialized.includes(expectedAnswer), false);
+    assert.equal(serialized.includes("markingSnapshot"), false);
+    assert.equal(serialized.includes("acceptableAnswers"), false);
+  }, {
+    attempt: createAttempt({
+      status: "completed",
+      attemptFormatVersion: 2,
+      gradingStatus: "graded",
+      score: 2,
+      totalMarks: 2,
+      percentage: 100,
+      questions: [{
+        questionId: QUESTION_A,
+        question: "Complete the blank.",
+        questionType: "fill_in_gap",
+        marks: 2,
+        blankCount: 1,
+        selectedAnswers: [studentAnswer],
+        markingSnapshot: {
+          markingSource: "admin_authored",
+          fillInGap: {
+            totalMarks: 2,
+            blanks: [{
+              blankNumber: 1,
+              expectedAnswer,
+              acceptableAnswers: [expectedAnswer, studentAnswer],
+              marks: 2
+            }]
+          }
+        },
+        gradingResult: {
+          status: "graded",
+          questionType: "fill_in_gap",
+          awardedMarks: 2,
+          maxMarks: 2,
+          blanks: [{
+            status: "graded",
+            blankNumber: 1,
+            response: studentAnswer,
+            awardedMarks: 2,
+            maxMarks: 2,
+            expectedAnswers: [expectedAnswer, studentAnswer],
+            criteria: []
+          }]
+        }
+      }]
     })
   });
 });

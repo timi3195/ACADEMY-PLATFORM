@@ -42,9 +42,19 @@ export default function Sidebar() {
           <span className="brand-dot" />
           <span className="brand-edu">AcademicHub</span>
         </div>
+        <button
+          type="button"
+          className="sidebar-toggle-button"
+          aria-label={mobileOpen ? 'Close navigation' : 'Open navigation'}
+          aria-expanded={mobileOpen}
+          aria-controls="primary-navigation"
+          onClick={() => setMobileOpen((open) => !open)}
+        >
+          {mobileOpen ? 'Close' : 'Menu'}
+        </button>
       </div>
 
-      <nav className="sidebar-menu" aria-label="Primary navigation">
+      <nav id="primary-navigation" className="sidebar-menu" aria-label="Primary navigation">
         {links.map((item) => (
           <NavLink
             key={item.to}

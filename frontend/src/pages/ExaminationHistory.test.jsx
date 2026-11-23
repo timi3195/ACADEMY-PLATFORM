@@ -11,6 +11,22 @@ import {
   quizResultsPathForUser
 } from './ExaminationHistory'
 
+const getRoutes = () => {
+  let routesElement
+  const visit = (element) => {
+    React.Children.forEach(element, (child) => {
+      if (routesElement || !React.isValidElement(child)) return
+      if (child.type.name === 'Routes') {
+        routesElement = child
+        return
+      }
+      visit(child.props.children)
+    })
+  }
+  visit(App())
+  return React.Children.toArray(routesElement.props.children)
+}
+
 vi.mock('../components/PDFViewer', () => ({ default: () => null }))
 
 const renderView = (props) => renderToStaticMarkup(
@@ -21,7 +37,7 @@ const renderView = (props) => renderToStaticMarkup(
 
 describe('ExaminationHistoryView', () => {
   it('is available as a protected route and linked from the CBT page', () => {
-    const routeElements = React.Children.toArray(App().props.children.props.children)
+    const routeElements = getRoutes()
     const historyRoute = routeElements.find((route) => route.props.path === '/examination-history')
     const cbtRoute = routeElements.find((route) => route.props.path === '/cbt')
 
@@ -63,6 +79,27 @@ describe('ExaminationHistoryView', () => {
     })
     expect(markup).toContain('History API unavailable')
     expect(markup).toContain('Try again')
+  })
+
+  it('distinguishes a completed attempt awaiting manual grading', () => {
+    const markup = renderView({
+      loading: false,
+      attempts: [{
+        _id: 'review-attempt',
+        course: { title: 'Applied Science' },
+        status: 'completed',
+        gradingStatus: 'needs_review',
+        completedAt: '2025-02-01T12:00:00.000Z',
+        score: null,
+        percentage: null,
+        questions: []
+      }]
+    })
+
+    expect(markup).toContain('Manual review pending')
+    expect(markup).toContain('Examination date')
+    expect(markup).toContain('Not available')
+    expect(markup).not.toContain('0.0%')
   })
 
   it('renders actual course, date, result, status, and question count', () => {
