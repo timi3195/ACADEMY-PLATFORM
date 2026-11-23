@@ -101,34 +101,54 @@ const hasValidQuestionContent = (question) => {
   return type === "theory";
 };
 
-const isEligibleQuestion = (question, course, paper, markingVersion) => {
-  if (!question || !course ||
-      idOf(question.course) !== idOf(course._id) ||
-      idOf(question.department) !== idOf(course.department) ||
-      question.approvalStatus !== "approved" ||
-      !hasReviewerApproval(question) ||
-      !hasValidQuestionContent(question)) return false;
+const getQuestionEligibilityState = (question, course, paper) => {
+  const failures = [];
+  if (!question) return { failures: ["question_missing"] };
+  if (!course) return { failures: ["course_missing"] };
+  if (idOf(question.course) !== idOf(course._id)) failures.push("course_mismatch");
+  if (idOf(question.department) !== idOf(course.department)) failures.push("department_mismatch");
+  if (question.approvalStatus !== "approved") failures.push("question_not_approved");
+  if (!hasReviewerApproval(question)) failures.push("reviewer_approval_invalid");
+  if (!hasValidQuestionContent(question)) failures.push("question_content_invalid");
 
   const questionOrigin = questionOriginOf(question);
   if (questionOrigin === "original_practice") {
-    if (question.questionOrigin !== "original_practice" || paper || hasSourceProvenance(question)) return false;
+    if (question.questionOrigin !== "original_practice") {
+      failures.push("original_practice_origin_not_explicit");
+    }
+    if (paper || hasSourceProvenance(question)) {
+      failures.push("original_practice_has_source_provenance");
+    }
   } else if (questionOrigin === "verified_past_paper") {
-    if (!paper ||
-        !isObjectId(question.sourcePaper) ||
+    if (!paper) {
+      failures.push("verified_source_paper_missing");
+    } else if (!isObjectId(question.sourcePaper) ||
         idOf(question.sourcePaper) !== idOf(paper._id) ||
         idOf(paper.course) !== idOf(course._id) ||
         idOf(paper.department) !== idOf(course.department) ||
         paper.level !== course.level ||
         paper.semester !== course.semester ||
-        !sourceMetadataMatches(question, paper)) return false;
+        !sourceMetadataMatches(question, paper)) {
+      failures.push("verified_source_paper_mismatch");
+    }
   } else {
-    return false;
+    failures.push("question_origin_unsupported");
   }
 
+  if (failures.length) return { failures };
   const prepared = questionMarkingService.buildQuestionInput(question, paper);
-  if (!prepared.input) return false;
-  const expectedHash = questionMarkingService.buildContentHash(question, prepared.input);
-  return isUsableMarkingVersion(markingVersion, question, paper, expectedHash);
+  if (!prepared.input) return { failures: ["question_marking_input_invalid"] };
+  return {
+    failures,
+    prepared,
+    expectedHash: questionMarkingService.buildContentHash(question, prepared.input)
+  };
+};
+
+const isEligibleQuestion = (question, course, paper, markingVersion) => {
+  const state = getQuestionEligibilityState(question, course, paper);
+  return !state.failures.length &&
+    getMarkingVersionFailures(markingVersion, question, paper, state.expectedHash).length === 0;
 };
 
 const metadataMatchesPaper = (metadata, paper) =>
@@ -230,38 +250,186 @@ const isTheoryMarkingUsable = (question, marking) => {
   return closeEnough(totalAllocated, totalMarks);
 };
 
-const isUsableMarkingVersion = (version, question, paper, expectedHash) => {
-  if (!version ||
-      version.status !== "ready" ||
-      !Number.isInteger(version.version) ||
-      version.version < 1 ||
-      version.contentHash !== expectedHash ||
-      idOf(version.question) !== idOf(question._id) ||
-      idOf(version.course) !== idOf(question.course) ||
-      idOf(version.department) !== idOf(question.department) ||
-      version.questionType !== questionTypeOf(question) ||
-      (version.questionOrigin || "verified_past_paper") !== questionOriginOf(question) ||
-      !sameText(version.questionYear, question.year) ||
-      !sameText(version.questionSession, question.session || "Rain") ||
-      !sameText(version.sourceExamYear, question.sourceExamYear || "") ||
-      !sameText(version.sourceAcademicSession, question.sourceAcademicSession || "")) return false;
-
-  if (questionOriginOf(question) === "original_practice") {
-    if (paper ||
-        version.sourcePaper ||
-        version.sourcePaperMetadata ||
-        (version.sourcePage !== undefined && version.sourcePage !== null && version.sourcePage !== "") ||
-        version.sourceExcerpt) return false;
-  } else if (!paper ||
-      idOf(version.sourcePaper) !== idOf(paper._id) ||
-      !metadataMatchesPaper(version.sourcePaperMetadata, paper) ||
-      (version.sourcePage || null) !== (question.sourcePage || null) ||
-      (version.sourceExcerpt || "") !== text(question.sourceExcerpt).slice(0, 1000)) return false;
-
+const isMarkingPayloadUsable = (question, marking) => {
   const type = questionTypeOf(question);
-  if (type === "objective") return isObjectiveMarkingUsable(question, version.marking);
-  if (type === "fill_in_gap") return isFillInGapMarkingUsable(question, version.marking);
-  return type === "theory" && isTheoryMarkingUsable(question, version.marking);
+  if (type === "objective") return isObjectiveMarkingUsable(question, marking);
+  if (type === "fill_in_gap") return isFillInGapMarkingUsable(question, marking);
+  return type === "theory" && isTheoryMarkingUsable(question, marking);
+};
+
+const questionMetadataMatchesMarkingVersion = (version, question) =>
+  idOf(version.question) === idOf(question._id) &&
+  idOf(version.course) === idOf(question.course) &&
+  idOf(version.department) === idOf(question.department) &&
+  version.questionType === questionTypeOf(question) &&
+  (version.questionOrigin || "verified_past_paper") === questionOriginOf(question) &&
+  sameText(version.questionYear, question.year) &&
+  sameText(version.questionSession, question.session || "Rain") &&
+  sameText(version.sourceExamYear, question.sourceExamYear || "") &&
+  sameText(version.sourceAcademicSession, question.sourceAcademicSession || "");
+
+const sourceMetadataMatchesMarkingVersion = (version, question, paper) => {
+  if (questionOriginOf(question) === "original_practice") {
+    return !paper &&
+      !version.sourcePaper &&
+      !version.sourcePaperMetadata &&
+      (version.sourcePage === undefined || version.sourcePage === null || version.sourcePage === "") &&
+      !version.sourceExcerpt;
+  }
+  return Boolean(paper) &&
+    idOf(version.sourcePaper) === idOf(paper._id) &&
+    metadataMatchesPaper(version.sourcePaperMetadata, paper) &&
+    (version.sourcePage || null) === (question.sourcePage || null) &&
+    (version.sourceExcerpt || "") === text(question.sourceExcerpt).slice(0, 1000);
+};
+
+const getMarkingVersionFailures = (version, question, paper, expectedHash) => {
+  if (!version) return ["marking_version_missing"];
+  const failures = [];
+  if (version.status !== "ready") {
+    const status = MARKING_VERSION_STATUSES.has(version.status) ? version.status : "unknown";
+    failures.push(`marking_version_status_${status}`);
+  }
+  if (!Number.isInteger(version.version) || version.version < 1) {
+    failures.push("marking_version_number_invalid");
+  }
+  if (!expectedHash || version.contentHash !== expectedHash) {
+    failures.push("marking_content_hash_mismatch");
+  }
+  if (!questionMetadataMatchesMarkingVersion(version, question)) {
+    failures.push("marking_question_metadata_mismatch");
+  }
+  if (!sourceMetadataMatchesMarkingVersion(version, question, paper)) {
+    failures.push("marking_source_metadata_mismatch");
+  }
+  if (!isMarkingPayloadUsable(question, version.marking)) {
+    failures.push("marking_payload_unusable");
+  }
+  return failures;
+};
+
+const isUsableMarkingVersion = (version, question, paper, expectedHash) =>
+  getMarkingVersionFailures(version, question, paper, expectedHash).length === 0;
+
+const MARKING_VERSION_STATUSES = new Set([
+  "generating",
+  "ready",
+  "uncertain",
+  "invalid",
+  "failed",
+  "needs_source"
+]);
+const MARKING_FAILURE_CODES = new Set([
+  "",
+  "not_configured",
+  "rate_limited",
+  "provider_error"
+]);
+
+const findByIdRecord = async (Model, id, fields) => {
+  let query = Model.findById(id);
+  if (typeof query.select === "function") query = query.select(fields);
+  if (typeof query.lean === "function") query = query.lean();
+  return query;
+};
+
+const sortMarkingVersions = (versions) => [...(versions || [])].sort((left, right) =>
+  Number(right.version || 0) - Number(left.version || 0) ||
+  new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime()
+);
+
+const summarizeMarkingVersion = (version, question, paper, expectedHash) => ({
+  version: Number.isInteger(version.version) ? version.version : null,
+  status: MARKING_VERSION_STATUSES.has(version.status) ? version.status : "unknown",
+  failureCode: MARKING_FAILURE_CODES.has(version.failureCode) ? version.failureCode : "",
+  contentHashMatches: Boolean(expectedHash && version.contentHash === expectedHash),
+  questionMetadataMatches: questionMetadataMatchesMarkingVersion(version, question),
+  sourceMetadataMatches: sourceMetadataMatchesMarkingVersion(version, question, paper),
+  markingUsable: isMarkingPayloadUsable(question, version.marking),
+  eligibilityFailureReasons: getMarkingVersionFailures(version, question, paper, expectedHash)
+});
+
+const getQuestionMarkingDiagnostic = async (questionId) => {
+  const question = await findByIdRecord(Question, questionId, QUESTION_FIELDS);
+  if (!question) return null;
+
+  const course = await findByIdRecord(
+    Course,
+    question.course,
+    "_id department level semester"
+  );
+  const questionOrigin = questionOriginOf(question);
+  const paper = questionOrigin === "verified_past_paper" && question.sourcePaper
+    ? await findByIdRecord(
+      PastQuestionPaper,
+      question.sourcePaper,
+      "_id course department title examinationYear level semester"
+    )
+    : null;
+  const state = getQuestionEligibilityState(question, course, paper);
+  const versions = sortMarkingVersions(await findRecords(
+    QuestionMarkingVersion,
+    { question: question._id },
+    "_id question course department questionYear questionSession sourceExamYear sourceAcademicSession version questionType questionOrigin contentHash status marking sourcePaper sourcePaperMetadata sourcePage sourceExcerpt failureCode createdAt"
+  ));
+  const currentContentVersions = state.expectedHash
+    ? versions.filter((version) => version.contentHash === state.expectedHash)
+    : [];
+  const selectedVersion = currentContentVersions[0] || null;
+  const markingFailures = !state.expectedHash
+    ? []
+    : selectedVersion
+      ? getMarkingVersionFailures(selectedVersion, question, paper, state.expectedHash)
+      : [versions.length ? "marking_content_hash_mismatch" : "marking_version_missing"];
+  const failures = [...new Set([...state.failures, ...markingFailures])];
+
+  return {
+    questionId: idOf(question._id),
+    eligible: failures.length === 0,
+    eligibilityFailureReasons: failures,
+    question: {
+      origin: ["verified_past_paper", "original_practice"].includes(questionOrigin)
+        ? questionOrigin
+        : "unsupported",
+      originExplicit: Boolean(question.questionOrigin),
+      approvalStatus: ["approved", "draft", "rejected"].includes(question.approvalStatus)
+        ? question.approvalStatus
+        : "unknown",
+      approvedByValid: isObjectId(question.approvedBy),
+      approvedAtValid: question.approvedAt instanceof Date &&
+        Number.isFinite(question.approvedAt.getTime()),
+      reviewerApprovalValid: hasReviewerApproval(question),
+      courseMatches: Boolean(course && idOf(question.course) === idOf(course._id)),
+      departmentMatches: Boolean(course && idOf(question.department) === idOf(course.department)),
+      contentValid: hasValidQuestionContent(question),
+      markingInputValid: Boolean(state.expectedHash),
+      hasSourcePaper: Boolean(question.sourcePaper),
+      hasSourcePaperMetadata: Boolean(question.sourcePaperMetadata),
+      hasExtractionProvenance: Boolean(
+        question.extractionKey ||
+        question.extractionBatchId ||
+        question.extractionDraftId
+      ),
+      sourcePaperMatches: questionOrigin === "original_practice"
+        ? !paper && !hasSourceProvenance(question)
+        : Boolean(paper && isObjectId(question.sourcePaper) &&
+          idOf(question.sourcePaper) === idOf(paper._id) &&
+          sourceMetadataMatches(question, paper) &&
+          idOf(paper.course) === idOf(question.course) &&
+          idOf(paper.department) === idOf(question.department) &&
+          paper.level === course?.level &&
+          paper.semester === course?.semester)
+    },
+    markingVersionExists: versions.length > 0,
+    matchingContentVersionExists: currentContentVersions.length > 0,
+    selectedMarkingVersion: selectedVersion
+      ? summarizeMarkingVersion(selectedVersion, question, paper, state.expectedHash)
+      : null,
+    recentMarkingVersions: versions.slice(0, 20).map((version) =>
+      summarizeMarkingVersion(version, question, paper, state.expectedHash)
+    ),
+    markingVersionCount: versions.length
+  };
 };
 
 const buildQuestionFilter = (courses) => {
@@ -581,6 +749,7 @@ module.exports = {
   PRACTICE_TEST_LENGTHS,
   PRACTICE_ATTEMPTS_ENABLED,
   isEligibleQuestion,
+  getQuestionMarkingDiagnostic,
   getEligibleQuestionsForCourse,
   getEligibleQuestionEntriesForCourse,
   selectUniqueQuestions,

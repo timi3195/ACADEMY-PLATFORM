@@ -11,6 +11,7 @@ const PastQuestionPaper = require("../models/PastQuestionPaper");
 const QuestionExtraction = require("../models/QuestionExtraction");
 const questionAccess = require("../services/questionAccessService");
 const questionMarkingService = require("../services/questionMarkingService");
+const practiceTestService = require("../services/practiceTestService");
 const { toStudentQuestion } = questionAccess;
 
 const createOptionIds = (options) => options.map(() => crypto.randomUUID());
@@ -328,6 +329,19 @@ router.get("/", protect, adminOnly, async (req, res) => {
     return res.json({ success: true, questions });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.get("/:questionId/marking-diagnostic", protect, adminOnly, async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.questionId)) {
+      return res.status(400).json({ success: false, message: "Invalid question ID." });
+    }
+    const diagnostic = await practiceTestService.getQuestionMarkingDiagnostic(req.params.questionId);
+    if (!diagnostic) return res.status(404).json({ success: false, message: "Question not found." });
+    return res.json({ success: true, diagnostic });
+  } catch (error) {
+    return sendQuestionError(res, error, "Unable to load the marking diagnostic.");
   }
 });
 
