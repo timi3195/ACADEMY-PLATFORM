@@ -245,6 +245,103 @@ test("fill-in answers exact-match case and whitespace variants without AI", asyn
   });
 });
 
+test("administrator marking grades the stored answer and accepted answers without Gemini", async () => {
+  for (const [selectedOptionId, expectedMarks] of [
+    ["option-b", 2],
+    ["option-a", 0]
+  ]) {
+    const objective = objectiveQuestion({ selectedOptionId });
+    objective.markingSnapshot.markingSource = "admin_authored";
+    objective.markingSnapshot.objective.correctOptionId = "option-b";
+    delete objective.markingSnapshot.objective.verificationOptionId;
+    const fill = fillQuestion();
+    fill.markingSnapshot.markingSource = "admin_authored";
+    for (const blank of fill.markingSnapshot.fillInGap.blanks) {
+      delete blank.semanticGuidance;
+      delete blank.gradingCriteria;
+    }
+    const session = createSession([objective, fill]);
+    const snapshot = JSON.stringify(session.questions.map((question) => question.markingSnapshot));
+
+    await withGradingMocks(session, async () => {
+      throw new Error("Administrator-authored answers must not trigger Gemini.");
+    }, async (state) => {
+      const result = await gradingService.gradeAttempt({ attemptId: ATTEMPT_ID, userId: USER_ID });
+      assert.equal(result.kind, "graded");
+      assert.equal(result.session.gradingStatus, "graded");
+      assert.equal(result.session.score, expectedMarks + 4);
+      assert.equal(result.session.totalMarks, 6);
+      assert.equal(result.session.questions[0].gradingResult.awardedMarks, expectedMarks);
+      assert.equal(result.session.questions[1].gradingResult.awardedMarks, 4);
+      assert.equal(state.aiCalls, 0);
+      assert.equal(JSON.stringify(session.questions.map((question) => question.markingSnapshot)), snapshot);
+    });
+  }
+});
+
+test("administrator theory rubrics require manual marking and do not receive automatic marks", async () => {
+  const theory = theoryQuestion();
+  theory.markingSnapshot.markingSource = "admin_authored";
+  delete theory.markingSnapshot.theory.referenceAnswer;
+  delete theory.markingSnapshot.theory.explanation;
+  const session = createSession([theory]);
+  await withGradingMocks(session, async () => {
+    throw new Error("Administrator-authored theory rubrics must not trigger Gemini.");
+  }, async (state) => {
+    const result = await gradingService.gradeAttempt({ attemptId: ATTEMPT_ID, userId: USER_ID });
+    assert.equal(result.kind, "needs_review");
+    assert.equal(result.session.gradingStatus, "needs_review");
+    assert.equal(result.session.score, null);
+    assert.equal(result.session.percentage, null);
+    assert.equal(result.session.provisionalScore, 0);
+    assert.equal(result.session.questions[0].gradingResult.awardedMarks, null);
+    assert.equal(result.session.questions[0].gradingResult.criteria.length, 2);
+    assert.equal(state.aiCalls, 0);
+  });
+});
+
+test("enabling non-AI mode leaves existing quiz-session marking snapshots unchanged", async () => {
+  const previousMode = process.env.CBT_NON_AI_MODE;
+  process.env.CBT_NON_AI_MODE = "true";
+  const objective = {
+    ...objectiveQuestion(),
+    markingVersionId: "previous-ai-version"
+  };
+  const fill = fillQuestion({ selectedAnswers: ["not an exact answer", "gamma with whitespace"] });
+  const theory = theoryQuestion();
+  const session = createSession([objective, fill, theory]);
+  const snapshots = JSON.stringify(session.questions.map((question) => question.markingSnapshot));
+  try {
+    await withGradingMocks(session, async () => {
+      throw new Error("Existing AI-marked attempt snapshots must not be sent to Gemini.");
+    }, async (state) => {
+      const result = await gradingService.gradeAttempt({ attemptId: ATTEMPT_ID, userId: USER_ID });
+      assert.equal(result.kind, "needs_review");
+      assert.equal(result.session.gradingStatus, "needs_review");
+      assert.equal(result.session.score, null);
+      assert.deepEqual(result.session.questions.map((question) => question.gradingResult.status), [
+        "needs_review",
+        "needs_review",
+        "needs_review"
+      ]);
+      assert.deepEqual(result.session.questions.map((question) => question.gradingResult.awardedMarks), [
+        null,
+        null,
+        null
+      ]);
+      assert.equal(result.session.questions[0].markingVersionId, "previous-ai-version");
+      assert.equal(
+        JSON.stringify(result.session.questions.map((question) => question.markingSnapshot)),
+        snapshots
+      );
+      assert.equal(state.aiCalls, 0);
+    });
+  } finally {
+    if (previousMode === undefined) delete process.env.CBT_NON_AI_MODE;
+    else process.env.CBT_NON_AI_MODE = previousMode;
+  }
+});
+
 test("fill-in semantic grading returns validated partial marks by criterion", async () => {
   const session = createSession([fillQuestion({ selectedAnswers: ["a meaningful alpha", "gamma with whitespace"] })]);
   await withGradingMocks(session, async (items) => {
@@ -498,6 +595,88 @@ test("student attempt serialization hides grading data until completion and succ
     percentage: 100
   });
   const completedView = quizSessionService.toStudentAttempt(completed);
-  assert.equal(completedView.questions[0].gradingResult.correctAnswer, "Correct choice");
+  assert.equal(completedView.questions[0].gradingResult.correctAnswer, undefined);
+  assert.equal(completedView.questions[0].gradingResult.isCorrect, true);
+  assert.equal(completedView.score, 2);
   assert.equal(completedView.totalMarks, 2);
+});
+
+test("student attempt serialization omits nested answers, marking guides, and theory rubrics without mutating saved data", () => {
+  const objective = {
+    ...objectiveQuestion(),
+    markingSnapshot: {
+      markingSource: "admin_authored",
+      objective: { correctOptionId: "private-option-id" }
+    },
+    gradingResult: {
+      status: "graded",
+      questionType: "objective",
+      isCorrect: false,
+      awardedMarks: 0,
+      maxMarks: 2,
+      correctOptionId: "private-option-id",
+      correctAnswer: "private-correct-answer",
+      explanation: "private-objective-explanation",
+      lostMarks: "private-lost-marks"
+    }
+  };
+  const theory = {
+    ...theoryQuestion(),
+    markingSnapshot: {
+      markingSource: "admin_authored",
+      theory: {
+        referenceAnswer: "private-reference-answer",
+        criteria: [{
+          criterionId: "private-criterion-id",
+          description: "private-rubric-description",
+          acceptableAlternatives: ["private-acceptable-alternative"],
+          marks: 4
+        }]
+      }
+    },
+    gradingResult: {
+      status: "needs_review",
+      questionType: "theory",
+      awardedMarks: null,
+      maxMarks: 4,
+      referenceAnswer: "private-reference-answer",
+      explanation: "private-theory-explanation",
+      criteria: [{
+        criterionId: "private-criterion-id",
+        description: "private-rubric-description",
+        acceptableAlternatives: ["private-acceptable-alternative"],
+        awardedMarks: null,
+        maxMarks: 4,
+        feedback: "private-rubric-feedback"
+      }]
+    }
+  };
+  const session = createSession([objective, theory], {
+    gradingStatus: "needs_review",
+    totalMarks: 6
+  });
+  const storedSnapshot = JSON.stringify(session.questions.map((item) => item.markingSnapshot));
+
+  const studentView = quizSessionService.toStudentAttempt(session);
+  const serialized = JSON.stringify(studentView);
+
+  for (const secret of [
+    "private-option-id",
+    "private-correct-answer",
+    "private-objective-explanation",
+    "private-lost-marks",
+    "private-reference-answer",
+    "private-rubric-description",
+    "private-acceptable-alternative",
+    "private-rubric-feedback",
+    "private-theory-explanation"
+  ]) {
+    assert.equal(serialized.includes(secret), false, `${secret} must not reach students`);
+  }
+  assert.equal(Object.hasOwn(studentView.questions[1].gradingResult, "criteria"), false);
+  assert.equal(studentView.questions[1].gradingResult.status, "needs_review");
+  assert.equal(
+    JSON.stringify(session.questions.map((item) => item.markingSnapshot)),
+    storedSnapshot
+  );
 });

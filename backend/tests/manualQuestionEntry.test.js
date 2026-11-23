@@ -29,6 +29,8 @@ let batches;
 let markingVersions;
 let markingCalls;
 let attemptedQuestionIds;
+let adminMarkingCalls;
+let preparationFilter;
 
 const queryFor = (value) => ({
   populate() { return this; },
@@ -161,8 +163,12 @@ test.beforeEach(() => {
   markingVersions = new Map();
   markingCalls = [];
   attemptedQuestionIds = new Set();
+  adminMarkingCalls = [];
+  preparationFilter = null;
 
   originals.create = Question.create;
+  originals.insertMany = Question.insertMany;
+  originals.find = Question.find;
   originals.findById = Question.findById;
   originals.findOneAndDelete = Question.findOneAndDelete;
   originals.save = Question.prototype.save;
@@ -171,12 +177,26 @@ test.beforeEach(() => {
   originals.paperFindById = PastQuestionPaper.findById;
   originals.batchFindOne = QuestionExtraction.findOne;
   originals.generateForQuestion = questionMarkingService.generateForQuestion;
+  originals.createAdminAuthoredVersion = questionMarkingService.createAdminAuthoredVersion;
 
   Question.create = async (input) => {
     const question = new Question({ ...input, _id: QUESTION_ID });
     await question.validate();
     questions.set(String(question._id), question);
     return question;
+  };
+  Question.insertMany = async (payloads) => Promise.all(payloads.map(async (input, index) => {
+    const question = new Question({ ...input, _id: `507f1f77bcf86cd7994390${30 + index}` });
+    await question.validate();
+    questions.set(String(question._id), question);
+    return question;
+  }));
+  Question.find = (filter) => {
+    preparationFilter = filter;
+    return queryFor([...questions.values()].filter((question) =>
+      String(question.course) === String(filter.course) &&
+      String(question.department) === String(filter.department) &&
+      question.approvalStatus === filter.approvalStatus));
   };
   Question.findById = (id) => queryFor(questions.get(String(id)) || null);
   Question.findOneAndDelete = async (filter) => {
@@ -205,10 +225,19 @@ test.beforeEach(() => {
     const version = markingVersions.get(key);
     return { status: version.status, version };
   };
+  questionMarkingService.createAdminAuthoredVersion = async (questionId) => {
+    adminMarkingCalls.push(String(questionId));
+    const question = questions.get(String(questionId));
+    return question?.answer || question?.adminMarking
+      ? { status: "ready", created: true, version: { _id: `admin-${questionId}` } }
+      : { status: "needs_source", created: false };
+  };
 });
 
 test.afterEach(() => {
   Question.create = originals.create;
+  Question.insertMany = originals.insertMany;
+  Question.find = originals.find;
   Question.findById = originals.findById;
   Question.findOneAndDelete = originals.findOneAndDelete;
   Question.prototype.save = originals.save;
@@ -217,6 +246,7 @@ test.afterEach(() => {
   PastQuestionPaper.findById = originals.paperFindById;
   QuestionExtraction.findOne = originals.batchFindOne;
   questionMarkingService.generateForQuestion = originals.generateForQuestion;
+  questionMarkingService.createAdminAuthoredVersion = originals.createAdminAuthoredVersion;
 });
 
 test("saves a manual draft without complete multiple-choice answers and preserves batch associations", async () => {
@@ -626,6 +656,152 @@ test("enforces administrator permissions and denies deletion of an unused publis
   assert.equal(publishedDeleteResponse.status, 409);
   assert.match(publishedDeleteResponse.body.message, /only unused draft questions/i);
   assert.equal(questions.has(QUESTION_ID), true);
+});
+
+test("non-AI manual questions preserve administrator-provided fill-in answers", async () => {
+  const previousMode = process.env.CBT_NON_AI_MODE;
+  process.env.CBT_NON_AI_MODE = "true";
+  try {
+    const response = await request(buildApp())
+      .post("/api/questions")
+      .send({
+        course: COURSE_ID,
+        topic: "Networks",
+        question: "Complete both blanks.",
+        questionType: "fill_in_gap",
+        blankCount: 2,
+        options: [],
+        answer: "",
+        adminMarking: {
+          acceptedAnswersByBlank: [
+            { blankNumber: 1, acceptedAnswers: ["network", "a network"], marks: 1 },
+            { blankNumber: 2, acceptedAnswers: ["protocol"], marks: 1 }
+          ]
+        },
+        year: "2024",
+        questionOrigin: "original_practice",
+        approvalStatus: "approved"
+      });
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    assert.equal(response.body.markingStatus, "ready");
+    assert.equal(questions.get(QUESTION_ID).adminMarking.acceptedAnswersByBlank.length, 2);
+    assert.equal(adminMarkingCalls.length, 1);
+    assert.equal(markingCalls.length, 0);
+  } finally {
+    if (previousMode === undefined) delete process.env.CBT_NON_AI_MODE;
+    else process.env.CBT_NON_AI_MODE = previousMode;
+  }
+});
+
+test("admin preparation is course-scoped, admin-only, sanitized, and reports version outcomes", async () => {
+  const previousMode = process.env.CBT_NON_AI_MODE;
+  process.env.CBT_NON_AI_MODE = "true";
+  questions.set(QUESTION_ID, {
+    _id: QUESTION_ID,
+    course: COURSE_ID,
+    department: DEPARTMENT_ID,
+    approvalStatus: "approved",
+    approvedBy: USER_ID,
+    approvedAt: new Date(),
+    answer: "2",
+    adminMarking: { theoryRubric: [{ description: "Private guide" }] }
+  });
+  const alreadyReadyId = "507f1f77bcf86cd799439025";
+  questions.set(alreadyReadyId, { ...questions.get(QUESTION_ID), _id: alreadyReadyId });
+  const rejectedId = "507f1f77bcf86cd799439026";
+  questions.set(rejectedId, { ...questions.get(QUESTION_ID), _id: rejectedId, answer: "" });
+  questions.set("507f1f77bcf86cd799439027", {
+    ...questions.get(QUESTION_ID),
+    _id: "507f1f77bcf86cd799439027",
+    approvalStatus: "draft"
+  });
+  const errorId = "507f1f77bcf86cd799439028";
+  questions.set(errorId, { ...questions.get(QUESTION_ID), _id: errorId });
+  questionMarkingService.createAdminAuthoredVersion = async (questionId) => {
+    adminMarkingCalls.push(String(questionId));
+    if (String(questionId) === errorId) throw new Error("private database details");
+    if (String(questionId) === alreadyReadyId) {
+      return { status: "ready", created: false, version: { _id: "existing-admin-version" } };
+    }
+    return String(questionId) === rejectedId
+      ? { status: "needs_source", created: false }
+      : { status: "ready", created: true, version: { _id: "new-admin-version" } };
+  };
+
+  try {
+    const forbidden = await request(buildApp("lecturer"))
+      .post("/api/questions/prepare-admin-marking")
+      .send({ courseId: COURSE_ID });
+    assert.equal(forbidden.status, 403);
+    assert.equal(adminMarkingCalls.length, 0);
+
+    const response = await request(buildApp())
+      .post("/api/questions/prepare-admin-marking")
+      .send({ courseId: COURSE_ID });
+    assert.equal(response.status, 200);
+    assert.deepEqual({
+      prepared: response.body.prepared,
+      alreadyReady: response.body.alreadyReady,
+      rejected: response.body.rejected,
+      errors: response.body.errors
+    }, { prepared: 1, alreadyReady: 1, rejected: 1, errors: 1 });
+    assert.equal(String(preparationFilter.course), COURSE_ID);
+    assert.equal(String(preparationFilter.department), DEPARTMENT_ID);
+    assert.equal(preparationFilter.approvalStatus, "approved");
+    const serialized = JSON.stringify(response.body);
+    assert.equal(serialized.includes("Private guide"), false);
+    assert.equal(serialized.includes('"answer"'), false);
+    assert.equal(serialized.includes(QUESTION_ID), false);
+    assert.equal(adminMarkingCalls.length, 4);
+    assert.equal(serialized.includes("private database details"), false);
+  } finally {
+    if (previousMode === undefined) delete process.env.CBT_NON_AI_MODE;
+    else process.env.CBT_NON_AI_MODE = previousMode;
+  }
+});
+
+test("non-AI bulk import validates provenance and creates administrator marking only", async () => {
+  const previousMode = process.env.CBT_NON_AI_MODE;
+  process.env.CBT_NON_AI_MODE = "true";
+  const payload = {
+    course: COURSE_ID,
+    questions: [{
+      topic: "Algebra",
+      question: "Solve x + 2 = 4",
+      questionType: "objective",
+      options: ["2", "3"],
+      answer: "2",
+      year: "2024",
+      sourcePaperId: PAPER_ID
+    }]
+  };
+  try {
+    const response = await request(buildApp()).post("/api/questions/bulk").send(payload);
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    assert.equal(response.body.markingSummary.prepared, 1);
+    assert.equal(adminMarkingCalls.length, 1);
+    assert.equal(markingCalls.length, 0);
+    const imported = [...questions.values()][0];
+    assert.equal(imported.approvalStatus, "approved");
+    assert.equal(String(imported.approvedBy), USER_ID);
+    assert.equal(String(imported.sourcePaper), PAPER_ID);
+
+    questions.clear();
+    adminMarkingCalls.length = 0;
+    const invalid = await request(buildApp())
+      .post("/api/questions/bulk")
+      .send({
+        ...payload,
+        questions: [{ ...payload.questions[0], sourcePaperId: undefined }]
+      });
+    assert.equal(invalid.status, 400);
+    assert.equal(questions.size, 0);
+    assert.equal(adminMarkingCalls.length, 0);
+    assert.equal(markingCalls.length, 0);
+  } finally {
+    if (previousMode === undefined) delete process.env.CBT_NON_AI_MODE;
+    else process.env.CBT_NON_AI_MODE = previousMode;
+  }
 });
 
 test("rejects mismatched extraction batch and course associations", async () => {

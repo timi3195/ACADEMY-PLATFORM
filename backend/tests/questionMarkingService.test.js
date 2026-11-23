@@ -553,3 +553,57 @@ test("malformed AI JSON is invalid and provider failure is explicitly recorded",
   assert.deepEqual(failed.version.validationErrors, []);
   assert.equal(JSON.stringify(failed.version).includes("provider unreachable"), false);
 });
+
+
+test("administrator-authored marking creates a separate version without calling Gemini", async () => {
+  const question = questions.get(QUESTION_ID);
+  question.answer = "4";
+  const failedAiVersion = {
+    _id: "failed-ai-version",
+    question: QUESTION_ID,
+    version: 1,
+    markingSource: "ai_generated",
+    status: "failed"
+  };
+  versions.set(failedAiVersion._id, failedAiVersion);
+  const originalFindOne = QuestionMarkingVersion.findOne;
+  const originalCreate = QuestionMarkingVersion.create;
+  QuestionMarkingVersion.findOne = (filter) => {
+    if (filter.generationKey) {
+      return Promise.resolve([...versions.values()]
+        .find((version) => version.generationKey === filter.generationKey) || null);
+    }
+    return {
+      sort: async () => [...versions.values()]
+        .filter((version) => String(version.question) === String(filter.question))
+        .sort((left, right) => right.version - left.version)[0] || null
+    };
+  };
+  QuestionMarkingVersion.create = async (payload) => {
+    const version = { _id: "admin-version", ...payload };
+    versions.set(version._id, version);
+    return version;
+  };
+
+  try {
+    const result = await markingService.createAdminAuthoredVersion(QUESTION_ID);
+    const repeated = await markingService.createAdminAuthoredVersion(QUESTION_ID);
+    assert.equal(result.status, "ready");
+    assert.equal(result.version.markingSource, "admin_authored");
+    assert.equal(result.version.provider, "administrator");
+    assert.equal(result.version.version, 2);
+    assert.equal(result.version.marking.objective.correctOptionId, "option-b");
+    assert.equal(repeated.version._id, result.version._id);
+    assert.equal(versions.get(failedAiVersion._id).status, "failed");
+    assert.equal(generationCalls, 0);
+
+    const missingAnswerId = "507f1f77bcf86cd799439030";
+    questions.set(missingAnswerId, makeQuestion({ _id: missingAnswerId, answer: "" }));
+    const missing = await markingService.createAdminAuthoredVersion(missingAnswerId);
+    assert.equal(missing.status, "needs_source");
+    assert.equal(generationCalls, 0);
+  } finally {
+    QuestionMarkingVersion.findOne = originalFindOne;
+    QuestionMarkingVersion.create = originalCreate;
+  }
+});

@@ -36,6 +36,35 @@ const getStateVersion = (session) =>
     ? session.stateVersion
     : 0;
 
+const toStudentGradingResult = (result) => {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return undefined;
+  const safeResult = {};
+  for (const field of ["status", "questionType"]) {
+    if (typeof result[field] === "string") safeResult[field] = result[field];
+  }
+  if (typeof result.isCorrect === "boolean") safeResult.isCorrect = result.isCorrect;
+  for (const field of ["awardedMarks", "maxMarks"]) {
+    if (result[field] === null || Number.isFinite(result[field])) safeResult[field] = result[field];
+  }
+  if (typeof result.provisional === "boolean") safeResult.provisional = result.provisional;
+  if (Array.isArray(result.blanks)) {
+    safeResult.blanks = result.blanks.map((blank) => {
+      if (!blank || typeof blank !== "object" || Array.isArray(blank)) return {};
+      const safeBlank = {};
+      for (const field of ["status"]) {
+        if (typeof blank[field] === "string") safeBlank[field] = blank[field];
+      }
+      if (Number.isInteger(blank.blankNumber)) safeBlank.blankNumber = blank.blankNumber;
+      for (const field of ["awardedMarks", "maxMarks"]) {
+        if (blank[field] === null || Number.isFinite(blank[field])) safeBlank[field] = blank[field];
+      }
+      if (typeof blank.provisional === "boolean") safeBlank.provisional = blank.provisional;
+      return safeBlank;
+    });
+  }
+  return safeResult;
+};
+
 const isInProgress = (session) =>
   session?.status === "in_progress" || (!session?.status && !session?.timeEnded);
 
@@ -199,7 +228,7 @@ const toStudentAttempt = (session, serverNow = new Date()) => {
     selectedAnswers: Array.isArray(question.selectedAnswers) ? [...question.selectedAnswers] : [],
     theoryResponse: question.theoryResponse || "",
     ...(includeFeedback && question.gradingResult
-      ? { gradingResult: question.gradingResult }
+      ? { gradingResult: toStudentGradingResult(question.gradingResult) }
       : {})
   }));
   const startedAt = getStartTime(session);

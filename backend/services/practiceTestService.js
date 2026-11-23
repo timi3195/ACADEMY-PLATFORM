@@ -6,6 +6,7 @@ const Course = require("../models/course");
 const PastQuestionPaper = require("../models/PastQuestionPaper");
 const courseMembership = require("./courseMembershipService");
 const questionMarkingService = require("./questionMarkingService");
+const { isNonAiModeEnabled } = require("./cbtMode");
 const { stableOptionIds } = require("./questionAccessService");
 const shuffle = require("../utils/shuffle");
 
@@ -21,6 +22,8 @@ const QUESTION_FIELDS = [
   "blankCount",
   "options",
   "optionIds",
+  "answer",
+  "adminMarking",
   "marks",
   "year",
   "session",
@@ -138,10 +141,19 @@ const getQuestionEligibilityState = (question, course, paper) => {
   if (failures.length) return { failures };
   const prepared = questionMarkingService.buildQuestionInput(question, paper);
   if (!prepared.input) return { failures: ["question_marking_input_invalid"] };
+  const adminMode = isNonAiModeEnabled();
+  const administratorMarking = adminMode
+    ? questionMarkingService.buildAdminMarking(question)
+    : null;
+  if (adminMode && administratorMarking.error) {
+    return { failures: ["administrator_marking_invalid"] };
+  }
   return {
     failures,
     prepared,
-    expectedHash: questionMarkingService.buildContentHash(question, prepared.input)
+    expectedHash: adminMode
+      ? questionMarkingService.buildAdminContentHash(question, prepared.input, administratorMarking.marking)
+      : questionMarkingService.buildContentHash(question, prepared.input)
   };
 };
 
@@ -166,10 +178,13 @@ const sourceMetadataMatches = (question, paper) => {
 
 const isObjectiveMarkingUsable = (question, marking) => {
   const objective = marking?.objective;
-  if (!isRecord(objective) ||
-      !text(objective.explanation) ||
-      objective.explanation.length > 2000) return false;
+  if (!isRecord(objective)) return false;
   const optionIds = stableOptionIds(question);
+  if (marking.markingSource === "admin_authored") {
+    return optionIds.includes(objective.correctOptionId) &&
+      (!objective.explanation || objective.explanation.length <= 2000);
+  }
+  if (!text(objective.explanation) || objective.explanation.length > 2000) return false;
   return optionIds.includes(objective.correctOptionId) &&
     objective.verificationOptionId === objective.correctOptionId;
 };
@@ -182,12 +197,32 @@ const isFillInGapMarkingUsable = (question, marking) => {
       fillInGap.blanks.length !== question.blankCount ||
       !Number.isFinite(fillInGap.totalMarks) ||
       !closeEnough(fillInGap.totalMarks, totalMarks) ||
-      !text(fillInGap.explanation) ||
-      fillInGap.explanation.length > 2000) return false;
+      (marking.markingSource !== "admin_authored" &&
+       (!text(fillInGap.explanation) || fillInGap.explanation.length > 2000))) return false;
 
   const blankNumbers = new Set();
   let totalAllocated = 0;
   for (const blank of fillInGap.blanks) {
+    if (marking.markingSource === "admin_authored") {
+      if (!isRecord(blank) ||
+          !Number.isInteger(blank.blankNumber) ||
+          blank.blankNumber < 1 ||
+          blank.blankNumber > question.blankCount ||
+          blankNumbers.has(blank.blankNumber) ||
+          !text(blank.expectedAnswer) ||
+          !Array.isArray(blank.acceptableAnswers) ||
+          blank.acceptableAnswers.length < 1 ||
+          blank.acceptableAnswers.length > 20 ||
+          blank.acceptableAnswers.some((answer) => !text(answer) || answer.length > 300) ||
+          !blank.acceptableAnswers.some((answer) =>
+            text(answer).toLocaleLowerCase("en") === text(blank.expectedAnswer).toLocaleLowerCase("en")) ||
+          !Number.isFinite(blank.marks) ||
+          blank.marks <= 0 ||
+          blank.marks > totalMarks) return false;
+      blankNumbers.add(blank.blankNumber);
+      totalAllocated += blank.marks;
+      continue;
+    }
     if (!isRecord(blank) ||
         !Number.isInteger(blank.blankNumber) ||
         blank.blankNumber < 1 ||
@@ -215,12 +250,38 @@ const isFillInGapMarkingUsable = (question, marking) => {
     blankNumbers.add(blank.blankNumber);
     totalAllocated += blankAllocated;
   }
-  return blankNumbers.size === question.blankCount && closeEnough(totalAllocated, totalMarks);
+  return blankNumbers.size === question.blankCount &&
+    closeEnough(totalAllocated, totalMarks) &&
+    (marking.markingSource === "admin_authored" ||
+      (text(fillInGap.explanation) && fillInGap.explanation.length <= 2000));
 };
 
 const isTheoryMarkingUsable = (question, marking) => {
   const theory = marking?.theory;
   const totalMarks = Number(question.marks);
+  if (marking.markingSource === "admin_authored") {
+    if (!isRecord(theory) || !Array.isArray(theory.criteria) ||
+        theory.criteria.length < 1 || theory.criteria.length > 20 ||
+        !Number.isFinite(theory.totalMarks) ||
+        !closeEnough(theory.totalMarks, totalMarks)) return false;
+    const ids = new Set();
+    let allocated = 0;
+    for (const criterion of theory.criteria) {
+      if (!isRecord(criterion) ||
+          !text(criterion.criterionId) ||
+          ids.has(criterion.criterionId) ||
+          !text(criterion.description) ||
+          !Number.isFinite(criterion.marks) ||
+          criterion.marks <= 0 ||
+          criterion.marks > totalMarks ||
+          !Array.isArray(criterion.acceptableAlternatives) ||
+          criterion.acceptableAlternatives.length > 20 ||
+          criterion.acceptableAlternatives.some((answer) => !text(answer) || answer.length > 500)) return false;
+      ids.add(criterion.criterionId);
+      allocated += criterion.marks;
+    }
+    return closeEnough(allocated, totalMarks);
+  }
   if (!isRecord(theory) ||
       !text(theory.referenceAnswer) ||
       theory.referenceAnswer.length > 5000 ||
@@ -286,6 +347,9 @@ const sourceMetadataMatchesMarkingVersion = (version, question, paper) => {
 const getMarkingVersionFailures = (version, question, paper, expectedHash) => {
   if (!version) return ["marking_version_missing"];
   const failures = [];
+  const adminMode = isNonAiModeEnabled();
+  const markingSource = version.markingSource ||
+    (version.provider === "administrator" ? "admin_authored" : "ai_generated");
   if (version.status !== "ready") {
     const status = MARKING_VERSION_STATUSES.has(version.status) ? version.status : "unknown";
     failures.push(`marking_version_status_${status}`);
@@ -296,6 +360,9 @@ const getMarkingVersionFailures = (version, question, paper, expectedHash) => {
   if (!expectedHash || version.contentHash !== expectedHash) {
     failures.push("marking_content_hash_mismatch");
   }
+  if (markingSource !== (adminMode ? "admin_authored" : "ai_generated")) {
+    failures.push("marking_source_mismatch");
+  }
   if (!questionMetadataMatchesMarkingVersion(version, question)) {
     failures.push("marking_question_metadata_mismatch");
   }
@@ -304,6 +371,19 @@ const getMarkingVersionFailures = (version, question, paper, expectedHash) => {
   }
   if (!isMarkingPayloadUsable(question, version.marking)) {
     failures.push("marking_payload_unusable");
+  }
+  if (adminMode) {
+    const prepared = questionMarkingService.buildQuestionInput(question, paper);
+    const administratorMarking = questionMarkingService.buildAdminMarking(question);
+    if (!prepared.input || administratorMarking.error ||
+        version.contentHash !== questionMarkingService.buildAdminContentHash(
+          question,
+          prepared.input,
+          administratorMarking.marking
+        ) ||
+        JSON.stringify(version.marking) !== JSON.stringify(administratorMarking.marking)) {
+      failures.push("administrator_marking_mismatch");
+    }
   }
   return failures;
 };
@@ -370,7 +450,7 @@ const getQuestionMarkingDiagnostic = async (questionId) => {
   const versions = sortMarkingVersions(await findRecords(
     QuestionMarkingVersion,
     { question: question._id },
-    "_id question course department questionYear questionSession sourceExamYear sourceAcademicSession version questionType questionOrigin contentHash status marking sourcePaper sourcePaperMetadata sourcePage sourceExcerpt failureCode createdAt"
+    "_id question course department questionYear questionSession sourceExamYear sourceAcademicSession version questionType questionOrigin contentHash status marking markingSource provider sourcePaper sourcePaperMetadata sourcePage sourceExcerpt failureCode createdAt"
   ));
   const currentContentVersions = state.expectedHash
     ? versions.filter((version) => version.contentHash === state.expectedHash)
@@ -496,6 +576,7 @@ const getEligibleEntriesForCourses = async (courses) => {
     : [];
   const papersById = new Map((sourcePapers || []).map((paper) => [idOf(paper._id), paper]));
   const preparedEntries = [];
+  const adminMode = isNonAiModeEnabled();
   for (const entry of candidateEntries) {
     const paper = questionOriginOf(entry.question) === "verified_past_paper"
       ? papersById.get(idOf(entry.question.sourcePaper))
@@ -509,10 +590,16 @@ const getEligibleEntriesForCourses = async (courses) => {
          !sourceMetadataMatches(entry.question, paper))) continue;
     const prepared = questionMarkingService.buildQuestionInput(entry.question, paper);
     if (!prepared.input) continue;
+    const administratorMarking = adminMode
+      ? questionMarkingService.buildAdminMarking(entry.question)
+      : null;
+    if (adminMode && administratorMarking.error) continue;
     preparedEntries.push({
       ...entry,
       paper,
-      expectedHash: questionMarkingService.buildContentHash(entry.question, prepared.input)
+      expectedHash: adminMode
+        ? questionMarkingService.buildAdminContentHash(entry.question, prepared.input, administratorMarking.marking)
+        : questionMarkingService.buildContentHash(entry.question, prepared.input)
     });
   }
 
@@ -529,7 +616,7 @@ const getEligibleEntriesForCourses = async (courses) => {
         question: { $in: questionIds.map((id) => new mongoose.Types.ObjectId(id)) },
         contentHash: { $in: hashes }
       },
-      "_id question course department questionYear questionSession sourceExamYear sourceAcademicSession version questionType questionOrigin contentHash status marking sourcePaper sourcePaperMetadata sourcePage sourceExcerpt createdAt"
+      "_id question course department questionYear questionSession sourceExamYear sourceAcademicSession version questionType questionOrigin contentHash status marking markingSource provider sourcePaper sourcePaperMetadata sourcePage sourceExcerpt createdAt"
     )
     : [];
   const versionsByQuestion = new Map();
@@ -553,8 +640,9 @@ const getEligibleEntriesForCourses = async (courses) => {
     const version = versionsByQuestion.get(idOf(entry.question._id));
     if (!isEligibleQuestion(entry.question, entry.course, entry.paper, version)) continue;
     const courseResult = result.get(idOf(entry.course._id));
+    const { answer: _answer, adminMarking: _adminMarking, ...studentQuestion } = entry.question;
     courseResult.entries.push({
-      question: entry.question,
+      question: studentQuestion,
       paper: entry.paper,
       markingVersion: version,
       expectedHash: entry.expectedHash

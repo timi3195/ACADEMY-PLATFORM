@@ -366,6 +366,11 @@ const approveDraft = async ({ batchId, draftId, userId }) => {
     throw error;
   }
 
+  const confirmedAnswerOption = questionType === "objective" &&
+      draft.answerConfirmedBy &&
+      draft.answerConfirmedAt
+    ? draft.options.find((option) => option.optionId === draft.confirmedAnswerOptionId)
+    : null;
   let question = await Question.findOne({ extractionKey });
   if (!question) {
     try {
@@ -380,7 +385,7 @@ const approveDraft = async ({ batchId, draftId, userId }) => {
         ...(questionType === "fill_in_gap" ? { blankCount: draft.blankCount } : {}),
         options: questionType === "objective" ? draft.options.map((option) => option.text.trim()) : [],
         optionIds: questionType === "objective" ? draft.options.map((option) => option.optionId) : [],
-        answer: "",
+        answer: confirmedAnswerOption?.text || "",
         explanation: "",
         year,
         session: "Rain",

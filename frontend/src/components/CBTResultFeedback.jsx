@@ -32,53 +32,23 @@ function QuestionFeedback({ question, index, finalGrading }) {
             {Number.isFinite(awardedMarks) ? `${awardedMarks} / ${maxMarks}` : `Pending review / ${maxMarks}`}
             {result.provisional && !finalGrading && ' · Provisional AI-assisted assessment'}
           </p>
-          {result.uncertaintyReason && (
-            <p role="status"><strong>Review required:</strong> {result.uncertaintyReason}</p>
+          {result.status === 'needs_review' && (
+            <p role="status">This response requires manual review.</p>
           )}
-          {type === 'objective' && result.correctAnswer && (
-            <>
-              <p><strong>Result:</strong> {result.isCorrect ? 'Correct' : 'Incorrect'}</p>
-              <p><strong>Correct answer:</strong> {result.correctAnswer}</p>
-            </>
+          {type === 'objective' && typeof result.isCorrect === 'boolean' && (
+            <p><strong>Result:</strong> {result.isCorrect ? 'Correct' : 'Incorrect'}</p>
           )}
           {type === 'fill_in_gap' && (result.blanks || []).map((blank) => (
             <div className="cbt-result-subanswer" key={blank.blankNumber}>
               <p>
-                <strong>Blank {blank.blankNumber} expected:</strong> {blank.expectedAnswers.join(' / ')}
-              </p>
-              <p>
-                <strong>Marks:</strong>{' '}
+                <strong>Blank {blank.blankNumber} marks:</strong>{' '}
                 {Number.isFinite(blank.awardedMarks)
                   ? `${blank.awardedMarks} / ${blank.maxMarks}`
                   : `Pending review / ${blank.maxMarks}`}
                 {blank.provisional && !finalGrading && ' · Provisional AI-assisted assessment'}
               </p>
-              {blank.criteria?.map((criterion) => (
-                <p key={criterion.criterionId}>
-                  {criterion.description}: {criterion.awardedMarks} / {criterion.maxMarks}
-                  {criterion.missingPoint ? ` — ${criterion.missingPoint}` : ''}
-                </p>
-              ))}
-              {blank.explanation && <p>{blank.explanation}</p>}
-              {blank.uncertaintyReason && <p role="status">Review required: {blank.uncertaintyReason}</p>}
             </div>
           ))}
-          {type === 'theory' && result.referenceAnswer && (
-            <p><strong>Reference answer:</strong> {result.referenceAnswer}</p>
-          )}
-          {type === 'theory' && (result.criteria || []).map((criterion) => (
-            <div className="cbt-result-subanswer" key={criterion.criterionId}>
-              <p>
-                <strong>{criterion.description}</strong>: {Number.isFinite(criterion.awardedMarks)
-                  ? `${criterion.awardedMarks} / ${criterion.maxMarks}`
-                  : `Pending review / ${criterion.maxMarks}`}
-              </p>
-              {criterion.feedback && <p>{criterion.feedback}</p>}
-              {criterion.missingPoint && <p>Missing point: {criterion.missingPoint}</p>}
-            </div>
-          ))}
-          {result.explanation && <p><strong>Explanation:</strong> {result.explanation}</p>}
-          {result.lostMarks && <p><strong>Marks lost:</strong> {result.lostMarks}</p>}
         </div>
       ) : (
         <p>Grading feedback is not available for this question.</p>

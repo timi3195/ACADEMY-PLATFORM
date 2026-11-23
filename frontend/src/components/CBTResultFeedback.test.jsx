@@ -110,11 +110,14 @@ describe('CBTResultFeedback', () => {
     expect(markup).toContain('Total marks: 6 / 8')
     expect(markup).toContain('Result:')
     expect(markup).toContain('Incorrect')
-    expect(markup).toContain('Correct answer:')
-    expect(markup).toContain('valid alternative')
+    expect(markup).toContain('Blank 1 marks:')
+    expect(markup).not.toContain('Expected answer')
+    expect(markup).not.toContain('valid alternative')
+    expect(markup).not.toContain('Required idea')
     expect(markup).not.toContain('Provisional AI-assisted assessment')
-    expect(markup).toContain('Reference answer:')
-    expect(markup).toContain('Missing point:')
+    expect(markup).not.toContain('Reference answer.')
+    expect(markup).not.toContain('Explains the key point.')
+    expect(markup).not.toContain('A final detail is absent.')
   })
 
   it('shows unresolved assessments as provisional without assigning zero', () => {
@@ -149,7 +152,8 @@ describe('CBTResultFeedback', () => {
     expect(markup).toContain('No score was assigned to unresolved items')
     expect(markup).toContain('Provisional score for assessed portions: 2 / 2')
     expect(markup).toContain('Pending review / 3')
-    expect(markup).toContain('The response is ambiguous.')
+    expect(markup).toContain('This response requires manual review.')
+    expect(markup).not.toContain('The response is ambiguous.')
   })
 
   it('does not present an unverified historical score as a result', () => {

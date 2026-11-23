@@ -304,6 +304,222 @@ const buildContentHash = (question, input) => digest(JSON.stringify({
   questionNumber: String(question.questionNumber || "")
 }));
 
+const buildAdminContentHash = (question, input, marking) => digest(JSON.stringify({
+  questionHash: buildContentHash(question, input),
+  answer: String(question.answer || "").trim(),
+  marking
+}));
+
+const buildAdminMarking = (question) => {
+  const questionType = question.questionType ||
+    (Array.isArray(question.options) && question.options.length >= 2 ? "objective" : "");
+  const marks = Number(question.marks);
+  if (!TYPES.has(questionType) || !validMarks(marks)) {
+    return { error: "The administrator marking data does not match a supported question type." };
+  }
+
+  if (questionType === "objective") {
+    const options = Array.isArray(question.options) ? question.options : [];
+    const matches = options
+      .map((option, index) => option === question.answer ? index : -1)
+      .filter((index) => index >= 0);
+    const optionIds = stableOptionIds(question);
+    if (matches.length !== 1 || optionIds.length !== options.length) {
+      return { error: "The administrator's correct answer must match exactly one stored option." };
+    }
+    return {
+      marking: {
+        markingSource: "admin_authored",
+        objective: {
+          correctOptionId: optionIds[matches[0]],
+          explanation: String(question.explanation || "").trim()
+        }
+      }
+    };
+  }
+
+  if (questionType === "fill_in_gap") {
+    const blankCount = Number(question.blankCount);
+    if (!Number.isInteger(blankCount) || blankCount < 1 || blankCount > 20) {
+      return { error: "The fill-in marking data has an invalid blank count." };
+    }
+    let blanks = Array.isArray(question.adminMarking?.acceptedAnswersByBlank)
+      ? question.adminMarking.acceptedAnswersByBlank.map((blank) => ({
+        blankNumber: Number(blank.blankNumber),
+        acceptedAnswers: Array.isArray(blank.acceptedAnswers)
+          ? blank.acceptedAnswers.map((answer) => String(answer || "").trim())
+          : [],
+        marks: Number(blank.marks)
+      }))
+      : [];
+    if (!blanks.length && blankCount === 1 && typeof question.answer === "string" && question.answer.trim()) {
+      blanks = [{ blankNumber: 1, acceptedAnswers: [question.answer.trim()], marks }];
+    }
+
+    const seen = new Set();
+    let allocatedMarks = 0;
+    for (const blank of blanks) {
+      if (!Number.isInteger(blank.blankNumber) ||
+          blank.blankNumber < 1 ||
+          blank.blankNumber > blankCount ||
+          seen.has(blank.blankNumber) ||
+          !validMarks(blank.marks) ||
+          !blank.acceptedAnswers.length ||
+          blank.acceptedAnswers.length > 20 ||
+          blank.acceptedAnswers.some((answer) => !answer || answer.length > 300) ||
+          new Set(blank.acceptedAnswers.map((answer) => answer.toLocaleLowerCase("en"))).size !== blank.acceptedAnswers.length) {
+        return { error: "Every fill-in blank needs unique, non-empty administrator-accepted answers and marks." };
+      }
+      seen.add(blank.blankNumber);
+      allocatedMarks += blank.marks;
+    }
+    if (seen.size !== blankCount || !closeEnough(allocatedMarks, marks)) {
+      return { error: "Fill-in blank marks must cover every blank and add up to the question's configured marks." };
+    }
+    return {
+      marking: {
+        markingSource: "admin_authored",
+        fillInGap: {
+          totalMarks: marks,
+          explanation: String(question.explanation || "").trim(),
+          blanks: blanks.sort((left, right) => left.blankNumber - right.blankNumber)
+            .map((blank) => ({
+              blankNumber: blank.blankNumber,
+              expectedAnswer: blank.acceptedAnswers[0],
+              acceptableAnswers: blank.acceptedAnswers,
+              marks: blank.marks
+            }))
+        }
+      }
+    };
+  }
+
+  const rubric = Array.isArray(question.adminMarking?.theoryRubric)
+    ? question.adminMarking.theoryRubric
+    : [];
+  const ids = new Set();
+  let allocatedMarks = 0;
+  const criteria = [];
+  for (const criterion of rubric) {
+    const criterionId = boundedText(criterion?.criterionId, 40);
+    const description = boundedText(criterion?.description, 1000);
+    const criterionMarks = Number(criterion?.marks);
+    const alternatives = Array.isArray(criterion?.acceptableAlternatives)
+      ? criterion.acceptableAlternatives
+      : [];
+    if (!criterionId || ids.has(criterionId) || !description ||
+        !validMarks(criterionMarks) || criterionMarks > marks ||
+        alternatives.length > 20 ||
+        alternatives.some((answer) => !boundedText(answer, 500))) {
+      return { error: "The administrator theory rubric contains an invalid criterion." };
+    }
+    ids.add(criterionId);
+    allocatedMarks += criterionMarks;
+    criteria.push({
+      criterionId,
+      description,
+      marks: criterionMarks,
+      acceptableAlternatives: alternatives.map((answer) => answer.trim())
+    });
+  }
+  if (!criteria.length || !closeEnough(allocatedMarks, marks)) {
+    return { error: "A theory rubric must include criteria whose marks add up to the question's configured marks." };
+  }
+  return {
+    marking: {
+      markingSource: "admin_authored",
+      theory: {
+        referenceAnswer: String(question.answer || "").trim(),
+        explanation: String(question.explanation || "").trim(),
+        criteria,
+        totalMarks: marks
+      }
+    }
+  };
+};
+
+const createAdminAuthoredVersion = async (questionId) => {
+  const question = await Question.findById(questionId);
+  if (!question || question.approvalStatus !== "approved") {
+    return { status: "invalid", reason: "Only an approved question can receive administrator-authored marking." };
+  }
+  const preparedMarking = buildAdminMarking(question);
+  if (preparedMarking.error) return { status: "needs_source", reason: preparedMarking.error };
+
+  const course = await Course.findById(question.course);
+  const sourcePaper = question.sourcePaper
+    ? await PastQuestionPaper.findById(question.sourcePaper)
+    : null;
+  if (!course ||
+      idOf(course._id) !== idOf(question.course) ||
+      idOf(course.department) !== idOf(question.department)) {
+    return { status: "invalid", reason: "The question does not have a valid course and department association." };
+  }
+  const prepared = buildQuestionInput(question, sourcePaper);
+  if (!prepared.input) {
+    return { status: "needs_source", reason: prepared.error || "The question source is incomplete." };
+  }
+
+  const contentHash = buildAdminContentHash(question, prepared.input, preparedMarking.marking);
+  const generationKey = digest(JSON.stringify([
+    idOf(question._id),
+    contentHash,
+    "admin-authored",
+    "admin-v1"
+  ]));
+  const existing = await QuestionMarkingVersion.findOne({ generationKey });
+  if (existing) return { status: existing.status, version: existing, created: false };
+
+  const latestVersion = await QuestionMarkingVersion.findOne({
+    question: question._id
+  }).sort({ version: -1 });
+  const sourcePaperMetadata = sourcePaper ? {
+    title: sourcePaper.title,
+    examinationYear: String(sourcePaper.examinationYear),
+    level: sourcePaper.level,
+    semester: sourcePaper.semester
+  } : undefined;
+  const versionData = {
+    question: question._id,
+    course: question.course,
+    department: question.department,
+    questionYear: String(question.year || ""),
+    questionSession: question.session || "Rain",
+    sourceExamYear: String(question.sourceExamYear || ""),
+    sourceAcademicSession: String(question.sourceAcademicSession || ""),
+    version: Number(latestVersion?.version || 0) + 1,
+    generationKey,
+    questionType: prepared.input.questionType,
+    questionOrigin: question.questionOrigin || "verified_past_paper",
+    contentHash,
+    promptVersion: "admin-authored",
+    schemaVersion: "1",
+    provider: "administrator",
+    markingSource: "admin_authored",
+    model: "",
+    status: "ready",
+    marking: preparedMarking.marking,
+    sourcePaper: sourcePaper?._id || null,
+    sourcePaperMetadata,
+    sourcePage: Number.isInteger(question.sourcePage) ? question.sourcePage : null,
+    sourceExcerpt: String(question.sourceExcerpt || "").slice(0, 1000),
+    uncertaintyReasons: [],
+    validationErrors: [],
+    failureCode: "",
+    generationStartedAt: null,
+    generatedAt: new Date()
+  };
+  try {
+    const version = await QuestionMarkingVersion.create(versionData);
+    return { status: version.status, version, created: true };
+  } catch (error) {
+    if (error.code !== 11000) throw error;
+    const concurrent = await QuestionMarkingVersion.findOne({ generationKey });
+    if (!concurrent) throw error;
+    return { status: concurrent.status, version: concurrent, created: false };
+  }
+};
+
 const getQuestionSourceState = (question, course, sourcePaper, questionOrigin) => {
   if (!course ||
       idOf(course._id) !== idOf(question.course) ||
@@ -592,6 +808,7 @@ const generateForQuestion = async (questionId, userId, options = {}) => {
     promptVersion: PROMPT_VERSION,
     schemaVersion: SCHEMA_VERSION,
     provider: "gemini",
+    markingSource: "ai_generated",
     model: modelName,
     course: question.course,
     department: question.department,
@@ -664,6 +881,9 @@ const generateForQuestion = async (questionId, userId, options = {}) => {
 
 module.exports = {
   generateForQuestion,
+  createAdminAuthoredVersion,
+  buildAdminMarking,
+  buildAdminContentHash,
   parseModelJson,
   validateObjective,
   validateFillInGap,

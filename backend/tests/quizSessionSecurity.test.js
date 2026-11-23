@@ -1050,6 +1050,122 @@ test("quiz history omits answer keys and correctness fields", async () => {
   });
 });
 
+test("student quiz history strips nested objective answers and theory rubrics while preserving result summaries", async () => {
+  const completedAt = new Date("2026-11-23T09:00:00.000Z");
+  await withQuizMocks(async () => {
+    const response = await request(buildApp()).get(`/api/quiz/results/${STUDENT_A}`);
+    assert.equal(response.status, 200);
+    const result = response.body.results[0];
+    assert.equal(result.score, 5);
+    assert.equal(result.totalMarks, 5);
+    assert.equal(result.percentage, 100);
+    assert.equal(result.passStatus, "passed");
+    assert.equal(result.completedAt, completedAt.toISOString());
+    assert.equal(result.questions[0].gradingResult.isCorrect, true);
+    assert.equal(result.questions[1].gradingResult.awardedMarks, 3);
+    assert.equal(result.questions[0].gradingResult.correctAnswer, undefined);
+    assert.equal(result.questions[1].gradingResult.criteria, undefined);
+    assert.equal(result.questions[0].markingSnapshot, undefined);
+    const serialized = JSON.stringify(result);
+    for (const secret of [
+      "private-history-answer",
+      "private-history-option-id",
+      "private-history-accepted-answer",
+      "private-history-reference-answer",
+      "private-history-rubric-description",
+      "private-history-alternative"
+    ]) {
+      assert.equal(serialized.includes(secret), false, `${secret} must not reach students`);
+    }
+
+    const adminResponse = await request(buildApp(STUDENT_B, "admin"))
+      .get(`/api/quiz/results/${STUDENT_A}`);
+    assert.equal(adminResponse.status, 200);
+    assert.equal(
+      adminResponse.body.results[0].questions[1].gradingResult.referenceAnswer,
+      "private-history-reference-answer"
+    );
+    assert.equal(
+      adminResponse.body.results[0].questions[1].gradingResult.criteria[0].description,
+      "private-history-rubric-description"
+    );
+  }, {
+    attempt: createAttempt({
+      status: "completed",
+      attemptFormatVersion: 2,
+      gradingStatus: "graded",
+      score: 5,
+      totalMarks: 5,
+      percentage: 100,
+      passStatus: "passed",
+      completedAt,
+      timeEnded: completedAt,
+      questions: [
+        {
+          questionId: QUESTION_A,
+          question: "Objective question",
+          questionType: "objective",
+          marks: 2,
+          presentedOptions: [
+            { optionId: "history-option-a", text: "Choice A" },
+            { optionId: "history-option-b", text: "Choice B" }
+          ],
+          selectedOptionId: "history-option-a",
+          correctOptionId: "private-history-option-id",
+          correctAnswer: "private-history-answer",
+          markingVersionId: "private-marking-version",
+          markingSnapshot: {
+            objective: { correctOptionId: "private-history-option-id" }
+          },
+          gradingResult: {
+            status: "graded",
+            questionType: "objective",
+            isCorrect: true,
+            awardedMarks: 2,
+            maxMarks: 2,
+            correctAnswer: "private-history-answer",
+            correctOptionId: "private-history-option-id",
+            explanation: "private-history-accepted-answer"
+          }
+        },
+        {
+          questionId: QUESTION_B,
+          question: "Theory question",
+          questionType: "theory",
+          marks: 3,
+          theoryResponse: "Student's response",
+          markingSnapshot: {
+            markingSource: "admin_authored",
+            theory: {
+              referenceAnswer: "private-history-reference-answer",
+              criteria: [{
+                criterionId: "private-history-criterion-id",
+                description: "private-history-rubric-description",
+                acceptableAlternatives: ["private-history-alternative"],
+                marks: 3
+              }]
+            }
+          },
+          gradingResult: {
+            status: "graded",
+            questionType: "theory",
+            awardedMarks: 3,
+            maxMarks: 3,
+            referenceAnswer: "private-history-reference-answer",
+            criteria: [{
+              criterionId: "private-history-criterion-id",
+              description: "private-history-rubric-description",
+              acceptableAlternatives: ["private-history-alternative"],
+              awardedMarks: 3,
+              maxMarks: 3
+            }]
+          }
+        }
+      ]
+    })
+  });
+});
+
 test("quiz history verifies a status-less historical objective score from saved correctness", async () => {
   await withQuizMocks(async () => {
     const response = await request(buildApp()).get(`/api/quiz/results/${STUDENT_A}`);
@@ -1351,7 +1467,8 @@ test("typed submission grades only after saving, and returns feedback only in th
               awardedMarks: maxMarks,
               maxMarks,
               correctAnswer: "The stored answer",
-              explanation: "The stored explanation."
+              correctOptionId: "private-option-id",
+              explanation: "private-objective-explanation"
             };
           } else if (questionType === "fill_in_gap") {
             gradingResult = {
@@ -1360,10 +1477,14 @@ test("typed submission grades only after saving, and returns feedback only in th
               awardedMarks: maxMarks,
               maxMarks,
               blanks: Array.from({ length: question.blankCount }, (_, blankIndex) => ({
+                blankNumber: blankIndex + 1,
                 status: "graded",
                 awardedMarks: maxMarks / question.blankCount,
                 maxMarks: maxMarks / question.blankCount,
+                expectedAnswers: ["private-accepted-answer"],
+                explanation: "private-fill-explanation",
                 criteria: [{
+                  description: "private-fill-rubric-description",
                   awardedMarks: maxMarks / question.blankCount,
                   maxMarks: maxMarks / question.blankCount
                 }]
@@ -1375,9 +1496,12 @@ test("typed submission grades only after saving, and returns feedback only in th
               questionType,
               awardedMarks: maxMarks,
               maxMarks,
+              referenceAnswer: "private-theory-reference",
+              explanation: "private-theory-explanation",
               criteria: question.markingSnapshot.theory.criteria.map((criterion) => ({
                 criterionId: criterion.criterionId,
                 description: criterion.description,
+                acceptableAlternatives: ["private-theory-alternative"],
                 awardedMarks: criterion.marks,
                 maxMarks: criterion.marks,
                 feedback: "Complete."
@@ -1397,6 +1521,9 @@ test("typed submission grades only after saving, and returns feedback only in th
       const start = await request(buildApp()).post("/api/quiz/start")
         .send({ courseId: COURSE_ID, questionCount: 10 });
       assert.equal(start.status, 201);
+      const savedMarkingSnapshots = JSON.stringify(
+        state.attempt.questions.map((question) => question.markingSnapshot)
+      );
       const submittedAnswers = state.attempt.questions.map((question) => {
         if (question.questionType === "objective") {
           return { questionId: question.questionId, selectedOptionId: question.presentedOptions[0].optionId };
@@ -1413,8 +1540,29 @@ test("typed submission grades only after saving, and returns feedback only in th
       assert.equal(response.status, 200);
       assert.equal(response.body.session.gradingStatus, "graded");
       assert.equal(response.body.session.score, 34);
-      assert.equal(response.body.session.questions[0].gradingResult.correctAnswer, "The stored answer");
+      assert.equal(response.body.session.questions[0].gradingResult.correctAnswer, undefined);
+      assert.equal(response.body.session.questions[0].gradingResult.isCorrect, true);
+      assert.equal(response.body.session.questions[5].gradingResult.blanks[0].expectedAnswers, undefined);
+      assert.equal(response.body.session.questions[7].gradingResult.criteria, undefined);
+      for (const secret of [
+        "The stored answer",
+        "private-option-id",
+        "private-objective-explanation",
+        "private-accepted-answer",
+        "private-fill-rubric-description",
+        "private-theory-reference",
+        "private-theory-explanation",
+        "private-theory-alternative",
+        "States the first idea."
+      ]) {
+        assert.equal(JSON.stringify(response.body).includes(secret), false, `${secret} must not reach students`);
+      }
       assert.equal(JSON.stringify(response.body).includes("markingSnapshot"), false);
+      assert.equal(state.attempt.questions[0].gradingResult.correctAnswer, "The stored answer");
+      assert.equal(
+        JSON.stringify(state.attempt.questions.map((question) => question.markingSnapshot)),
+        savedMarkingSnapshots
+      );
     }, { eligibleEntries: typedEntries });
   } finally {
     quizGradingService.gradeAttempt = originalGradeAttempt;

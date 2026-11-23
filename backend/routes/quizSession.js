@@ -638,16 +638,20 @@ router.get("/results/:userId", protect, async (req, res) => {
           result.score = null;
           result.percentage = null;
         }
-        result.questions = (result.questions || []).map((question) => {
-          const safeQuestion = { ...question };
-          delete safeQuestion.correctOptionId;
-          delete safeQuestion.correctAnswer;
-          delete safeQuestion.isCorrect;
-          delete safeQuestion.markingSnapshot;
-          delete safeQuestion.markingVersionId;
-          if (result.gradingStatus === "unverified") delete safeQuestion.gradingResult;
-          return safeQuestion;
-        });
+        if (req.user.role === "admin") {
+          result.questions = (result.questions || []).map((question) => {
+            const safeQuestion = { ...question };
+            delete safeQuestion.correctOptionId;
+            delete safeQuestion.correctAnswer;
+            delete safeQuestion.isCorrect;
+            delete safeQuestion.markingSnapshot;
+            delete safeQuestion.markingVersionId;
+            if (result.gradingStatus === "unverified") delete safeQuestion.gradingResult;
+            return safeQuestion;
+          });
+        } else {
+          result.questions = quizSessionService.toStudentAttempt(result).questions;
+        }
         return result;
       });
     return res.json({ success: true, results });
