@@ -25,11 +25,12 @@ const QUESTION_IDS = [
   "507f1f77bcf86cd799439056"
 ];
 
-const makeDiagnostic = (questionId, approvalStatus = "approved") => ({
-  questionId,
-  eligible: false,
-  eligibilityFailureReasons: ["marking_version_missing"],
-  question: {
+const makeDiagnostic = (questionId, approvalStatus = "approved", overrides = {}) => {
+  const diagnostic = {
+    questionId,
+    eligible: false,
+    eligibilityFailureReasons: ["marking_version_missing"],
+    question: {
     origin: "original_practice",
     originExplicit: true,
     approvalStatus,
@@ -44,11 +45,17 @@ const makeDiagnostic = (questionId, approvalStatus = "approved") => ({
     hasSourcePaperMetadata: false,
     hasExtractionProvenance: false,
     sourcePaperMatches: true
-  },
-  markingVersionExists: false,
-  matchingContentVersionExists: false,
-  selectedMarkingVersion: null
-});
+    },
+    markingVersionExists: false,
+    matchingContentVersionExists: false,
+    selectedMarkingVersion: null
+  };
+  return {
+    ...diagnostic,
+    ...overrides,
+    question: { ...diagnostic.question, ...overrides.question }
+  };
+};
 
 const makeHarness = ({
   questionIds = QUESTION_IDS.slice(0, 1),
@@ -95,7 +102,11 @@ const makeHarness = ({
     practiceTestService: {
       getQuestionMarkingDiagnostic: async (id) => {
         if (onDiagnostic) onDiagnostic(id, state);
-        return makeDiagnostic(id, approvalStatuses.get(id) || "approved");
+        return makeDiagnostic(
+          id,
+          approvalStatuses.get(id) || "approved",
+          generatedResults.get(`diagnostic:${id}`)
+        );
       }
     },
     questionMarkingService: {
@@ -244,8 +255,104 @@ test("dry-run disables model initialization writes and never invokes generation"
     assert.deepEqual(writeSpies.calls, []);
     assert.equal(result.mode, "dry-run");
     assert.equal(result.exitCode, 0);
+    assert.equal(result.regenerationRequiredCount, 1);
+    assert.deepEqual(harness.state.output[0].questions[0].regenerationPlan, {
+      action: "regenerate",
+      reason: "marking_version_missing"
+    });
     assert.equal(harness.state.output[0].writesQuestionMarkingVersions, false);
     assert.equal(harness.state.output[0].writesQuizSessions, false);
+  });
+});
+
+test("regeneration plan retries failed and unusable versions but reuses valid ready versions", () => {
+  const failed = makeDiagnostic(QUESTION_IDS[0], "approved", {
+    markingVersionExists: true,
+    matchingContentVersionExists: true,
+    selectedMarkingVersion: {
+      status: "failed",
+      eligibilityFailureReasons: ["marking_payload_unusable"]
+    }
+  });
+  const unusable = makeDiagnostic(QUESTION_IDS[1], "approved", {
+    markingVersionExists: true,
+    matchingContentVersionExists: true,
+    selectedMarkingVersion: {
+      status: "ready",
+      eligibilityFailureReasons: ["marking_payload_unusable"],
+      markingUsable: false,
+      questionMetadataMatches: true,
+      sourceMetadataMatches: true
+    }
+  });
+  const ready = makeDiagnostic(QUESTION_IDS[2], "approved", {
+    eligible: true,
+    markingVersionExists: true,
+    matchingContentVersionExists: true,
+    eligibilityFailureReasons: [],
+    selectedMarkingVersion: {
+      status: "ready",
+      eligibilityFailureReasons: [],
+      markingUsable: true,
+      questionMetadataMatches: true,
+      sourceMetadataMatches: true
+    }
+  });
+
+  assert.equal(repairScript.getRegenerationPlan(failed).action, "regenerate");
+  assert.equal(repairScript.getRegenerationPlan(unusable).action, "regenerate");
+  assert.deepEqual(repairScript.getRegenerationPlan(ready), {
+    action: "reuse",
+    reason: "marking_version_ready"
+  });
+  assert.deepEqual(
+    repairScript.getRegenerationPlan(makeDiagnostic(QUESTION_IDS[3], "draft")),
+    { action: "skip", reason: "question_not_ready_for_marking" }
+  );
+  assert.deepEqual(
+    repairScript.getRegenerationPlan(makeDiagnostic(QUESTION_IDS[4], "approved", {
+      markingVersionExists: true,
+      matchingContentVersionExists: true,
+      selectedMarkingVersion: {
+        status: "uncertain",
+        eligibilityFailureReasons: ["marking_uncertain"]
+      }
+    })),
+    { action: "skip", reason: "marking_version_status_uncertain" }
+  );
+});
+
+test("apply reuses a valid ready version without invoking marking generation", async () => {
+  await withMongoUri(async () => {
+    const id = QUESTION_IDS[0];
+    const generatedResults = new Map([[
+      `diagnostic:${id}`,
+      {
+        eligible: true,
+        eligibilityFailureReasons: [],
+        markingVersionExists: true,
+        matchingContentVersionExists: true,
+        selectedMarkingVersion: {
+          version: 3,
+          status: "ready",
+          failureCode: "",
+          contentHashMatches: true,
+          questionMetadataMatches: true,
+          sourceMetadataMatches: true,
+          markingUsable: true,
+          eligibilityFailureReasons: []
+        }
+      }
+    ]]);
+    const harness = makeHarness({ questionIds: [id], generatedResults });
+    const result = await repairScript.run(argsFor([id], true), harness.dependencies);
+    const summary = harness.state.output.at(-1);
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(summary.outcome, "successful");
+    assert.equal(summary.successful[0].status, "already_ready");
+    assert.deepEqual(harness.state.generatorCalls, []);
+    assert.equal(harness.state.markingVersionWrites, 0);
   });
 });
 

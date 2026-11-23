@@ -304,21 +304,196 @@ const buildContentHash = (question, input) => digest(JSON.stringify({
   questionNumber: String(question.questionNumber || "")
 }));
 
+const getQuestionSourceState = (question, course, sourcePaper, questionOrigin) => {
+  if (!course ||
+      idOf(course._id) !== idOf(question.course) ||
+      idOf(course.department) !== idOf(question.department)) {
+    return {
+      status: "invalid",
+      error: "The question does not have a valid course and department association."
+    };
+  }
+  if (!["verified_past_paper", "original_practice"].includes(questionOrigin)) {
+    return { status: "invalid", error: "The question origin is missing or unsupported." };
+  }
+  if (questionOrigin === "original_practice" &&
+      (sourcePaper || question.sourcePaper || question.sourcePaperMetadata ||
+       question.sourceExamYear || question.sourceAcademicSession ||
+       (question.sourcePage !== undefined && question.sourcePage !== null && question.sourcePage !== "") ||
+       question.sourceExcerpt || question.extractionBatchId ||
+       question.extractionDraftId || question.extractionKey)) {
+    return {
+      status: "invalid",
+      error: "Original practice questions cannot include past-paper provenance."
+    };
+  }
+  if (questionOrigin === "verified_past_paper" && !question.sourcePaper) {
+    return { status: "needs_source", error: "No uploaded source paper is linked to this question." };
+  }
+  if (questionOrigin === "verified_past_paper" && !sourcePaper) {
+    return { status: "needs_source", error: "The linked source paper is unavailable." };
+  }
+  if (questionOrigin === "verified_past_paper" &&
+      (idOf(sourcePaper.course) !== idOf(question.course) ||
+       idOf(sourcePaper.department) !== idOf(question.department) ||
+       sourcePaper.level !== course.level ||
+       sourcePaper.semester !== course.semester ||
+       String(question.year || "") !== String(sourcePaper.examinationYear) ||
+       String(question.sourceExamYear || "") !== String(sourcePaper.examinationYear) ||
+       !question.sourcePaperMetadata ||
+       question.sourcePaperMetadata.title !== sourcePaper.title ||
+       String(question.sourcePaperMetadata.examinationYear) !== String(sourcePaper.examinationYear) ||
+       question.sourcePaperMetadata.level !== sourcePaper.level ||
+       question.sourcePaperMetadata.semester !== sourcePaper.semester)) {
+    return {
+      status: "invalid",
+      error: "The source paper does not match the approved question's course provenance."
+    };
+  }
+  return { status: "", error: "" };
+};
+
+const isStoredMarkingUsable = (question, marking) => {
+  const questionType = question.questionType ||
+    (Array.isArray(question.options) && question.options.length >= 2 ? "objective" : "");
+
+  if (questionType === "objective") {
+    const objective = marking?.objective;
+    if (!isRecord(objective)) return false;
+    return validateObjective(
+      {
+        answerOptionId: objective.correctOptionId,
+        explanation: objective.explanation,
+        uncertain: false,
+        uncertaintyReason: ""
+      },
+      {
+        selectedOptionId: objective.verificationOptionId,
+        uncertain: false,
+        uncertaintyReason: ""
+      },
+      stableOptionIds(question)
+    ).status === "ready";
+  }
+
+  if (questionType === "fill_in_gap") {
+    const fillInGap = marking?.fillInGap;
+    if (!isRecord(fillInGap) || !Array.isArray(fillInGap.blanks)) return false;
+    const storedAnswersAreAccepted = fillInGap.blanks.every((blank) =>
+      isRecord(blank) &&
+      Array.isArray(blank.acceptableAnswers) &&
+      blank.acceptableAnswers.some((answer) =>
+        typeof answer === "string" &&
+        answer.trim().toLowerCase() === String(blank.expectedAnswer || "").trim().toLowerCase())
+    );
+    if (!storedAnswersAreAccepted) return false;
+    return validateFillInGap({
+      uncertain: false,
+      uncertaintyReason: "",
+      blanks: fillInGap.blanks.map((blank) => isRecord(blank) ? {
+        blankNumber: blank.blankNumber,
+        expectedAnswer: blank.expectedAnswer,
+        acceptableAnswers: blank.acceptableAnswers,
+        gradingCriteria: blank.gradingCriteria,
+        semanticGuidance: blank.semanticGuidance
+      } : blank),
+      explanation: fillInGap.explanation,
+      totalMarks: fillInGap.totalMarks
+    }, question.blankCount, Number(question.marks)).status === "ready";
+  }
+
+  if (questionType === "theory") {
+    const theory = marking?.theory;
+    if (!isRecord(theory)) return false;
+    return validateTheory({
+      uncertain: false,
+      uncertaintyReason: "",
+      referenceAnswer: theory.referenceAnswer,
+      criteria: theory.criteria,
+      explanation: theory.explanation,
+      totalMarks: theory.totalMarks
+    }, Number(question.marks)).status === "ready";
+  }
+  return false;
+};
+
+const markingVersionMetadataMatches = (existing, versionData) => {
+  const sourceMetadataMatches = versionData.sourcePaperMetadata
+    ? isRecord(existing.sourcePaperMetadata) &&
+      existing.sourcePaperMetadata.title === versionData.sourcePaperMetadata.title &&
+      String(existing.sourcePaperMetadata.examinationYear) ===
+        String(versionData.sourcePaperMetadata.examinationYear) &&
+      existing.sourcePaperMetadata.level === versionData.sourcePaperMetadata.level &&
+      existing.sourcePaperMetadata.semester === versionData.sourcePaperMetadata.semester
+    : !existing.sourcePaperMetadata;
+  return idOf(existing.question) === idOf(versionData.question) &&
+    idOf(existing.course) === idOf(versionData.course) &&
+    idOf(existing.department) === idOf(versionData.department) &&
+    existing.questionYear === versionData.questionYear &&
+    existing.questionSession === versionData.questionSession &&
+    existing.sourceExamYear === versionData.sourceExamYear &&
+    existing.sourceAcademicSession === versionData.sourceAcademicSession &&
+    existing.questionType === versionData.questionType &&
+    existing.questionOrigin === versionData.questionOrigin &&
+    existing.contentHash === versionData.contentHash &&
+    existing.promptVersion === versionData.promptVersion &&
+    existing.schemaVersion === versionData.schemaVersion &&
+    existing.provider === versionData.provider &&
+    existing.model === versionData.model &&
+    idOf(existing.sourcePaper) === idOf(versionData.sourcePaper) &&
+    sourceMetadataMatches &&
+    (existing.sourcePage || null) === (versionData.sourcePage || null) &&
+    (existing.sourceExcerpt || "") === versionData.sourceExcerpt;
+};
+
+const isQuestionSnapshotCurrent = async (question, contentHash) => {
+  const currentQuestion = await Question.findOne({
+    _id: question._id,
+    course: question.course,
+    department: question.department,
+    approvalStatus: "approved"
+  });
+  if (!currentQuestion) return false;
+
+  const currentCourse = await Course.findById(currentQuestion.course);
+  const currentSourcePaper = currentQuestion.sourcePaper
+    ? await PastQuestionPaper.findById(currentQuestion.sourcePaper)
+    : null;
+  const questionOrigin = currentQuestion.questionOrigin || "verified_past_paper";
+  const sourceState = getQuestionSourceState(
+    currentQuestion,
+    currentCourse,
+    currentSourcePaper,
+    questionOrigin
+  );
+  if (sourceState.error) return false;
+
+  const prepared = buildQuestionInput(currentQuestion, currentSourcePaper);
+  return Boolean(prepared.input &&
+    buildContentHash(currentQuestion, prepared.input) === contentHash);
+};
+
 const safeFailureCode = (error) => {
   if (error?.statusCode === 503) return "not_configured";
   if (error?.statusCode === 429) return "rate_limited";
   return "provider_error";
 };
 
-const persistInitialVersion = async (versionData) => {
+const persistInitialVersion = async (versionData, question) => {
   const existing = await QuestionMarkingVersion.findOne({ generationKey: versionData.generationKey });
   if (existing) {
-    if (["ready", "uncertain", "invalid", "needs_source"].includes(existing.status) ||
-        (existing.status === "generating" &&
-          existing.generationStartedAt &&
-          Date.now() - new Date(existing.generationStartedAt).getTime() < 10 * 60 * 1000)) {
+    const readyVersionIsReusable = existing.status === "ready" &&
+      markingVersionMetadataMatches(existing, versionData) &&
+      isStoredMarkingUsable(question, existing.marking);
+    const generationIsActive = existing.status === "generating" &&
+      existing.generationStartedAt &&
+      Date.now() - new Date(existing.generationStartedAt).getTime() < 10 * 60 * 1000;
+    if (readyVersionIsReusable ||
+        ["uncertain", "invalid", "needs_source"].includes(existing.status) ||
+        generationIsActive) {
       return { record: existing, shouldGenerate: false };
     }
+    Object.assign(existing, versionData);
     existing.status = "generating";
     existing.failureCode = "";
     existing.validationErrors = [];
@@ -399,43 +574,7 @@ const generateForQuestion = async (questionId, userId, options = {}) => {
     modelName
   ]));
 
-  let sourceError = "";
-  let sourceMismatch = false;
-  if (!course ||
-      idOf(course._id) !== idOf(question.course) ||
-      idOf(course.department) !== idOf(question.department)) {
-    sourceError = "The question does not have a valid course and department association.";
-    sourceMismatch = true;
-  } else if (!["verified_past_paper", "original_practice"].includes(questionOrigin)) {
-    sourceError = "The question origin is missing or unsupported.";
-    sourceMismatch = true;
-  } else if (questionOrigin === "original_practice" &&
-      (sourcePaper || question.sourcePaper || question.sourcePaperMetadata ||
-       question.sourceExamYear || question.sourceAcademicSession ||
-       (question.sourcePage !== undefined && question.sourcePage !== null && question.sourcePage !== "") ||
-       question.sourceExcerpt || question.extractionBatchId ||
-       question.extractionDraftId || question.extractionKey)) {
-    sourceError = "Original practice questions cannot include past-paper provenance.";
-    sourceMismatch = true;
-  } else if (questionOrigin === "verified_past_paper" && !question.sourcePaper) {
-    sourceError = "No uploaded source paper is linked to this question.";
-  } else if (questionOrigin === "verified_past_paper" && !sourcePaper) {
-    sourceError = "The linked source paper is unavailable.";
-  } else if (questionOrigin === "verified_past_paper" &&
-      (idOf(sourcePaper.course) !== idOf(question.course) ||
-      idOf(sourcePaper.department) !== idOf(question.department) ||
-      sourcePaper.level !== course.level ||
-      sourcePaper.semester !== course.semester ||
-      String(question.year || "") !== String(sourcePaper.examinationYear) ||
-      String(question.sourceExamYear || "") !== String(sourcePaper.examinationYear) ||
-      !question.sourcePaperMetadata ||
-      question.sourcePaperMetadata.title !== sourcePaper.title ||
-      String(question.sourcePaperMetadata.examinationYear) !== String(sourcePaper.examinationYear) ||
-      question.sourcePaperMetadata.level !== sourcePaper.level ||
-      question.sourcePaperMetadata.semester !== sourcePaper.semester)) {
-    sourceError = "The source paper does not match the approved question's course provenance.";
-    sourceMismatch = true;
-  }
+  const sourceState = getQuestionSourceState(question, course, sourcePaper, questionOrigin);
 
   const sourcePaperMetadata = sourcePaper
     ? {
@@ -466,12 +605,12 @@ const generateForQuestion = async (questionId, userId, options = {}) => {
     sourcePage: Number.isInteger(question.sourcePage) ? question.sourcePage : null,
     sourceExcerpt: String(question.sourceExcerpt || "").slice(0, 1000)
   };
-  const { record, shouldGenerate } = await persistInitialVersion(versionData);
+  const { record, shouldGenerate } = await persistInitialVersion(versionData, question);
   if (!shouldGenerate) return { status: record.status, version: record };
 
-  if (sourceError) {
-    record.status = sourceMismatch ? "invalid" : "needs_source";
-    record.validationErrors = [sourceError];
+  if (sourceState.error) {
+    record.status = sourceState.status;
+    record.validationErrors = [sourceState.error];
     record.generatedAt = new Date();
     await record.save();
     return { status: record.status, version: record };
@@ -486,6 +625,14 @@ const generateForQuestion = async (questionId, userId, options = {}) => {
 
   try {
     const generated = await gemini.generateQuestionMarking(prepared.input, userId);
+    if (!await isQuestionSnapshotCurrent(question, contentHash)) {
+      record.status = "failed";
+      record.failureCode = "";
+      record.validationErrors = ["The question or course changed during marking generation."];
+      record.generatedAt = new Date();
+      await record.save();
+      return { status: record.status, version: record };
+    }
     const output = parseModelJson(generated.message);
     let result;
     if (questionType === "objective") {
