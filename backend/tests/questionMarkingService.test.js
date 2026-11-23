@@ -4,6 +4,7 @@ const Question = require("../models/Question");
 const Course = require("../models/course");
 const QuestionMarkingVersion = require("../models/QuestionMarkingVersion");
 const PastQuestionPaper = require("../models/PastQuestionPaper");
+const QuizSession = require("../models/QuizSession");
 const gemini = require("../utils/gemini");
 const markingService = require("../services/questionMarkingService");
 
@@ -281,6 +282,68 @@ test("approved question generation is content-hashed, versioned and idempotent",
   assert.notEqual(changed.version.contentHash, first.version.contentHash);
 });
 
+test("a failed existing version is regenerated with the approved marking service", async () => {
+  const first = await markingService.generateForQuestion(QUESTION_ID, "reviewer-id");
+  first.version.status = "failed";
+  first.version.failureCode = "rate_limited";
+  first.version.marking = undefined;
+
+  const retried = await markingService.generateForQuestion(QUESTION_ID, "reviewer-id");
+
+  assert.equal(retried.status, "ready");
+  assert.equal(retried.version._id, first.version._id);
+  assert.equal(retried.version.version, first.version.version);
+  assert.equal(retried.version.questionOrigin, first.version.questionOrigin);
+  assert.equal(retried.version.sourcePaper, first.version.sourcePaper);
+  assert.equal(generationCalls, 2);
+});
+
+test("regeneration leaves existing quiz marking snapshots unchanged", async () => {
+  const sessionSnapshot = Object.freeze({
+    markingVersionId: "marking-1",
+    markingSnapshot: Object.freeze({
+      objective: Object.freeze({
+        correctOptionId: "option-b",
+        verificationOptionId: "option-b"
+      })
+    })
+  });
+  const originalSnapshot = JSON.stringify(sessionSnapshot);
+  const originalUpdateMany = QuizSession.updateMany;
+  let sessionWrites = 0;
+  QuizSession.updateMany = async () => {
+    sessionWrites += 1;
+  };
+
+  try {
+    const first = await markingService.generateForQuestion(QUESTION_ID, "reviewer-id");
+    first.version.status = "failed";
+    first.version.failureCode = "rate_limited";
+    first.version.marking = undefined;
+    await markingService.generateForQuestion(QUESTION_ID, "reviewer-id");
+  } finally {
+    QuizSession.updateMany = originalUpdateMany;
+  }
+
+  assert.equal(sessionWrites, 0);
+  assert.equal(JSON.stringify(sessionSnapshot), originalSnapshot);
+});
+
+test("an unusable ready payload is regenerated while a valid ready version is reused", async () => {
+  const first = await markingService.generateForQuestion(QUESTION_ID, "reviewer-id");
+  first.version.marking.objective.correctOptionId = "invalid-option";
+  first.version.marking.objective.verificationOptionId = "invalid-option";
+
+  const repaired = await markingService.generateForQuestion(QUESTION_ID, "reviewer-id");
+  const reused = await markingService.generateForQuestion(QUESTION_ID, "reviewer-id");
+
+  assert.equal(repaired.status, "ready");
+  assert.equal(repaired.version._id, first.version._id);
+  assert.equal(repaired.version.version, first.version.version);
+  assert.equal(reused.version._id, repaired.version._id);
+  assert.equal(generationCalls, 2);
+});
+
 test("course-scoped generation rejects a question reassigned after preflight", async () => {
   const expectedCourseId = questions.get(QUESTION_ID).course;
   questions.get(QUESTION_ID).course = "507f1f77bcf86cd799439099";
@@ -295,6 +358,39 @@ test("course-scoped generation rejects a question reassigned after preflight", a
   assert.match(result.reason, /no longer in the expected course/);
   assert.equal(versions.size, 0);
   assert.equal(generationCalls, 0);
+});
+
+test("generation discards its result when question content changes during the provider call", async () => {
+  gemini.generateQuestionMarking = async () => {
+    generationCalls += 1;
+    questions.get(QUESTION_ID).question = "Changed while marking was generated.";
+    return generatedObjective();
+  };
+
+  const result = await markingService.generateForQuestion(QUESTION_ID, "reviewer-id");
+
+  assert.equal(result.status, "failed");
+  assert.deepEqual(result.version.validationErrors, [
+    "The question or course changed during marking generation."
+  ]);
+  assert.equal(result.version.failureCode, "");
+  assert.equal(generationCalls, 1);
+});
+
+test("generation discards its result when course association changes during the provider call", async () => {
+  gemini.generateQuestionMarking = async () => {
+    generationCalls += 1;
+    questions.get(QUESTION_ID).course = "507f1f77bcf86cd799439099";
+    return generatedObjective();
+  };
+
+  const result = await markingService.generateForQuestion(QUESTION_ID, "reviewer-id");
+
+  assert.equal(result.status, "failed");
+  assert.deepEqual(result.version.validationErrors, [
+    "The question or course changed during marking generation."
+  ]);
+  assert.equal(generationCalls, 1);
 });
 
 test("missing and cross-course provenance never trigger AI marking", async () => {
@@ -454,4 +550,6 @@ test("malformed AI JSON is invalid and provider failure is explicitly recorded",
   const failed = await markingService.generateForQuestion(nextId, "reviewer-id");
   assert.equal(failed.status, "failed");
   assert.equal(failed.version.failureCode, "not_configured");
+  assert.deepEqual(failed.version.validationErrors, []);
+  assert.equal(JSON.stringify(failed.version).includes("provider unreachable"), false);
 });

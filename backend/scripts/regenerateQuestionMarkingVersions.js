@@ -85,7 +85,54 @@ const validateArguments = (options) => {
   }
 };
 
-const safeSummary = (diagnostic) => ({
+const getRegenerationPlan = (diagnostic) => {
+  const question = diagnostic.question;
+  const questionCanBeMarked = question.approvalStatus === "approved" &&
+    question.approvedByValid &&
+    question.approvedAtValid &&
+    question.reviewerApprovalValid &&
+    question.courseMatches &&
+    question.departmentMatches &&
+    question.contentValid &&
+    question.markingInputValid &&
+    question.sourcePaperMatches &&
+    (question.origin === "verified_past_paper" ||
+      (question.origin === "original_practice" && question.originExplicit));
+  if (!questionCanBeMarked) {
+    return { action: "skip", reason: "question_not_ready_for_marking" };
+  }
+  if (!diagnostic.markingVersionExists) {
+    return { action: "regenerate", reason: "marking_version_missing" };
+  }
+  if (!diagnostic.matchingContentVersionExists) {
+    return { action: "regenerate", reason: "marking_content_hash_mismatch" };
+  }
+
+  const version = diagnostic.selectedMarkingVersion;
+  if (!version) return { action: "skip", reason: "marking_version_status_unknown" };
+  if (version.status === "failed") {
+    return { action: "regenerate", reason: "marking_version_status_failed" };
+  }
+  if (version.status === "ready") {
+    if (Array.isArray(version.eligibilityFailureReasons) &&
+        version.eligibilityFailureReasons.length === 0 &&
+        version.markingUsable &&
+        version.questionMetadataMatches &&
+        version.sourceMetadataMatches) {
+      return { action: "reuse", reason: "marking_version_ready" };
+    }
+    return {
+      action: "regenerate",
+      reason: version.eligibilityFailureReasons[0] || "marking_payload_unusable"
+    };
+  }
+  return {
+    action: "skip",
+    reason: `marking_version_status_${version.status}`
+  };
+};
+
+const safeSummary = (diagnostic, regenerationPlan) => ({
   questionSuffix: diagnostic.questionId.slice(-6),
   approvalStatus: diagnostic.question.approvalStatus,
   origin: diagnostic.question.origin,
@@ -113,7 +160,8 @@ const safeSummary = (diagnostic) => ({
       eligibilityFailureReasons: diagnostic.selectedMarkingVersion.eligibilityFailureReasons
     }
     : null,
-  eligibilityFailureReasons: diagnostic.eligibilityFailureReasons
+  eligibilityFailureReasons: diagnostic.eligibilityFailureReasons,
+  regenerationPlan
 });
 
 const summarizeResult = (result, questionSuffix) => {
@@ -161,6 +209,7 @@ const run = async (args = process.argv.slice(2), dependencies = {}) => {
       if (!diagnostic) throw new Error(`Question ${questionId.slice(-6)} was not found.`);
       diagnostics.push(diagnostic);
     }
+    const regenerationPlans = diagnostics.map(getRegenerationPlan);
 
     log({
       mode: options.apply ? "apply" : "dry-run",
@@ -169,13 +218,18 @@ const run = async (args = process.argv.slice(2), dependencies = {}) => {
       writesQuestionRecords: false,
       writesQuestionMarkingVersions: options.apply,
       writesQuizSessions: false,
-      questions: diagnostics.map(safeSummary)
+      questions: diagnostics.map((diagnostic, index) =>
+        safeSummary(diagnostic, regenerationPlans[index])
+      )
     });
 
     if (!options.apply) {
       return {
         mode: "dry-run",
         selectedCount: diagnostics.length,
+        regenerationRequiredCount: regenerationPlans.filter((plan) =>
+          plan.action === "regenerate"
+        ).length,
         exitCode: 0
       };
     }
@@ -200,6 +254,7 @@ const run = async (args = process.argv.slice(2), dependencies = {}) => {
 
     for (let index = 0; index < diagnostics.length; index += 1) {
       const diagnostic = diagnostics[index];
+      const plan = regenerationPlans[index];
       const questionSuffix = diagnostic.questionId.slice(-6);
       if (stopAfterException) {
         const result = {
@@ -212,11 +267,23 @@ const run = async (args = process.argv.slice(2), dependencies = {}) => {
         summary.results.push(result);
         continue;
       }
-      if (diagnostic.question.approvalStatus !== "approved") {
+      if (plan.action === "reuse") {
+        const result = {
+          questionSuffix,
+          outcome: "successful",
+          status: "already_ready",
+          version: diagnostic.selectedMarkingVersion.version
+        };
+        summary.successful.push(result);
+        summary.results.push(result);
+        continue;
+      }
+      if (plan.action !== "regenerate") {
         const result = {
           questionSuffix,
           outcome: "skipped",
-          status: "not_approved"
+          status: "skipped",
+          reason: plan.reason
         };
         summary.skipped.push(result);
         summary.results.push(result);
@@ -285,6 +352,7 @@ if (require.main === module) {
 
 module.exports = {
   MONGOOSE_CONNECTION_OPTIONS,
+  getRegenerationPlan,
   parseArguments,
   run,
   validateArguments
