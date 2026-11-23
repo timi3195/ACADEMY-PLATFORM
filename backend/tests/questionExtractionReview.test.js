@@ -37,6 +37,7 @@ let sourcePapers;
 let courseAccess;
 let imageBuffer;
 let markingCalls;
+let adminMarkingCalls;
 
 const clone = (value) => {
   if (value instanceof Date) return new Date(value);
@@ -130,6 +131,7 @@ const setupMocks = () => {
   markingCalls = 0;
   courseAccess = true;
   imageBuffer = Buffer.from("private-image");
+  adminMarkingCalls = 0;
 
   User.findById = (id) => ({
     select() {
@@ -219,6 +221,14 @@ const setupMocks = () => {
     markingCalls += 1;
     return { status: "ready", version: { _id: `marking-${questionId}` } };
   };
+  questionMarkingService.createAdminAuthoredVersion = async (questionId) => {
+    adminMarkingCalls += 1;
+    const question = [...questions.values()]
+      .find((item) => String(item._id) === String(questionId));
+    return question?.answer
+      ? { status: "ready", version: { _id: `admin-marking-${questionId}` } }
+      : { status: "needs_source", version: null };
+  };
   storageService.getObjectReadStream = async () => Readable.from([imageBuffer]);
 };
 
@@ -231,6 +241,7 @@ const restoreMocks = () => {
   Question.findOne = originals.questionFindOne;
   Question.create = originals.questionCreate;
   questionMarkingService.generateForQuestion = originals.generateForQuestion;
+  questionMarkingService.createAdminAuthoredVersion = originals.createAdminAuthoredVersion;
   QuestionExtraction.findOne = originals.extractionFindOne;
   QuestionExtraction.find = originals.extractionFind;
   QuestionExtraction.updateOne = originals.extractionUpdateOne;
@@ -248,6 +259,7 @@ test.before(() => {
   originals.questionFindOne = Question.findOne;
   originals.questionCreate = Question.create;
   originals.generateForQuestion = questionMarkingService.generateForQuestion;
+  originals.createAdminAuthoredVersion = questionMarkingService.createAdminAuthoredVersion;
   originals.extractionFindOne = QuestionExtraction.findOne;
   originals.extractionFind = QuestionExtraction.find;
   originals.extractionUpdateOne = QuestionExtraction.updateOne;
@@ -339,6 +351,94 @@ test("content approval does not require answer confirmation and AI marking is ge
   assert.equal(reviewedDraft.markingVersion, `marking-${question._id}`);
   assert.equal(reviewedDraft.reviewHistory.at(-1).action, "approved");
   assert.equal(reviewedDraft.reviewer, ADMIN);
+});
+
+test("non-AI extraction approval uses administrator marking and never calls Gemini", async () => {
+  const previousMode = process.env.CBT_NON_AI_MODE;
+  process.env.CBT_NON_AI_MODE = "true";
+  try {
+    const app = buildApp(ADMIN, "admin");
+    const approved = await request(app)
+      .post(`/api/question-extractions/${BATCH_ID}/drafts/${DRAFT_A}/approve`);
+    assert.equal(approved.status, 200, JSON.stringify(approved.body));
+    assert.equal(approved.body.markingStatus, "needs_source");
+    assert.equal(adminMarkingCalls, 1);
+    assert.equal(markingCalls, 0);
+    assert.equal([...questions.values()][0].approvalStatus, "approved");
+    assert.equal([...questions.values()][0].answer, "");
+    assert.equal(records.get(BATCH_ID).drafts[0].markingStatus, "needs_source");
+  } finally {
+    if (previousMode === undefined) delete process.env.CBT_NON_AI_MODE;
+    else process.env.CBT_NON_AI_MODE = previousMode;
+  }
+});
+
+test("non-AI extraction marking uses only a reviewer-confirmed answer with valid provenance", async () => {
+  const previousMode = process.env.CBT_NON_AI_MODE;
+  process.env.CBT_NON_AI_MODE = "true";
+  const sourcePaperMetadata = {
+    title: "Test course 2025 past questions",
+    examinationYear: "2025",
+    level: "ND1",
+    semester: "First"
+  };
+  sourcePapers.set(PAPER_ID, {
+    _id: PAPER_ID,
+    title: sourcePaperMetadata.title,
+    course: COURSE_ID,
+    department: DEPARTMENT_ID,
+    level: "ND1",
+    semester: "First",
+    examinationYear: "2025"
+  });
+  records.set(BATCH_ID, seedBatch([makeDraft(DRAFT_A, {
+    answerStatus: "confirmed",
+    confirmedAnswerOptionId: "stable-option-b",
+    answerConfirmedBy: ADMIN,
+    answerConfirmedAt: new Date()
+  })], {
+    sourcePaper: PAPER_ID,
+    sourcePaperMetadata,
+    sourceExamYear: "2025",
+    academicSession: "2025/2026"
+  }));
+  try {
+    const response = await request(buildApp(ADMIN, "admin"))
+      .post(`/api/question-extractions/${BATCH_ID}/drafts/${DRAFT_A}/approve`);
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    assert.equal(response.body.markingStatus, "ready");
+    const question = [...questions.values()][0];
+    assert.equal(question.answer, "4");
+    assert.equal(String(question.sourcePaper), PAPER_ID);
+    assert.equal(adminMarkingCalls, 1);
+    assert.equal(markingCalls, 0);
+  } finally {
+    if (previousMode === undefined) delete process.env.CBT_NON_AI_MODE;
+    else process.env.CBT_NON_AI_MODE = previousMode;
+  }
+});
+
+test("non-AI bulk extraction approval marks each approved draft without calling Gemini", async () => {
+  const previousMode = process.env.CBT_NON_AI_MODE;
+  process.env.CBT_NON_AI_MODE = "true";
+  records.set(BATCH_ID, seedBatch([
+    makeDraft(DRAFT_A),
+    makeDraft(DRAFT_B, { questionText: "What is three plus three?" })
+  ]));
+  try {
+    const response = await request(buildApp(ADMIN, "admin"))
+      .post(`/api/question-extractions/${BATCH_ID}/review-selected`)
+      .send({ action: "approve", draftIds: [DRAFT_A, DRAFT_B] });
+    assert.equal(response.status, 200);
+    assert.equal(response.body.results.every((result) => result.success), true);
+    assert.equal(adminMarkingCalls, 2);
+    assert.equal(markingCalls, 0);
+    assert.equal(response.body.results.every((result) => result.markingStatus === "needs_source"), true);
+    assert.equal([...questions.values()].every((question) => question.answer === ""), true);
+  } finally {
+    if (previousMode === undefined) delete process.env.CBT_NON_AI_MODE;
+    else process.env.CBT_NON_AI_MODE = previousMode;
+  }
 });
 
 test("a failed AI marking attempt can be retried without reapproving or duplicating the question", async () => {

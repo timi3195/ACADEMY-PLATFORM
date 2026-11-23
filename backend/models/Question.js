@@ -7,6 +7,24 @@ const sourcePaperMetadataSchema = new mongoose.Schema({
   semester: { type: String, enum: ["First", "Second"], required: true }
 }, { _id: false });
 
+const blankMarkingSchema = new mongoose.Schema({
+  blankNumber: { type: Number, required: true, min: 1, max: 20 },
+  acceptedAnswers: { type: [String], required: true, default: [] },
+  marks: { type: Number, required: true, min: 0.01, max: 100 }
+}, { _id: false });
+
+const theoryRubricCriterionSchema = new mongoose.Schema({
+  criterionId: { type: String, required: true, maxlength: 40 },
+  description: { type: String, required: true, maxlength: 1000 },
+  marks: { type: Number, required: true, min: 0.01, max: 100 },
+  acceptableAlternatives: { type: [String], default: [] }
+}, { _id: false });
+
+const adminMarkingSchema = new mongoose.Schema({
+  acceptedAnswersByBlank: { type: [blankMarkingSchema], default: [] },
+  theoryRubric: { type: [theoryRubricCriterionSchema], default: [] }
+}, { _id: false });
+
 const QUESTION_TYPES = ["objective", "fill_in_gap", "theory"];
 
 const questionSchema = new mongoose.Schema({
@@ -71,6 +89,11 @@ const questionSchema = new mongoose.Schema({
   answer: {
     type: String,
     default: ""
+  },
+
+  adminMarking: {
+    type: adminMarkingSchema,
+    default: undefined
   },
 
   explanation: {

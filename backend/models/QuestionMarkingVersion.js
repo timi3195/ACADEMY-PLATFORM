@@ -36,6 +36,12 @@ const questionMarkingVersionSchema = new mongoose.Schema({
   promptVersion: { type: String, required: true },
   schemaVersion: { type: String, required: true },
   provider: { type: String, default: "gemini" },
+  markingSource: {
+    type: String,
+    enum: ["ai_generated", "admin_authored"],
+    default: "ai_generated",
+    index: true
+  },
   model: { type: String, default: "" },
   status: {
     type: String,

@@ -12,6 +12,7 @@ const QuestionExtraction = require("../models/QuestionExtraction");
 const questionAccess = require("../services/questionAccessService");
 const questionMarkingService = require("../services/questionMarkingService");
 const practiceTestService = require("../services/practiceTestService");
+const { isNonAiModeEnabled } = require("../services/cbtMode");
 const { toStudentQuestion } = questionAccess;
 
 const createOptionIds = (options) => options.map(() => crypto.randomUUID());
@@ -122,11 +123,81 @@ const resolveSource = async (payload, course, existing) => {
 
 const getPublishedMarkingFields = async (question, userId) => {
   if (question.approvalStatus !== "approved") return {};
-  const marking = await questionMarkingService.generateForQuestion(question._id, userId);
+  const marking = isNonAiModeEnabled()
+    ? await questionMarkingService.createAdminAuthoredVersion(question._id)
+    : await questionMarkingService.generateForQuestion(question._id, userId);
   return {
     markingStatus: marking.status,
     markingVersion: marking.version?._id || null
   };
+};
+
+const normalizeAdminMarking = (value, questionType) => {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw inputError("Administrator marking data must be an object.");
+  }
+  const allowedFields = questionType === "fill_in_gap"
+    ? ["acceptedAnswersByBlank"]
+    : questionType === "theory" ? ["theoryRubric"] : [];
+  if (Object.keys(value).some((field) => !allowedFields.includes(field))) {
+    throw inputError("Administrator marking data contains fields that do not match the question type.");
+  }
+  const result = {};
+  if (Object.hasOwn(value, "acceptedAnswersByBlank")) {
+    if (!Array.isArray(value.acceptedAnswersByBlank) || value.acceptedAnswersByBlank.length > 20) {
+      throw inputError("Accepted answers must be provided as a list of blank entries.");
+    }
+    result.acceptedAnswersByBlank = value.acceptedAnswersByBlank.map((blank) => {
+      if (!blank || typeof blank !== "object" || Array.isArray(blank) ||
+          !Number.isInteger(Number(blank.blankNumber)) ||
+          !Array.isArray(blank.acceptedAnswers) ||
+          blank.acceptedAnswers.length < 1 ||
+          blank.acceptedAnswers.length > 20 ||
+          blank.acceptedAnswers.some((answer) =>
+            typeof answer !== "string" || !answer.trim() || answer.trim().length > 300)) {
+        throw inputError("Each blank needs a number and administrator-approved accepted answers.");
+      }
+      const marks = Number(blank.marks);
+      if (!Number.isFinite(marks) || marks <= 0 || marks > 100) {
+        throw inputError("Each fill-in blank needs a positive mark allocation.");
+      }
+      return {
+        blankNumber: Number(blank.blankNumber),
+        acceptedAnswers: blank.acceptedAnswers.map((answer) => answer.trim()),
+        marks
+      };
+    });
+  }
+  if (Object.hasOwn(value, "theoryRubric")) {
+    if (!Array.isArray(value.theoryRubric) || value.theoryRubric.length > 20) {
+      throw inputError("The theory rubric must be a list of up to 20 criteria.");
+    }
+    result.theoryRubric = value.theoryRubric.map((criterion) => {
+      if (!criterion || typeof criterion !== "object" || Array.isArray(criterion) ||
+          typeof criterion.criterionId !== "string" || !criterion.criterionId.trim() ||
+          criterion.criterionId.trim().length > 40 ||
+          typeof criterion.description !== "string" || !criterion.description.trim() ||
+          criterion.description.trim().length > 1000 ||
+          !Array.isArray(criterion.acceptableAlternatives) ||
+          criterion.acceptableAlternatives.length > 20 ||
+          criterion.acceptableAlternatives.some((answer) =>
+            typeof answer !== "string" || !answer.trim() || answer.trim().length > 500)) {
+        throw inputError("Each theory rubric criterion needs an ID, description, marks, and valid accepted alternatives.");
+      }
+      const marks = Number(criterion.marks);
+      if (!Number.isFinite(marks) || marks <= 0 || marks > 100) {
+        throw inputError("Each theory rubric criterion needs a positive mark allocation.");
+      }
+      return {
+        criterionId: criterion.criterionId.trim(),
+        description: criterion.description.trim(),
+        marks,
+        acceptableAlternatives: criterion.acceptableAlternatives.map((answer) => answer.trim())
+      };
+    });
+  }
+  return result;
 };
 
 const hasStudentAttempt = async (question) =>
@@ -226,6 +297,10 @@ const buildQuestionInput = async (payload, userId, existing) => {
     const rawBlankCount = payload.blankCount ?? existing?.blankCount;
     blankCount = rawBlankCount === undefined || rawBlankCount === "" ? undefined : Number(rawBlankCount);
   }
+  const suppliedAdminMarking = payload.adminMarking !== undefined
+    ? payload.adminMarking
+    : existing?.questionType === questionType ? existing.adminMarking : undefined;
+  const adminMarking = normalizeAdminMarking(suppliedAdminMarking, questionType);
   if (approvalStatus === "approved") {
     if (questionType === "objective" && !hasSubQuestions) {
       if (options.length < 2) throw inputError("Add at least 2 answer options before publishing.");
@@ -237,7 +312,11 @@ const buildQuestionInput = async (payload, userId, existing) => {
       if (!Number.isInteger(blankCount) || blankCount < 1 || blankCount > 20) {
         throw inputError("Fill-in-the-gap questions need between 1 and 20 blanks before publishing.");
       }
-      if (!answer) throw inputError("Add a correct answer before publishing.");
+      const completeAdminAnswers = adminMarking?.acceptedAnswersByBlank?.length === blankCount &&
+        new Set(adminMarking.acceptedAnswersByBlank.map((blank) => blank.blankNumber)).size === blankCount &&
+        adminMarking.acceptedAnswersByBlank.every((blank) =>
+          blank.blankNumber >= 1 && blank.blankNumber <= blankCount);
+      if (!answer && !completeAdminAnswers) throw inputError("Add a correct answer before publishing.");
     }
     if (questionType === "theory" && options.length > 0) {
       throw inputError("Theory questions cannot have multiple-choice options.");
@@ -298,6 +377,7 @@ const buildQuestionInput = async (payload, userId, existing) => {
     options: questionType === "objective" || !questionType ? options : [],
     optionIds: questionType === "objective" || !questionType ? optionIds : [],
     answer,
+    adminMarking,
     explanation,
     year,
     session,
@@ -357,6 +437,51 @@ router.post("/", protect, adminOnly, async (req, res) => {
   }
 });
 
+router.post("/prepare-admin-marking", protect, adminOnly, async (req, res) => {
+  try {
+    if (!isNonAiModeEnabled()) {
+      return res.status(409).json({
+        success: false,
+        message: "Administrator-authored CBT preparation is available only when non-AI mode is enabled."
+      });
+    }
+
+    const courseId = req.body?.courseId ?? req.body?.course;
+    if (!mongoose.Types.ObjectId.isValid(String(courseId || ""))) {
+      return res.status(400).json({ success: false, message: "A valid courseId is required." });
+    }
+    const course = await Course.findById(courseId);
+    if (!course) return res.status(404).json({ success: false, message: "Course not found." });
+
+    const approvedQuestions = await Question.find({
+      course: course._id,
+      department: course.department,
+      approvalStatus: "approved",
+      approvedBy: { $exists: true, $ne: null },
+      approvedAt: { $type: "date" }
+    }).select("_id");
+    const counts = { prepared: 0, alreadyReady: 0, rejected: 0, errors: 0 };
+    for (const question of approvedQuestions) {
+      try {
+        const result = await questionMarkingService.createAdminAuthoredVersion(question._id);
+        if (result.status !== "ready") {
+          counts.rejected += 1;
+        } else if (result.created) {
+          counts.prepared += 1;
+        } else {
+          counts.alreadyReady += 1;
+        }
+      } catch (error) {
+        counts.errors += 1;
+        console.error("Administrator CBT marking preparation failed:", error.message);
+      }
+    }
+    return res.json({ success: true, ...counts });
+  } catch (error) {
+    return sendQuestionError(res, error, "Unable to prepare administrator-authored marking.");
+  }
+});
+
 // BULK QUESTION IMPORT / CBT SET UPLOAD
 router.post("/bulk", protect, adminOnly, async (req, res) => {
   try {
@@ -369,31 +494,50 @@ router.post("/bulk", protect, adminOnly, async (req, res) => {
     const courseDoc = await Course.findById(course);
     if (!courseDoc) return res.status(404).json({ success: false, message: "Course not found." });
 
-    const payloads = questions.map((item) => {
-      const options = Array.isArray(item.options)
-        ? item.options.map((option) => String(option).trim()).filter(Boolean)
-        : [];
-      return {
-        course: getCourseId(courseDoc),
-        department: getCourseId(courseDoc.department),
-        topic: item.topic || item.subject || "",
-        question: item.question || item.prompt || "",
-        options,
-        optionIds: createOptionIds(options),
-        answer: item.answer || item.correctAnswer || "",
-        explanation: item.explanation || "",
-        year: item.year || String(new Date().getFullYear()),
-        session: item.session || "Rain",
-        marks: item.marks != null ? Number(item.marks) : 2,
-        difficulty: item.difficulty || "medium",
-        approvalStatus: "approved",
-        approvedBy: req.user.id,
-        approvedAt: new Date()
-      };
-    }).filter((item) => item.question && item.options.length >= 2 && item.answer);
-    payloads.forEach((item) => {
-      item.answer = String(item.answer).trim();
-    });
+    const nonAiMode = isNonAiModeEnabled();
+    if (nonAiMode && questions.some((item) =>
+      !item || typeof item !== "object" || Array.isArray(item))) {
+      return res.status(400).json({
+        success: false,
+        message: "Every imported question must be an object with administrator-approved content."
+      });
+    }
+    const payloads = nonAiMode
+      ? await Promise.all(questions.map((item) => buildQuestionInput({
+        ...item,
+        course,
+        topic: item.topic || item.subject,
+        question: item.question || item.prompt,
+        answer: item.answer || item.correctAnswer,
+        approvalStatus: "approved"
+      }, req.user.id)))
+      : questions.map((item) => {
+        const options = Array.isArray(item.options)
+          ? item.options.map((option) => String(option).trim()).filter(Boolean)
+          : [];
+        return {
+          course: getCourseId(courseDoc),
+          department: getCourseId(courseDoc.department),
+          topic: item.topic || item.subject || "",
+          question: item.question || item.prompt || "",
+          options,
+          optionIds: createOptionIds(options),
+          answer: item.answer || item.correctAnswer || "",
+          explanation: item.explanation || "",
+          year: item.year || String(new Date().getFullYear()),
+          session: item.session || "Rain",
+          marks: item.marks != null ? Number(item.marks) : 2,
+          difficulty: item.difficulty || "medium",
+          approvalStatus: "approved",
+          approvedBy: req.user.id,
+          approvedAt: new Date()
+        };
+      }).filter((item) => item.question && item.options.length >= 2 && item.answer);
+    if (!nonAiMode) {
+      payloads.forEach((item) => {
+        item.answer = String(item.answer).trim();
+      });
+    }
 
     if (payloads.length === 0) {
       return res.status(400).json({
@@ -403,13 +547,28 @@ router.post("/bulk", protect, adminOnly, async (req, res) => {
     }
 
     const createdQuestions = await Question.insertMany(payloads);
+    let markingSummary;
+    if (nonAiMode) {
+      markingSummary = { prepared: 0, rejected: 0, errors: 0 };
+      for (const question of createdQuestions) {
+        try {
+          const result = await questionMarkingService.createAdminAuthoredVersion(question._id);
+          if (result.status === "ready") markingSummary.prepared += 1;
+          else markingSummary.rejected += 1;
+        } catch (error) {
+          markingSummary.errors += 1;
+          console.error("Bulk administrator CBT marking preparation failed:", error.message);
+        }
+      }
+    }
     return res.json({
       success: true,
       count: createdQuestions.length,
-      questions: createdQuestions
+      questions: createdQuestions,
+      ...(markingSummary ? { markingSummary } : {})
     });
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+    return sendQuestionError(res, error, "Unable to import questions.");
   }
 });
 

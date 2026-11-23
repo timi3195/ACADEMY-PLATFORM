@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const QuizSession = require("../models/QuizSession");
 const gemini = require("../utils/gemini");
+const { isNonAiModeEnabled } = require("./cbtMode");
 
 const GRADING_TIMEOUT_MS = 45_000;
 const GRADING_LEASE_MS = 60_000;
@@ -143,14 +144,16 @@ const reviewResult = (question, reason) => ({
 
 const getObjectiveResult = (question) => {
   const marking = question.markingSnapshot?.objective;
+  const adminAuthored = question.markingSnapshot?.markingSource === "admin_authored";
   const expectedOption = (question.presentedOptions || []).find(
     (option) => option.optionId === marking?.correctOptionId
   );
   if (!validQuestionMarks(question) ||
       !marking ||
       !expectedOption ||
-      marking.verificationOptionId !== marking.correctOptionId ||
-      !text(marking.explanation, 2000)) {
+      (!adminAuthored && marking.verificationOptionId !== marking.correctOptionId) ||
+      (!adminAuthored && !text(marking.explanation, 2000)) ||
+      (marking.explanation && !text(marking.explanation, 2000))) {
     return reviewResult(question, "The saved objective marking record is incomplete or inconsistent.");
   }
   const correct = question.selectedOptionId === marking.correctOptionId;
@@ -163,8 +166,102 @@ const getObjectiveResult = (question) => {
     provisional: false,
     correctOptionId: marking.correctOptionId,
     correctAnswer: expectedOption.text,
-    explanation: marking.explanation.trim(),
+    explanation: text(marking.explanation, 2000) || "",
     lostMarks: correct ? "" : `The correct answer is ${expectedOption.text}.`
+  };
+};
+
+const getAdminFillMarking = (question) => {
+  const fill = question.markingSnapshot?.fillInGap;
+  if (question.markingSnapshot?.markingSource !== "admin_authored" ||
+      !validQuestionMarks(question) ||
+      !fill ||
+      !Array.isArray(fill.blanks) ||
+      fill.blanks.length !== question.blankCount ||
+      !Array.isArray(question.selectedAnswers) ||
+      question.selectedAnswers.length !== question.blankCount ||
+      !sameTotal(Number(fill.totalMarks), question.marks)) return null;
+  const seen = new Set();
+  let total = 0;
+  const blanks = [];
+  for (const blank of fill.blanks) {
+    if (!Number.isInteger(blank.blankNumber) ||
+        blank.blankNumber < 1 ||
+        blank.blankNumber > question.blankCount ||
+        seen.has(blank.blankNumber) ||
+        !text(blank.expectedAnswer, 300) ||
+        !Array.isArray(blank.acceptableAnswers) ||
+        blank.acceptableAnswers.length < 1 ||
+        blank.acceptableAnswers.length > 20 ||
+        blank.acceptableAnswers.some((answer) => !text(answer, 300)) ||
+        !blank.acceptableAnswers.some((answer) =>
+          normalizeAnswer(answer) === normalizeAnswer(blank.expectedAnswer)) ||
+        !Number.isFinite(blank.marks) ||
+        blank.marks <= 0 ||
+        blank.marks > question.marks) return null;
+    seen.add(blank.blankNumber);
+    total += blank.marks;
+    blanks.push({
+      blankNumber: blank.blankNumber,
+      expectedAnswers: [...new Set(blank.acceptableAnswers.map((answer) => answer.trim()))],
+      maxMarks: roundMark(blank.marks)
+    });
+  }
+  if (seen.size !== question.blankCount || !sameTotal(total, question.marks)) return null;
+  return {
+    blanks: blanks.sort((left, right) => left.blankNumber - right.blankNumber),
+    explanation: text(fill.explanation, 2000) || ""
+  };
+};
+
+const getAdminTheoryRubric = (question) => {
+  const theory = question.markingSnapshot?.theory;
+  if (question.markingSnapshot?.markingSource !== "admin_authored" ||
+      !validQuestionMarks(question) ||
+      !theory ||
+      !Array.isArray(theory.criteria) ||
+      theory.criteria.length < 1 ||
+      theory.criteria.length > 20 ||
+      !sameTotal(Number(theory.totalMarks), question.marks)) return null;
+  const seen = new Set();
+  let total = 0;
+  const criteria = [];
+  for (const criterion of theory.criteria) {
+    if (!text(criterion.criterionId, 40) ||
+        seen.has(criterion.criterionId) ||
+        !text(criterion.description, 1000) ||
+        !Number.isFinite(criterion.marks) ||
+        criterion.marks <= 0 ||
+        criterion.marks > question.marks ||
+        !Array.isArray(criterion.acceptableAlternatives) ||
+        criterion.acceptableAlternatives.length > 20 ||
+        criterion.acceptableAlternatives.some((answer) => !text(answer, 500))) return null;
+    seen.add(criterion.criterionId);
+    total += criterion.marks;
+    criteria.push({
+      criterionId: criterion.criterionId,
+      description: criterion.description.trim(),
+      maxMarks: criterion.marks
+    });
+  }
+  if (!sameTotal(total, question.marks)) return null;
+  return criteria;
+};
+
+const gradeAdminFillBlank = (blank, response) => {
+  const correct = blank.expectedAnswers.some((answer) =>
+    normalizeAnswer(answer) === normalizeAnswer(response));
+  return {
+    status: "graded",
+    provisional: false,
+    blankNumber: blank.blankNumber,
+    awardedMarks: correct ? blank.maxMarks : 0,
+    maxMarks: blank.maxMarks,
+    response,
+    expectedAnswers: blank.expectedAnswers,
+    criteria: [],
+    explanation: "",
+    lostMarks: ""
   };
 };
 
@@ -319,6 +416,26 @@ const buildGradingPlan = (session) => {
       continue;
     }
     if (type === "fill_in_gap") {
+      if (question.markingSnapshot?.markingSource === "admin_authored") {
+        const fill = getAdminFillMarking(question);
+        if (!fill) {
+          results[index] = reviewResult(question, "The saved administrator fill-in marking record is incomplete or inconsistent.");
+          continue;
+        }
+        const blanks = fill.blanks.map((blank) =>
+          gradeAdminFillBlank(blank, question.selectedAnswers[blank.blankNumber - 1] || ""));
+        results[index] = {
+          status: "graded",
+          questionType: type,
+          awardedMarks: roundMark(blanks.reduce((total, blank) => total + blank.awardedMarks, 0)),
+          maxMarks: question.marks,
+          provisional: false,
+          explanation: fill.explanation,
+          blanks,
+          lostMarks: ""
+        };
+        continue;
+      }
       const fill = getFillMarking(question);
       if (!fill) {
         results[index] = reviewResult(question, "The saved fill-in marking record is incomplete or inconsistent.");
@@ -359,6 +476,29 @@ const buildGradingPlan = (session) => {
       continue;
     }
     if (type === "theory") {
+      if (question.markingSnapshot?.markingSource === "admin_authored") {
+        const criteria = getAdminTheoryRubric(question);
+        if (!criteria || typeof question.theoryResponse !== "string") {
+          results[index] = reviewResult(question, "The saved administrator theory rubric is incomplete or inconsistent.");
+          continue;
+        }
+        results[index] = {
+          status: "needs_review",
+          questionType: type,
+          awardedMarks: null,
+          maxMarks: question.marks,
+          provisional: false,
+          uncertaintyReason: "Administrator-authored theory rubric requires manual marking.",
+          explanation: "",
+          criteria: criteria.map((criterion) => ({
+            ...criterion,
+            awardedMarks: null,
+            feedback: "",
+            missingPoint: ""
+          }))
+        };
+        continue;
+      }
       const theory = getTheoryMarking(question);
       if (!theory || typeof question.theoryResponse !== "string") {
         results[index] = reviewResult(question, "The saved theory marking record is incomplete or inconsistent.");
@@ -418,6 +558,18 @@ const buildGradingPlan = (session) => {
     results[index] = reviewResult(question, "The saved question type is not supported for grading.");
   }
   return { results, aiItems, aiItemContexts };
+};
+
+const buildNonAiGradingPlan = (session) => {
+  const plan = buildGradingPlan(session);
+  for (const [index, question] of (session.questions || []).entries()) {
+    if (question.markingSnapshot?.markingSource === "admin_authored") continue;
+    plan.results[index] = reviewResult(
+      question,
+      "This attempt uses non-administrator marking and requires manual review in non-AI mode."
+    );
+  }
+  return { ...plan, aiItems: [], aiItemContexts: new Map() };
 };
 
 const applyAiResults = (plan, aiResults) => {
@@ -650,7 +802,9 @@ const gradeAttempt = async ({
   }
 
   try {
-    const plan = buildGradingPlan(claimed);
+    const plan = isNonAiModeEnabled()
+      ? buildNonAiGradingPlan(claimed)
+      : buildGradingPlan(claimed);
     let aiResults = new Map();
     if (plan.aiItems.length) {
       const generated = await withTimeout(
@@ -718,6 +872,7 @@ module.exports = {
   normalizeAnswer,
   validateAiGradingOutput,
   buildGradingPlan,
+  buildNonAiGradingPlan,
   applyAiResults,
   calculateTotals,
   gradeAttempt

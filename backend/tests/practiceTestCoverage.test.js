@@ -164,6 +164,26 @@ const makeMarkingVersion = (question, paper, overrides = {}) => {
   };
 };
 
+const makeAdminMarkingVersion = (question, paper) => {
+  const prepared = questionMarkingService.buildQuestionInput(question, paper);
+  if (!prepared.input) return null;
+  const administratorMarking = questionMarkingService.buildAdminMarking(question);
+  if (administratorMarking.error) return null;
+  const aiVersion = makeMarkingVersion(question, paper);
+  if (!aiVersion) return null;
+  return {
+    ...aiVersion,
+    contentHash: questionMarkingService.buildAdminContentHash(
+      question,
+      prepared.input,
+      administratorMarking.marking
+    ),
+    marking: administratorMarking.marking,
+    markingSource: "admin_authored",
+    provider: "administrator"
+  };
+};
+
 const makeOriginalQuestion = (index, overrides = {}) => makeQuestion(index, {
   questionOrigin: "original_practice",
   sourcePaper: null,
@@ -243,7 +263,7 @@ const withMocks = async (run, {
       question.approvalStatus === filter.approvalStatus &&
       question.approvedBy &&
       question.approvedAt instanceof Date
-    ).map(({ answer, ...question }) => question);
+    );
   };
   QuestionMarkingVersion.find = async (filter) => {
     state.markingFilter = filter;
@@ -688,4 +708,78 @@ test("selection uses the exact coverage eligibility pool and never duplicates or
     assert.equal(new Set(deduplicatedSelection.map((question) => question._id)).size, 12);
     assert.equal(unsupported.code, "unsupported_question_count");
   }, { questions: duplicatedRecords });
+});
+
+test("non-AI CBT selects only complete administrator-marked questions and never reuses AI versions", async () => {
+  const previousMode = process.env.CBT_NON_AI_MODE;
+  process.env.CBT_NON_AI_MODE = "true";
+  const questions = Array.from({ length: 10 }, (_, index) =>
+    makeQuestion(index + 1, { year: sourcePaper.examinationYear })
+  );
+  const invalidAnswer = makeQuestion(11, {
+    answer: "Not one of the stored options.",
+    year: sourcePaper.examinationYear
+  });
+  const fill = makeQuestion(12, {
+    questionType: "fill_in_gap",
+    options: [],
+    optionIds: [],
+    blankCount: 1,
+    adminMarking: {
+      acceptedAnswersByBlank: [{
+        blankNumber: 1,
+        acceptedAnswers: ["network", "a network"],
+        marks: 2
+      }]
+    },
+    answer: "",
+    year: sourcePaper.examinationYear
+  });
+  const theory = makeQuestion(13, {
+    questionType: "theory",
+    options: [],
+    optionIds: [],
+    adminMarking: {
+      theoryRubric: [{
+        criterionId: "criterion-1",
+        description: "Explains the key concept.",
+        marks: 2,
+        acceptableAlternatives: ["An equivalent explanation."]
+      }]
+    },
+    answer: "",
+    year: sourcePaper.examinationYear
+  });
+  const aiOnly = makeQuestion(14, { year: sourcePaper.examinationYear });
+  const failedAiVersion = makeMarkingVersion(aiOnly, sourcePaper, {
+    status: "failed",
+    markingSource: "ai_generated",
+    provider: "gemini"
+  });
+  const candidates = [...questions, invalidAnswer, fill, theory, aiOnly];
+  const adminVersions = [
+    ...questions.map((question) => makeAdminMarkingVersion(question, sourcePaper)),
+    makeMarkingVersion(invalidAnswer, sourcePaper),
+    makeAdminMarkingVersion(fill, sourcePaper),
+    makeAdminMarkingVersion(theory, sourcePaper),
+    failedAiVersion
+  ].filter(Boolean);
+
+  try {
+    await withMocks(async () => {
+      const coverage = await practiceTestService.buildCourseCoverage(courseA);
+      const selected = await practiceTestService.assemblePracticeTest(courseA, 10);
+      assert.equal(coverage.eligibleQuestionCount, 12);
+      assert.equal(coverage.objectiveQuestionCount, 10);
+      assert.equal(coverage.fillInGapQuestionCount, 1);
+      assert.equal(coverage.theoryQuestionCount, 1);
+      assert.equal(selected.ok, true);
+      assert.equal(selected.questions.length, 10);
+      assert.equal(selected.questions.some((question) => question._id === invalidAnswer._id), false);
+      assert.equal(selected.questions.some((question) => question._id === aiOnly._id), false);
+    }, { questions: candidates, markingVersions: adminVersions });
+  } finally {
+    if (previousMode === undefined) delete process.env.CBT_NON_AI_MODE;
+    else process.env.CBT_NON_AI_MODE = previousMode;
+  }
 });

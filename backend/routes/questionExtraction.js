@@ -8,6 +8,7 @@ const PastQuestionPaper = require("../models/PastQuestionPaper");
 const User = require("../models/User");
 const protect = require("../config/middleware/authMiddleware");
 const { getCourseAccess } = require("../services/questionAccessService");
+const { isNonAiModeEnabled } = require("../services/cbtMode");
 const storageService = require("../services/storageService");
 const imageValidation = require("../services/questionImageValidationService");
 const { getOcrPages } = require("../services/questionExtractionProcessingService");
@@ -41,6 +42,11 @@ const replyError = (res, error, fallback = "Unable to process question extractio
     message: status >= 500 ? fallback : error.message
   });
 };
+
+const getApprovedQuestionMarking = (questionId, userId) =>
+  isNonAiModeEnabled()
+    ? questionMarkingService.createAdminAuthoredVersion(questionId)
+    : questionMarkingService.generateForQuestion(questionId, userId);
 
 const requireUploader = async (req, res, next) => {
   try {
@@ -451,7 +457,7 @@ router.post("/:batchId/drafts/:draftId/approve", async (req, res) => {
       draftId: req.params.draftId,
       userId: req.user.id
     });
-    const marking = await questionMarkingService.generateForQuestion(result.question._id, req.user.id);
+    const marking = await getApprovedQuestionMarking(result.question._id, req.user.id);
     await persistDraftMarkingStatus(req.params.batchId, req.params.draftId, marking);
     const updated = await QuestionExtraction.findOne({ batchId: req.params.batchId });
     return res.json({
@@ -532,7 +538,7 @@ router.post("/:batchId/review-selected", async (req, res) => {
       for (const result of results) {
         if (!result.success || !result.questionId) continue;
         try {
-          const marking = await questionMarkingService.generateForQuestion(result.questionId, req.user.id);
+          const marking = await getApprovedQuestionMarking(result.questionId, req.user.id);
           await persistDraftMarkingStatus(req.params.batchId, result.draftId, marking);
           result.markingStatus = marking.status;
           result.markingVersion = marking.version?._id || null;

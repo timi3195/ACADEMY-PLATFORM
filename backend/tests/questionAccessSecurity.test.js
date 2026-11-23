@@ -60,6 +60,13 @@ const questionRecords = [
     options: ["A", "B"],
     optionIds: ["stable-a", "stable-b"],
     answer: "A",
+    adminMarking: {
+      acceptedAnswersByBlank: [{
+        blankNumber: 1,
+        acceptedAnswers: ["private-rubric-answer"],
+        marks: 2
+      }]
+    },
     year: "2026",
     explanation: "Answer key",
     approvalStatus: "approved",
@@ -181,6 +188,8 @@ test("students receive only explicitly approved questions without answer or grad
     for (const hiddenField of ["answer", "explanation", "correctAttempts", "timesAnswered", "approvalStatus", "approvedBy"]) {
       assert.equal(Object.prototype.hasOwnProperty.call(question, hiddenField), false);
     }
+    assert.equal(Object.prototype.hasOwnProperty.call(question, "adminMarking"), false);
+    assert.equal(JSON.stringify(question).includes("private-rubric-answer"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(question.subQuestions[0], "answer"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(question.subQuestions[0], "explanation"), false);
   });
@@ -265,6 +274,7 @@ test("random question retrieval is protected, approval-filtered, and answer-free
     assert.equal(response.body.questions.length, 1);
     assert.equal(Object.prototype.hasOwnProperty.call(response.body.questions[0], "answer"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(response.body.questions[0], "explanation"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(response.body.questions[0], "adminMarking"), false);
   });
 });
 
