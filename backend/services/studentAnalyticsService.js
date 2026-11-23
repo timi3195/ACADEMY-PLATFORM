@@ -169,10 +169,56 @@ const typedIsAsciiString = (value) => ({
   ]
 });
 const normalizeTypedAsciiAnswer = (value) => ({
-  $regexReplace: {
-    input: { $trim: { input: { $toLower: typedStringValue(value) } } },
-    regex: "\\s+",
-    replacement: " "
+  $let: {
+    vars: { normalized: { $toLower: typedStringValue(value) } },
+    in: {
+      $let: {
+        vars: {
+          normalizedState: {
+            $reduce: {
+              input: { $range: [0, { $strLenCP: "$$normalized" }] },
+              initialValue: { text: "", pendingWhitespace: false },
+              in: {
+                $let: {
+                  vars: { character: { $substrCP: ["$$normalized", "$$this", 1] } },
+                  in: {
+                    $let: {
+                      vars: {
+                        isWhitespace: {
+                          $in: ["$$character", [" ", "\t", "\n", "\r", "\f", "\v"]]
+                        }
+                      },
+                      in: {
+                        text: {
+                          $cond: [
+                            "$$isWhitespace",
+                            "$$value.text",
+                            {
+                              $concat: [
+                                "$$value.text",
+                                { $cond: ["$$value.pendingWhitespace", " ", ""] },
+                                "$$character"
+                              ]
+                            }
+                          ]
+                        },
+                        pendingWhitespace: {
+                          $and: [
+                            "$$isWhitespace",
+                            { $gt: [{ $strLenCP: "$$value.text" }, 0] }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        in: "$$normalizedState.text"
+      }
+    }
   }
 });
 const typedAdminAnswersMatch = (left, right) => ({
