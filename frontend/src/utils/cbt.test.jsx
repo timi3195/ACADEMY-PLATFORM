@@ -24,6 +24,22 @@ import {
 
 vi.mock('../components/PDFViewer', () => ({ default: () => null }))
 
+const getRoutes = () => {
+  let routesElement
+  const visit = (element) => {
+    React.Children.forEach(element, (child) => {
+      if (routesElement || !React.isValidElement(child)) return
+      if (child.type.name === 'Routes') {
+        routesElement = child
+        return
+      }
+      visit(child.props.children)
+    })
+  }
+  visit(App())
+  return Children.toArray(routesElement.props.children)
+}
+
 describe('CBT access and delivery helpers', () => {
   it('allows students and administrators to access CBT practice', () => {
     expect(canAccessCbtPractice({ role: 'admin' })).toBe(true)
@@ -57,7 +73,7 @@ describe('CBT access and delivery helpers', () => {
   })
 
   it('registers CBT as an authenticated protected route', () => {
-    const routeElements = Children.toArray(App().props.children.props.children)
+    const routeElements = getRoutes()
     const cbtRoute = routeElements.find((route) => route.props.path === '/cbt')
     expect(cbtRoute).toBeDefined()
     expect(cbtRoute.props.element.props.children.type).toBe(CBTQuiz)

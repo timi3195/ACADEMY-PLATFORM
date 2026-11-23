@@ -27,6 +27,8 @@ describe("StudentAnalyticsView", () => {
           totalQuestionsAnswered: 8,
           totalCorrectAnswers: 6,
           totalIncorrectAnswers: 2,
+          bestScorePercentage: 90,
+          lowestScorePercentage: 45,
           mostRecentCompletedAt: "2025-02-01T12:00:00.000Z"
         },
         courses: [{
@@ -35,6 +37,8 @@ describe("StudentAnalyticsView", () => {
           code: "NET101",
           completedAttempts: 2,
           averageScorePercentage: 68,
+          bestScorePercentage: 90,
+          lowestScorePercentage: 45,
           accuracy: 75,
           questionsAnswered: 8,
           mostRecentCompletedAt: "2025-02-01T12:00:00.000Z",
@@ -78,10 +82,12 @@ describe("StudentAnalyticsView", () => {
         }]
       }
     });
-    expect(markup).toContain("Completed practice tests");
+    expect(markup).toContain("Total examinations");
     expect(markup).toContain("75%");
     expect(markup).toContain("Average score");
-    expect(markup).toContain("Best score");
+    expect(markup).toContain("Highest score");
+    expect(markup).toContain("Lowest score");
+    expect(markup).toContain("45%");
     expect(markup).toContain("Most recent completed examination");
     expect(markup).toContain("Networking (NET101)");
     expect(markup).toContain("Strong topics");

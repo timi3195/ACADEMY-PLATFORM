@@ -1108,6 +1108,71 @@ body.cbt-focus-mode .main-content-area{
   padding:0;
 }
 
+.app-shell{
+  align-items:flex-start;
+  padding:24px;
+}
+.dashboard-shell{
+  min-height:calc(100vh - 48px);
+}
+.dashboard-main-panel,
+.main-content-area{
+  min-width:0;
+}
+.main-content-area{
+  width:100%;
+}
+.sidebar-toggle-button{
+  display:none;
+  align-items:center;
+  justify-content:center;
+  min-height:40px;
+  padding:8px 12px;
+  border:1px solid rgba(17,17,17,.12);
+  border-radius:10px;
+  background:#fff;
+  color:#1d1d1d;
+  font-weight:600;
+  cursor:pointer;
+}
+
+@media (max-width:980px){
+  .sidebar-panel{
+    min-width:0;
+  }
+  .brand-block{
+    justify-content:space-between;
+    gap:12px;
+  }
+  .sidebar-toggle-button{
+    display:inline-flex;
+  }
+  .sidebar-menu{
+    display:none;
+  }
+  .sidebar-panel.is-open .sidebar-menu{
+    display:flex;
+  }
+}
+
+@media (max-width:640px){
+  .app-shell{
+    padding:16px 12px;
+  }
+  .dashboard-shell{
+    min-height:calc(100vh - 32px);
+  }
+  .dashboard-main-panel{
+    padding:12px;
+  }
+  .main-content-area{
+    padding:0;
+  }
+  .topbar-actions{
+    flex-wrap:wrap;
+  }
+}
+
 .cbt-result-feedback{
   display:grid;
   gap:12px;

@@ -25,6 +25,87 @@ const roundMark = (value) => Math.round(value * 100) / 100;
 const marksMatch = (left, right) =>
   Number.isFinite(left) && Number.isFinite(right) && Math.abs(left - right) <= 0.01;
 
+const normalizeAdminAnswer = (value) =>
+  value.normalize("NFKC").trim().toLocaleLowerCase("en").replace(/\s+/g, " ");
+
+const adminAnswersMatch = (left, right) =>
+  normalizeAdminAnswer(left) === normalizeAdminAnswer(right);
+
+const getVerifiedAdminFillResult = (question) => {
+  const unavailable = null;
+  const fill = question.markingSnapshot?.fillInGap;
+  const blankCount = question.blankCount;
+  if (question.markingSnapshot?.markingSource !== "admin_authored" ||
+      !Number.isInteger(blankCount) ||
+      blankCount < 1 ||
+      !Number.isFinite(question.marks) ||
+      question.marks <= 0 ||
+      !fill ||
+      !Array.isArray(fill.blanks) ||
+      fill.blanks.length !== blankCount ||
+      !marksMatch(fill.totalMarks, question.marks) ||
+      !Array.isArray(question.selectedAnswers) ||
+      question.selectedAnswers.length !== blankCount ||
+      !Array.isArray(question.gradingResult?.blanks) ||
+      question.gradingResult.blanks.length !== blankCount) return unavailable;
+
+  const savedBlanks = new Map();
+  let totalMarks = 0;
+  for (const blank of fill.blanks) {
+    if (!Number.isInteger(blank.blankNumber) ||
+        blank.blankNumber < 1 ||
+        blank.blankNumber > blankCount ||
+        savedBlanks.has(blank.blankNumber) ||
+        typeof blank.expectedAnswer !== "string" ||
+        !Array.isArray(blank.acceptableAnswers) ||
+        blank.acceptableAnswers.length === 0 ||
+        blank.acceptableAnswers.some((answer) => typeof answer !== "string") ||
+        !blank.acceptableAnswers.some((answer) =>
+          adminAnswersMatch(answer, blank.expectedAnswer)) ||
+        !Number.isFinite(blank.marks) ||
+        blank.marks <= 0) return unavailable;
+    savedBlanks.set(blank.blankNumber, blank);
+    totalMarks += blank.marks;
+  }
+  if (savedBlanks.size !== blankCount || !marksMatch(totalMarks, question.marks)) {
+    return unavailable;
+  }
+
+  const resultBlanks = new Map();
+  for (const blank of question.gradingResult.blanks) {
+    if (!Number.isInteger(blank.blankNumber) ||
+        resultBlanks.has(blank.blankNumber)) return unavailable;
+    resultBlanks.set(blank.blankNumber, blank);
+  }
+  if (resultBlanks.size !== blankCount) return unavailable;
+
+  let score = 0;
+  for (let blankNumber = 1; blankNumber <= blankCount; blankNumber += 1) {
+    const snapshotBlank = savedBlanks.get(blankNumber);
+    const resultBlank = resultBlanks.get(blankNumber);
+    const savedAnswer = question.selectedAnswers[blankNumber - 1];
+    if (!snapshotBlank ||
+        !resultBlank ||
+        typeof savedAnswer !== "string" ||
+        resultBlank.status !== "graded" ||
+        resultBlank.response !== savedAnswer ||
+        !marksMatch(resultBlank.maxMarks, snapshotBlank.marks) ||
+        !Array.isArray(resultBlank.criteria) ||
+        resultBlank.criteria.length !== 0) return unavailable;
+
+    const answerAccepted = snapshotBlank.acceptableAnswers.some((answer) =>
+      adminAnswersMatch(answer, savedAnswer));
+    const expectedMarks = answerAccepted ? snapshotBlank.marks : 0;
+    if (!marksMatch(resultBlank.awardedMarks, expectedMarks)) return unavailable;
+    score += expectedMarks;
+  }
+
+  return {
+    score: roundMark(score),
+    totalMarks: roundMark(totalMarks)
+  };
+};
+
 const getVerifiedTypedResult = (attempt) => {
   const unavailable = { status: "unverified", score: null, totalMarks: null, percentage: null };
   if (!(attempt?.attemptFormatVersion >= 2) ||
@@ -51,6 +132,12 @@ const getVerifiedTypedResult = (attempt) => {
     if (type === "objective") {
       if (typeof result.isCorrect !== "boolean" ||
           result.awardedMarks !== (result.isCorrect ? result.maxMarks : 0)) return unavailable;
+    } else if (type === "fill_in_gap" &&
+        question.markingSnapshot?.markingSource === "admin_authored") {
+      const verifiedFill = getVerifiedAdminFillResult(question);
+      if (!verifiedFill ||
+          !marksMatch(result.awardedMarks, verifiedFill.score) ||
+          !marksMatch(result.maxMarks, verifiedFill.totalMarks)) return unavailable;
     } else {
       const markRows = type === "fill_in_gap" ? result.blanks : result.criteria;
       if (!Array.isArray(markRows) || markRows.length === 0) return unavailable;

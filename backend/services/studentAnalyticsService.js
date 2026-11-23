@@ -87,7 +87,7 @@ const typedCriteriaAreValid = (
   };
 };
 
-const typedFillBlanksAreValid = (() => {
+const typedCriteriaFillBlanksAreValid = (() => {
   const blanks = "$$typedQuestion.gradingResult.blanks";
   const safeBlanks = { $cond: [{ $isArray: blanks }, blanks, []] };
   return {
@@ -152,6 +152,309 @@ const typedFillBlanksAreValid = (() => {
     ]
   };
 })();
+
+const typedStringValue = (value) => ({
+  $cond: [{ $eq: [{ $type: value }, "string"] }, value, ""]
+});
+const typedIsString = (value) => ({ $eq: [{ $type: value }, "string"] });
+const typedIsAsciiString = (value) => ({
+  $and: [
+    typedIsString(value),
+    {
+      $eq: [
+        { $strLenBytes: typedStringValue(value) },
+        { $strLenCP: typedStringValue(value) }
+      ]
+    }
+  ]
+});
+const normalizeTypedAsciiAnswer = (value) => ({
+  $regexReplace: {
+    input: { $trim: { input: { $toLower: typedStringValue(value) } } },
+    regex: "\\s+",
+    replacement: " "
+  }
+});
+const typedAdminAnswersMatch = (left, right) => ({
+  $or: [
+    {
+      $and: [
+        typedIsString(left),
+        typedIsString(right),
+        { $eq: [left, right] }
+      ]
+    },
+    {
+      $and: [
+        typedIsAsciiString(left),
+        typedIsAsciiString(right),
+        {
+          $eq: [
+            normalizeTypedAsciiAnswer(left),
+            normalizeTypedAsciiAnswer(right)
+          ]
+        }
+      ]
+    }
+  ]
+});
+
+const typedAdminFillBlanksAreValid = (() => {
+  const snapshotBlanks = "$$typedQuestion.markingSnapshot.fillInGap.blanks";
+  const resultBlanks = "$$typedQuestion.gradingResult.blanks";
+  const selectedAnswers = "$$typedQuestion.selectedAnswers";
+  const safeSnapshotBlanks = { $cond: [{ $isArray: snapshotBlanks }, snapshotBlanks, []] };
+  const safeResultBlanks = { $cond: [{ $isArray: resultBlanks }, resultBlanks, []] };
+  const safeSelectedAnswers = { $cond: [{ $isArray: selectedAnswers }, selectedAnswers, []] };
+  const blankCount = "$$typedQuestion.blankCount";
+
+  const exactlyOneSnapshotForResultBlank = {
+    $allElementsTrue: [{
+      $map: {
+        input: safeResultBlanks,
+        as: "typedBlank",
+        in: {
+          $eq: [{
+            $size: {
+              $filter: {
+                input: safeSnapshotBlanks,
+                as: "adminBlank",
+                cond: { $eq: ["$$adminBlank.blankNumber", "$$typedBlank.blankNumber"] }
+              }
+            }
+          }, 1]
+        }
+      }
+    }]
+  };
+
+  return {
+    $and: [
+      { $eq: ["$$typedQuestion.markingSnapshot.markingSource", "admin_authored"] },
+      { $isNumber: blankCount },
+      {
+        $eq: [
+          { $cond: [{ $isNumber: blankCount }, { $trunc: blankCount }, null] },
+          blankCount
+        ]
+      },
+      { $gt: [blankCount, 0] },
+      { $isArray: snapshotBlanks },
+      { $isArray: resultBlanks },
+      { $isArray: selectedAnswers },
+      { $eq: [{ $size: safeSnapshotBlanks }, blankCount] },
+      { $eq: [{ $size: safeResultBlanks }, blankCount] },
+      { $eq: [{ $size: safeSelectedAnswers }, blankCount] },
+      { $isNumber: "$$typedQuestion.markingSnapshot.fillInGap.totalMarks" },
+      {
+        $lte: [{
+          $abs: {
+            $subtract: [
+              {
+                $cond: [
+                  { $isNumber: "$$typedQuestion.markingSnapshot.fillInGap.totalMarks" },
+                  "$$typedQuestion.markingSnapshot.fillInGap.totalMarks",
+                  0
+                ]
+              },
+              {
+                $cond: [
+                  { $isNumber: "$$typedQuestion.marks" },
+                  "$$typedQuestion.marks",
+                  0
+                ]
+              }
+            ]
+          }
+        }, 0.01]
+      },
+      {
+        $eq: [
+          {
+            $round: [{
+              $sum: {
+                $map: {
+                  input: safeSnapshotBlanks,
+                  as: "adminBlank",
+                  in: {
+                    $cond: [
+                      { $isNumber: "$$adminBlank.marks" },
+                      "$$adminBlank.marks",
+                      0
+                    ]
+                  }
+                }
+              }
+            }, 2]
+          },
+          { $round: ["$$typedQuestion.marks", 2] }
+        ]
+      },
+      {
+        $allElementsTrue: [{
+          $map: {
+            input: safeSnapshotBlanks,
+            as: "adminBlank",
+            in: {
+              $let: {
+                vars: {
+                  resultMatches: {
+                    $filter: {
+                      input: safeResultBlanks,
+                      as: "typedBlank",
+                      cond: { $eq: ["$$typedBlank.blankNumber", "$$adminBlank.blankNumber"] }
+                    }
+                  },
+                  safeAcceptedAnswers: {
+                    $cond: [
+                      { $isArray: "$$adminBlank.acceptableAnswers" },
+                      "$$adminBlank.acceptableAnswers",
+                      []
+                    ]
+                  },
+                  savedAnswer: {
+                    $arrayElemAt: [
+                      safeSelectedAnswers,
+                      {
+                        $cond: [
+                          { $isNumber: "$$adminBlank.blankNumber" },
+                          {
+                            $cond: [
+                              {
+                                $eq: [
+                                  { $trunc: "$$adminBlank.blankNumber" },
+                                  "$$adminBlank.blankNumber"
+                                ]
+                              },
+                              { $subtract: ["$$adminBlank.blankNumber", 1] },
+                              -1
+                            ]
+                          },
+                          -1
+                        ]
+                      }
+                    ]
+                  }
+                },
+                in: {
+                  $and: [
+                    { $isNumber: "$$adminBlank.blankNumber" },
+                    {
+                      $eq: [
+                        {
+                          $cond: [
+                            { $isNumber: "$$adminBlank.blankNumber" },
+                            { $trunc: "$$adminBlank.blankNumber" },
+                            null
+                          ]
+                        },
+                        "$$adminBlank.blankNumber"
+                      ]
+                    },
+                    { $gte: ["$$adminBlank.blankNumber", 1] },
+                    { $lte: ["$$adminBlank.blankNumber", blankCount] },
+                    { $isNumber: "$$adminBlank.marks" },
+                    { $gt: ["$$adminBlank.marks", 0] },
+                    { $isArray: "$$adminBlank.acceptableAnswers" },
+                    { $gt: [{ $size: "$$safeAcceptedAnswers" }, 0] },
+                    typedIsString("$$adminBlank.expectedAnswer"),
+                    { $eq: [{ $size: "$$resultMatches" }, 1] },
+                    {
+                      $allElementsTrue: [{
+                        $map: {
+                          input: "$$safeAcceptedAnswers",
+                          as: "acceptedAnswer",
+                          in: typedIsString("$$acceptedAnswer")
+                        }
+                      }]
+                    },
+                    {
+                      $anyElementTrue: [{
+                        $map: {
+                          input: "$$safeAcceptedAnswers",
+                          as: "acceptedAnswer",
+                          in: typedAdminAnswersMatch(
+                            "$$acceptedAnswer",
+                            "$$adminBlank.expectedAnswer"
+                          )
+                        }
+                      }]
+                    },
+                    {
+                      $let: {
+                        vars: { resultBlank: { $arrayElemAt: ["$$resultMatches", 0] } },
+                        in: {
+                          $and: [
+                            { $eq: ["$$resultBlank.status", "graded"] },
+                            { $eq: ["$$resultBlank.maxMarks", "$$adminBlank.marks"] },
+                            { $eq: ["$$resultBlank.response", "$$savedAnswer"] },
+                            { $isArray: "$$resultBlank.criteria" },
+                            { $eq: [{ $size: "$$resultBlank.criteria" }, 0] },
+                            {
+                              $eq: [
+                                "$$resultBlank.awardedMarks",
+                                {
+                                  $cond: [
+                                    {
+                                      $anyElementTrue: [{
+                                        $map: {
+                                          input: "$$safeAcceptedAnswers",
+                                          as: "acceptedAnswer",
+                                          in: typedAdminAnswersMatch(
+                                            "$$acceptedAnswer",
+                                            "$$savedAnswer"
+                                          )
+                                        }
+                                      }]
+                                    },
+                                    "$$adminBlank.marks",
+                                    0
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }]
+      },
+      exactlyOneSnapshotForResultBlank,
+      {
+        $allElementsTrue: [{
+          $map: {
+            input: safeSnapshotBlanks,
+            as: "adminBlank",
+            in: {
+              $eq: [{
+                $size: {
+                  $filter: {
+                    input: safeResultBlanks,
+                    as: "typedBlank",
+                    cond: { $eq: ["$$typedBlank.blankNumber", "$$adminBlank.blankNumber"] }
+                  }
+                }
+              }, 1]
+            }
+          }
+        }]
+      }
+    ]
+  };
+})();
+
+const typedFillBlanksAreValid = {
+  $cond: [
+    { $eq: ["$$typedQuestion.markingSnapshot.markingSource", "admin_authored"] },
+    typedAdminFillBlanksAreValid,
+    typedCriteriaFillBlanksAreValid
+  ]
+};
 
 const typedQuestionIsValid = {
   $and: [
@@ -773,6 +1076,7 @@ const buildAnalyticsPipeline = (
               gradedAttempts: { $sum: 1 },
               averageScorePercentage: { $avg: "$scorePercentage" },
               bestScorePercentage: { $max: "$scorePercentage" },
+              lowestScorePercentage: { $min: "$scorePercentage" },
               totalQuestions: { $sum: "$totalQuestions" },
               questionsGraded: { $sum: "$questionsGraded" },
               totalQuestionsAnswered: { $sum: "$questionsAnswered" },
@@ -791,6 +1095,7 @@ const buildAnalyticsPipeline = (
               gradedAttempts: { $sum: 1 },
               averageScorePercentage: { $avg: "$scorePercentage" },
               bestScorePercentage: { $max: "$scorePercentage" },
+              lowestScorePercentage: { $min: "$scorePercentage" },
               totalQuestions: { $sum: "$totalQuestions" },
               questionsGraded: { $sum: "$questionsGraded" },
               questionsAnswered: { $sum: "$questionsAnswered" },
@@ -818,6 +1123,7 @@ const buildAnalyticsPipeline = (
               gradedAttempts: 1,
               averageScorePercentage: 1,
               bestScorePercentage: 1,
+              lowestScorePercentage: 1,
               totalQuestions: 1,
               questionsGraded: 1,
               questionsAnswered: 1,
@@ -1484,6 +1790,7 @@ const buildStudentAnalytics = (aggregation = {}, generatedAt = new Date()) => {
       unverifiedGradingAttempts: state.unverifiedGradingAttempts || 0,
       averageScorePercentage: roundOneDecimal(course.averageScorePercentage),
       bestScorePercentage: roundOneDecimal(course.bestScorePercentage),
+      lowestScorePercentage: roundOneDecimal(course.lowestScorePercentage),
       accuracy: roundOneDecimal(accuracy),
       totalQuestions: state.totalQuestionsAttempted ?? course.totalQuestions ?? 0,
       questionsAnswered: course.questionsAnswered || 0,
@@ -1532,6 +1839,7 @@ const buildStudentAnalytics = (aggregation = {}, generatedAt = new Date()) => {
       : null,
     averageScorePercentage: roundOneDecimal(overview.averageScorePercentage),
     bestScorePercentage: roundOneDecimal(overview.bestScorePercentage),
+    lowestScorePercentage: roundOneDecimal(overview.lowestScorePercentage),
     mostRecentCompletedAt: overview.mostRecentCompletedAt || null,
     unclassifiedAnsweredQuestions: aggregation.unclassified?.[0]?.answeredQuestions || 0,
     pendingGradingAttempts: attemptStateSummary.pendingAttempts || 0,

@@ -26,11 +26,23 @@ export function formatHistoryDate(value) {
   return Number.isNaN(date.getTime()) ? 'Date unavailable' : date.toLocaleString()
 }
 
+function isCompletedAttempt(attempt) {
+  return attempt.status === 'completed' || Boolean(attempt.completedAt || attempt.timeEnded)
+}
+
 function getAttemptStatus(attempt) {
-  if (attempt.status === 'completed') return 'Completed'
-  if (attempt.status === 'in_progress') return 'In progress'
-  if (attempt.completedAt || attempt.timeEnded) return 'Completed'
-  return 'Status unavailable'
+  if (!isCompletedAttempt(attempt)) {
+    return attempt.status === 'in_progress' ? 'In progress' : 'Status unavailable'
+  }
+  if (attempt.gradingStatus === 'needs_review') return 'Manual review pending'
+  if (['pending', 'grading'].includes(attempt.gradingStatus)) return 'Grading pending'
+  if (attempt.gradingStatus === 'failed') return 'Grading failed'
+  if (attempt.gradingStatus === 'unverified' ||
+      attempt.historicalScoreStatus === 'unverified') return 'Result unverified'
+  if (attempt.gradingStatus === 'graded' ||
+      attempt.historicalScoreStatus === 'verified') return 'Completed'
+  if (!(attempt.attemptFormatVersion >= 2)) return 'Completed'
+  return 'Result unavailable'
 }
 
 function getQuestionCount(attempt) {
@@ -88,6 +100,7 @@ export function ExaminationHistoryView({
               ? [course.title, course.code ? `(${course.code})` : ''].filter(Boolean).join(' ')
               : 'Course unavailable'
             const status = getAttemptStatus(attempt)
+            const completed = isCompletedAttempt(attempt)
             const questionCount = getQuestionCount(attempt)
             const completedAt = attempt.completedAt || attempt.timeEnded
             const typedFinal = attempt.attemptFormatVersion >= 2 &&
@@ -101,7 +114,7 @@ export function ExaminationHistoryView({
               attempt.historicalScoreStatus === 'verified' &&
               Number.isFinite(attempt.score) &&
               questionCount !== null
-            const date = status === 'Completed'
+            const date = completed
               ? formatHistoryDate(completedAt)
               : formatHistoryDate(attempt.startedAt || attempt.timeStarted)
             const score = typedFinal
@@ -118,13 +131,13 @@ export function ExaminationHistoryView({
               <article className="exam-history-card" key={attempt._id}>
                 <div className="exam-history-card-heading">
                   <h2>{courseName}</h2>
-                  <span className={`exam-history-status ${status === 'Completed' ? 'is-completed' : ''}`}>
+                  <span className={`exam-history-status ${completed ? 'is-completed' : ''}`}>
                     {status}
                   </span>
                 </div>
                 <dl className="exam-history-summary">
                   <div>
-                    <dt>{status === 'Completed' ? 'Examination date' : 'Started'}</dt>
+                    <dt>{completed ? 'Examination date' : 'Started'}</dt>
                     <dd>{date}</dd>
                   </div>
                   <div>
