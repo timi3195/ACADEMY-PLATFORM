@@ -40,19 +40,19 @@ export default function Courses() {
   const levelOptions = ['all', 'ND1', 'ND2', 'HND1', 'HND2']
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+    <div className="courses-page min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
       {/* Header */}
-      <div className="bg-gradient-to-r from-blue-600 via-blue-500 to-indigo-600 text-white px-6 py-8">
-        <div className="max-w-6xl mx-auto">
+      <header className="courses-page-header bg-gradient-to-r from-blue-600 via-blue-500 to-indigo-600 text-white px-6 py-8">
+        <div className="courses-page-header-content max-w-6xl mx-auto">
           <h1 className="text-4xl font-bold mb-4">📚 All Courses</h1>
           <p className="text-blue-100">Browse and access all available courses</p>
         </div>
-      </div>
+      </header>
 
       {/* Main Content */}
-      <div className="max-w-6xl mx-auto px-6 py-8">
+      <div className="courses-page-content max-w-6xl mx-auto px-6 py-8">
         {/* Filters */}
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+        <div className="courses-filter-card bg-white rounded-lg shadow-lg p-6 mb-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Search */}
             <div>
@@ -111,7 +111,7 @@ export default function Courses() {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="courses-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredCourses.map(course => {
               const hasAccess = canAccessCourse(course)
               const deptName = course.department?.name || course.department || 'N/A'
@@ -119,12 +119,12 @@ export default function Courses() {
               return (
                 <div
                   key={course._id}
-                  className={`rounded-lg shadow-lg overflow-hidden transition hover:shadow-xl ${
+                  className={`courses-page-card ${hasAccess ? 'is-accessible' : 'is-restricted'} rounded-lg shadow-lg overflow-hidden transition hover:shadow-xl ${
                     hasAccess ? 'bg-white hover:border-blue-300' : 'bg-red-50 border-2 border-red-100'
                   } border-2 ${hasAccess ? 'border-transparent' : 'border-red-100'}`}
                 >
                   {/* Card Header */}
-                  <div className={`px-6 py-4 ${hasAccess ? 'bg-blue-50' : 'bg-red-50'}`}>
+                  <div className={`courses-page-card-header ${hasAccess ? 'is-accessible' : 'is-restricted'} px-6 py-4 ${hasAccess ? 'bg-blue-50' : 'bg-red-50'}`}>
                     <div className="flex items-start justify-between mb-2">
                       <h3 className="text-lg font-bold text-gray-800 flex-1">{course.title}</h3>
                     </div>
@@ -132,7 +132,7 @@ export default function Courses() {
                   </div>
 
                   {/* Card Body */}
-                  <div className="px-6 py-4">
+                  <div className="courses-page-card-body px-6 py-4">
                     <p className="text-sm text-gray-700 mb-4 line-clamp-2">{course.description || 'No description available'}</p>
 
                     {/* Meta Info */}
@@ -153,7 +153,7 @@ export default function Courses() {
                   </div>
 
                   {/* Card Footer */}
-                  <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex gap-2">
+                  <div className="courses-page-card-footer px-6 py-4 bg-gray-50 border-t border-gray-200 flex gap-2">
                     {hasAccess ? (
                       <>
                         <Link

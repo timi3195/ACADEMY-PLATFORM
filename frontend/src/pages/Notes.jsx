@@ -63,7 +63,7 @@ export default function Notes() {
   }
 
   return (
-    <div className="page">
+    <div className="page notes-page">
       <h2>Notes</h2>
       <p className="text-sm text-gray-600 mb-4">Capture quick study reminders and keep them tied to a course.</p>
       <div className="card">
