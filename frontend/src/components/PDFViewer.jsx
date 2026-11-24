@@ -79,7 +79,7 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload,
         if (!active) return;
         setFileKind(kind);
 
-        if (kind === 'pdf') {
+        if (kind === 'pdf' || kind === 'image') {
           objectUrl = URL.createObjectURL(blob);
           setFileWithAuth({ url: objectUrl, withCredentials: false });
           return;
@@ -246,6 +246,14 @@ export default function PDFViewer({ fileUrl, fileName, downloadUrl, canDownload,
           <Document file={fileWithAuth} onLoadSuccess={onDocumentLoadSuccess} onError={onDocumentLoadError} loading={<div style={{ padding: '20px', color: '#64748b' }}>Loading PDF…</div>}>
             <Page pageNumber={pageNumber} scale={scale} renderTextLayer renderAnnotationLayer />
           </Document>
+        )}
+
+        {fileKind === 'image' && fileWithAuth && (
+          <img
+            src={fileWithAuth.url}
+            alt={fileName || 'Past-question paper'}
+            style={{ display: 'block', maxWidth: '100%', maxHeight: '65vh', height: 'auto', margin: '0 auto', objectFit: 'contain' }}
+          />
         )}
 
         {fileKind === 'docx' && docHtml && (

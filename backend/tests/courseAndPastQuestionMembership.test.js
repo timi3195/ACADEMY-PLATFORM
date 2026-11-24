@@ -39,8 +39,9 @@ const materials = [
   { _id: "material-b", title: "Course B material", course: OTHER_COURSE_ID, department: OTHER_DEPARTMENT_ID }
 ];
 const papers = [
-  { _id: "paper-a", course: COURSE_ID, mimeType: "application/pdf" },
-  { _id: "paper-b", course: OTHER_COURSE_ID, mimeType: "application/pdf" }
+  { _id: "paper-a", course: COURSE_ID, examinationYear: "2025", mimeType: "application/pdf" },
+  { _id: "paper-a-older", course: COURSE_ID, examinationYear: "2024", mimeType: "image/png" },
+  { _id: "paper-b", course: OTHER_COURSE_ID, examinationYear: "2025", mimeType: "application/pdf" }
 ];
 
 const query = (value) => ({
@@ -99,9 +100,10 @@ const withMocks = async (run) => {
   };
   PastQuestionPaper.find = (filter) => {
     state.paperFilter = filter;
-    const courseIds = filter.course?.$in;
     return query(papers.filter((paper) =>
-      !courseIds || courseIds.some((courseId) => String(courseId) === String(paper.course))
+      (!filter.course?.$in || filter.course.$in.some((courseId) => String(courseId) === String(paper.course))) &&
+      (!filter.course || filter.course?.$in || String(filter.course) === String(paper.course)) &&
+      (!filter.examinationYear || String(filter.examinationYear) === String(paper.examinationYear))
     ));
   };
   PastQuestionPaper.findById = (id) => query(papers.find((paper) => paper._id === id) || null);
@@ -165,10 +167,29 @@ test("past-question listing and streaming use department access without enrollme
     const allowed = await request(app).get("/api/files/past-questions/paper-a");
 
     assert.equal(list.status, 200);
-    assert.deepEqual(list.body.papers.map((paper) => paper._id), ["paper-a"]);
+    assert.deepEqual(list.body.papers.map((paper) => paper._id), ["paper-a", "paper-a-older"]);
     assert.deepEqual(state.paperFilter.course.$in, [COURSE_ID]);
     assert.equal(denied.status, 403);
     assert.equal(allowed.status, 200);
     assert.equal(state.streams, 1);
+  });
+});
+
+test("past-question listing filters by accessible course and examination year", async () => {
+  await withMocks(async (state) => {
+    const app = buildApp(filesRouter, "/api/files");
+    const matchingYear = await request(app)
+      .get(`/api/files/past-questions?course=${COURSE_ID}&examinationYear=2024`);
+
+    assert.equal(matchingYear.status, 200);
+    assert.deepEqual(matchingYear.body.papers.map((paper) => paper._id), ["paper-a-older"]);
+    assert.deepEqual(state.paperFilter.course.$in, [COURSE_ID]);
+    assert.equal(state.paperFilter.examinationYear, "2024");
+
+    const inaccessibleCourse = await request(app)
+      .get(`/api/files/past-questions?course=${OTHER_COURSE_ID}&examinationYear=2024`);
+    assert.equal(inaccessibleCourse.status, 200);
+    assert.deepEqual(inaccessibleCourse.body.papers, []);
+    assert.deepEqual(state.paperFilter.course.$in, []);
   });
 });
