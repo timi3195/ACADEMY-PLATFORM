@@ -23,10 +23,13 @@ export default function CourseDetail() {
   } = useCourseMaterialProgress(user?.role === 'student' ? courseId : null)
   const [course, setCourse] = useState(null)
   const [materials, setMaterials] = useState([])
-  const [questions, setQuestions] = useState([])
+  const [pastQuestionPapers, setPastQuestionPapers] = useState([])
+  const [pastQuestionPapersLoading, setPastQuestionPapersLoading] = useState(false)
+  const [pastQuestionPapersError, setPastQuestionPapersError] = useState('')
   const [activeTab, setActiveTab] = useState('overview')
   const [loading, setLoading] = useState(true)
   const [selectedYear, setSelectedYear] = useState('')
+  const [openPastQuestionPaperId, setOpenPastQuestionPaperId] = useState('')
 
   const currentYear = new Date().getFullYear()
   const years = Array.from({ length: 5 }, (_, i) => (currentYear - i).toString())
@@ -41,9 +44,38 @@ export default function CourseDetail() {
   }, [courseId])
 
   useEffect(() => {
-    if (courseId && selectedYear) {
-      setLoading(true)
-      fetchQuestions(selectedYear)
+    if (!courseId || !selectedYear) {
+      setPastQuestionPapers([])
+      setPastQuestionPapersError('')
+      setPastQuestionPapersLoading(false)
+      return
+    }
+
+    let active = true
+    const fetchPastQuestionPapers = async () => {
+      setPastQuestionPapersLoading(true)
+      setPastQuestionPapersError('')
+      try {
+        const query = new URLSearchParams({
+          course: courseId,
+          examinationYear: selectedYear
+        })
+        const res = await apiGet(`/api/files/past-questions?${query.toString()}`)
+        if (active) setPastQuestionPapers(res.papers || [])
+      } catch (err) {
+        console.error(err)
+        if (active) {
+          setPastQuestionPapers([])
+          setPastQuestionPapersError(err.message || 'Unable to load past-question papers.')
+        }
+      } finally {
+        if (active) setPastQuestionPapersLoading(false)
+      }
+    }
+
+    fetchPastQuestionPapers()
+    return () => {
+      active = false
     }
   }, [courseId, selectedYear])
 
@@ -65,34 +97,9 @@ export default function CourseDetail() {
     }
   }
 
-  const fetchQuestions = async (year) => {
-    if (!year) {
-      setQuestions([])
-      return
-    }
-
-    try {
-      const res = await apiGet(`/api/questions/course/${courseId}?year=${year}`)
-      setQuestions(res.questions || [])
-      setLoading(false)
-    } catch (err) {
-      console.error(err)
-      setLoading(false)
-    }
-  }
-
   const canAccessMaterial = (file) => {
     return file.accessible === true
   }
-
-  const isObjectiveQuestion = (q) => {
-    if (q.options && q.options.length > 0) return true
-    if (Array.isArray(q.subQuestions) && q.subQuestions.some(sub => Array.isArray(sub.options) && sub.options.length > 0)) return true
-    return false
-  }
-
-  const objectiveQuestions = questions.filter(isObjectiveQuestion)
-  const theoryQuestions = questions.filter((q) => !isObjectiveQuestion(q))
 
   const hasCourseAccess = () => {
     return isCourseAccessibleToUser(user, course)
@@ -316,85 +323,46 @@ export default function CourseDetail() {
                 <div className="p-6 border border-dashed border-gray-300 rounded-lg bg-gray-50">
                   <p className="text-gray-700">Please select a year to view this course's past questions. Past questions are available for the last 5 years.</p>
                 </div>
-              ) : questions.length === 0 ? (
+              ) : pastQuestionPapersLoading ? (
+                <p className="text-gray-600 text-center py-8">Loading past-question papers...</p>
+              ) : pastQuestionPapersError ? (
+                <p className="text-red-600 text-center py-8" role="alert">{pastQuestionPapersError}</p>
+              ) : pastQuestionPapers.filter((paper) => String(paper.examinationYear) === selectedYear).length === 0 ? (
                 <p className="text-gray-600 text-center py-8">No past questions found for {selectedYear}.</p>
               ) : (
-                <>
-                  <section className="space-y-4">
-                    <h3 className="text-xl font-bold text-blue-700">Objective Questions</h3>
-                    {objectiveQuestions.length === 0 ? (
-                      <p className="text-gray-600">No objective questions are available for this course yet.</p>
-                    ) : (
-                      objectiveQuestions.map(q => (
-                        <div key={q._id} className="p-4 border border-gray-200 rounded-lg hover:shadow-md transition">
-                          <div className="mb-3">
-                            <p className="font-semibold text-gray-800">{q.question}</p>
-                            <p className="text-xs text-gray-500 mt-1">
-                              Year: {q.year || 'N/A'} • Session: {q.session || 'N/A'}
+                <div className="space-y-4">
+                  {pastQuestionPapers
+                    .filter((paper) => String(paper.examinationYear) === selectedYear)
+                    .map((paper) => (
+                      <article key={paper._id} className="p-4 border border-gray-200 rounded-lg bg-white">
+                        <div className="flex flex-wrap items-center justify-between gap-4">
+                          <div>
+                            <h3 className="text-lg font-bold text-gray-900">{paper.title}</h3>
+                            <p className="text-sm text-gray-600">
+                              {paper.originalName || paper.title} • {paper.level} • {paper.semester} • {paper.examinationYear}
                             </p>
                           </div>
-
-                          {q.subQuestions && q.subQuestions.length > 0 ? (
-                            <div className="space-y-4">
-                              {q.subQuestions.map((sub, subIdx) => (
-                                <div key={subIdx} className="p-4 bg-slate-50 rounded-lg border border-slate-200">
-                                  <div className="mb-2">
-                                    <p className="font-semibold text-gray-800">{sub.label || `Part ${subIdx + 1}`}</p>
-                                    <p className="text-sm text-gray-600 mt-1">{sub.question}</p>
-                                  </div>
-                                  {sub.options && sub.options.length > 0 ? (
-                                    <div className="space-y-2">
-                                      {sub.options.map((opt, optIdx) => (
-                                        <label key={optIdx} className="flex items-center gap-3 cursor-pointer">
-                                          <input type="radio" name={`q-${q._id}-sub-${subIdx}`} className="w-4 h-4" />
-                                          <span className="text-gray-700">{opt.text || opt}</span>
-                                        </label>
-                                      ))}
-                                    </div>
-                                  ) : (
-                                    <p className="text-gray-500">No options available for this sub-question.</p>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="space-y-2">
-                              {q.options && q.options.length > 0 ? (
-                                q.options.map((opt, idx) => (
-                                  <label key={idx} className="flex items-center gap-3 cursor-pointer">
-                                    <input type="radio" name={`q-${q._id}`} className="w-4 h-4" />
-                                    <span className="text-gray-700">{opt.text || opt}</span>
-                                  </label>
-                                ))
-                              ) : (
-                                <p className="text-gray-500">No options available</p>
-                              )}
-                            </div>
-                          )}
+                          <button
+                            type="button"
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg"
+                            aria-expanded={openPastQuestionPaperId === paper._id}
+                            onClick={() => setOpenPastQuestionPaperId((currentId) => currentId === paper._id ? '' : paper._id)}
+                          >
+                            {openPastQuestionPaperId === paper._id ? 'Close Past Question' : 'Open Past Question'}
+                          </button>
                         </div>
-                      ))
-                    )}
-                  </section>
-
-                  <section className="space-y-4">
-                    <h3 className="text-xl font-bold text-amber-700">Theory Questions</h3>
-                    {theoryQuestions.length === 0 ? (
-                      <p className="text-gray-600">No theory questions are available for this course yet.</p>
-                    ) : (
-                      theoryQuestions.map(q => (
-                        <div key={q._id} className="p-4 border border-gray-200 rounded-lg bg-slate-50">
-                          <div className="mb-3">
-                            <p className="font-semibold text-gray-800">{q.question}</p>
-                            <p className="text-xs text-gray-500 mt-1">
-                              Year: {q.year || 'N/A'} • Session: {q.session || 'N/A'}
-                            </p>
+                        {openPastQuestionPaperId === paper._id && (
+                          <div className="mt-4">
+                            <PDFViewer
+                              fileName={paper.originalName || paper.title}
+                              pastQuestionPaperId={paper._id}
+                              canDownload={false}
+                            />
                           </div>
-                          <p className="text-gray-700">{q.explanation || 'This is a theory question and may require an essay-style response.'}</p>
-                        </div>
-                      ))
-                    )}
-                  </section>
-                </>
+                        )}
+                      </article>
+                    ))}
+                </div>
               )}
             </div>
           )}

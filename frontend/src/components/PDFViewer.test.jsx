@@ -77,6 +77,25 @@ describe('PDFViewer', () => {
     expect(screen.queryByRole('button', { name: 'Download' })).toBeNull();
   });
 
+  it('previews an authenticated uploaded image', async () => {
+    fileService.viewPastQuestionPaper.mockResolvedValue({
+      data: new Blob(['image-data'], { type: 'image/png' }),
+      headers: { 'content-type': 'image/png' }
+    });
+
+    render(
+      <PDFViewer
+        pastQuestionPaperId="paper-image"
+        fileName="paper.png"
+        canDownload={false}
+      />
+    );
+
+    const image = await screen.findByRole('img', { name: 'paper.png' });
+    expect(fileService.viewPastQuestionPaper).toHaveBeenCalledWith('paper-image');
+    expect(image.getAttribute('src')).toBe('blob:authenticated-pdf');
+  });
+
   it('shows an error when the authenticated PDF request fails', async () => {
     fileService.viewPastQuestionPaper.mockRejectedValue(new Error('Past question file is unavailable.'));
     render(

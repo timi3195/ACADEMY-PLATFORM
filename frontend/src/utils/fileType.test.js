@@ -14,6 +14,13 @@ describe('detectFileKind', () => {
     expect(detectFileKind('', 'notes.DOCX')).toBe('docx');
   });
 
+  it('detects supported image formats from MIME type and filename', () => {
+    expect(detectFileKind('image/jpeg', 'paper.jpg')).toBe('image');
+    expect(detectFileKind('image/png', 'paper.png')).toBe('image');
+    expect(detectFileKind('image/gif', 'paper.gif')).toBe('image');
+    expect(detectFileKind('', 'paper.JPEG')).toBe('image');
+  });
+
   it('returns unsupported for unhandled types', () => {
     expect(detectFileKind('text/plain', 'notes.txt')).toBe('unsupported');
   });

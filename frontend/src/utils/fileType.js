@@ -4,6 +4,12 @@ export function detectFileKind(contentType = '', fileName = '') {
 
   if (mime.includes('pdf') || name.endsWith('.pdf')) return 'pdf';
   if (
+    ['image/jpeg', 'image/png', 'image/gif'].includes(mime.split(';')[0].trim()) ||
+    ['.jpg', '.jpeg', '.png', '.gif'].some((extension) => name.endsWith(extension))
+  ) {
+    return 'image';
+  }
+  if (
     mime.includes('wordprocessingml.document') ||
     mime.includes('docx') ||
     mime.includes('application/vnd.openxmlformats-officedocument.wordprocessingml.document') ||
@@ -21,6 +27,8 @@ export function getReadableFileTypeLabel(kind) {
   switch (kind) {
     case 'pdf':
       return 'PDF';
+    case 'image':
+      return 'image';
     case 'docx':
       return 'Word document';
     default:

@@ -263,6 +263,9 @@ router.get("/past-questions", protect, async (req, res) => {
   if (req.query.course) filters.course = req.query.course;
   if (req.query.level) filters.level = req.query.level;
   if (req.query.semester) filters.semester = req.query.semester;
+  if (typeof req.query.examinationYear === "string" && req.query.examinationYear.trim()) {
+    filters.examinationYear = req.query.examinationYear.trim();
+  }
   if (user?.role !== "admin") {
     const courses = await Course.find(getAccessibleCourseFilter(user)).select("_id").lean();
     const courseIds = courses.map((course) => String(course._id));
